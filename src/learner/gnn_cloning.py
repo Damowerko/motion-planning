@@ -15,22 +15,23 @@ from learner.actor import Actor
 
 
 class ImitationLearning(object):
-
-    def __init__(self, device, args):  # , n_s, n_a, k, device, hidden_size=32, gamma=0.99, tau=0.5):
+    def __init__(
+        self, device, args
+    ):  # , n_s, n_a, k, device, hidden_size=32, gamma=0.99, tau=0.5):
         """
         Initialize the DDPG networks.
         :param device: CUDA device for torch
         :param args: experiment arguments
         """
 
-        n_s = args.getint('n_states')
-        n_a = args.getint('n_actions')
-        k = args.getint('k')
-        hidden_size = args.getint('hidden_size')
-        gamma = args.getfloat('gamma')
-        tau = args.getfloat('tau')
+        n_s = args.getint("n_states")
+        n_a = args.getint("n_actions")
+        k = args.getint("k")
+        hidden_size = args.getint("hidden_size")
+        gamma = args.getfloat("gamma")
+        tau = args.getfloat("tau")
 
-        self.n_agents = args.getint('n_agents')
+        self.n_agents = args.getint("n_agents")
         self.n_states = n_s
         self.n_actions = n_a
 
@@ -44,7 +45,7 @@ class ImitationLearning(object):
         self.actor = Actor(n_s, n_a, hidden_layers, k, ind_agg).to(self.device)
 
         # Define Optimizers
-        self.actor_optim = Adam(self.actor.parameters(), lr=args.getfloat('actor_lr'))
+        self.actor_optim = Adam(self.actor.parameters(), lr=args.getfloat("actor_lr"))
 
         # Constants
         self.gamma = gamma
@@ -78,8 +79,12 @@ class ImitationLearning(object):
         :return: The loss function in the network.
         """
 
-        delay_gso_batch = Variable(torch.cat(tuple([s.delay_gso for s in batch.state]))).to(self.device)
-        delay_state_batch = Variable(torch.cat(tuple([s.delay_state for s in batch.state]))).to(self.device)
+        delay_gso_batch = Variable(
+            torch.cat(tuple([s.delay_gso for s in batch.state]))
+        ).to(self.device)
+        delay_state_batch = Variable(
+            torch.cat(tuple([s.delay_state for s in batch.state]))
+        ).to(self.device)
         actor_batch = self.actor(delay_state_batch, delay_gso_batch)
         optimal_action_batch = Variable(torch.cat(batch.action)).to(self.device)
 
@@ -101,12 +106,12 @@ class ImitationLearning(object):
         :param actor_path: The path to save the actor.
         :return: None
         """
-        if not os.path.exists('models/'):
-            os.makedirs('models/')
+        if not os.path.exists("models/"):
+            os.makedirs("models/")
 
         if actor_path is None:
             actor_path = "models/actor_{}_{}".format(env_name, suffix)
-        print('Saving model to {}'.format(actor_path))
+        print("Saving model to {}".format(actor_path))
         torch.save(self.actor.state_dict(), actor_path)
 
     def load_model(self, actor_path):
@@ -115,34 +120,38 @@ class ImitationLearning(object):
         :param actor_path: The actor path.
         :return: None
         """
-        print('Loading model from {}'.format(actor_path))
+        print("Loading model from {}".format(actor_path))
         if actor_path is not None:
             self.actor.load_state_dict(torch.load(actor_path).to(self.device))
 
 
 def train_cloning(env, args, device):
-    debug = args.getboolean('debug')
-    memory = ReplayBuffer(max_size=args.getint('buffer_size'))
+    debug = args.getboolean("debug")
+    memory = ReplayBuffer(max_size=args.getint("buffer_size"))
     learner = ImitationLearning(device, args)
 
     rewards = []
     total_numsteps = 0
     updates = 0
 
-    n_a = args.getint('n_actions')
-    n_agents = args.getint('n_agents')
-    batch_size = args.getint('batch_size')
-    updates_per_step = args.getint('updates_per_step')
+    n_actions = args.getint("n_actions")
+    n_agents = args.getint("n_agents")
+    n_states = args.getint("n_states")
+    k = args.getint("k")
+    batch_size = args.getint("batch_size")
+    updates_per_step = args.getint("updates_per_step")
 
-    n_train_episodes = args.getint('n_train_episodes')
-    test_interval = args.getint('test_interval')
-    n_test_episodes = args.getint('n_test_episodes')
+    n_train_episodes = args.getint("n_train_episodes")
+    test_interval = args.getint("test_interval")
+    n_test_episodes = args.getint("n_test_episodes")
 
-    stats = {'mean': -1.0 * np.Inf, 'std': 0}
+    stats = {"mean": -1.0 * np.Inf, "std": 0}
 
     for i in range(n_train_episodes):
 
-        state = MultiAgentStateWithDelay(device, args, env.reset(), prev_state=None)
+        state = MultiAgentStateWithDelay(
+            device, n_states, n_agents, k, env.reset(), prev_state=None
+        )
 
         done = False
         policy_loss_sum = 0
@@ -152,7 +161,9 @@ def train_cloning(env, args, device):
             # next_state, reward, done, _ = env.step(action.cpu().numpy())
             next_state, reward, done, _ = env.step(optimal_action)
 
-            next_state = MultiAgentStateWithDelay(device, args, next_state, prev_state=state)
+            next_state = MultiAgentStateWithDelay(
+                device, n_states, n_agents, k, next_state, prev_state=state
+            )
 
             total_numsteps += 1
 
@@ -163,7 +174,7 @@ def train_cloning(env, args, device):
             # action is (N, nA), need (B, 1, nA, N)
             action = torch.Tensor(optimal_action).to(device)
             action = action.transpose(1, 0)
-            action = action.reshape((1, 1, n_a, n_agents))
+            action = action.reshape((1, 1, n_actions, n_agents))
 
             memory.insert(Transition(state, action, notdone, next_state, reward))
 
@@ -181,33 +192,35 @@ def train_cloning(env, args, device):
             test_rewards = []
             for _ in range(n_test_episodes):
                 ep_reward = 0
-                state = MultiAgentStateWithDelay(device, args, env.reset(), prev_state=None)
+                state = MultiAgentStateWithDelay(
+                    device, n_states, n_agents, k, env.reset(), prev_state=None
+                )
                 done = False
                 while not done:
                     action = learner.select_action(state)
                     next_state, reward, done, _ = env.step(action.cpu().numpy())
-                    next_state = MultiAgentStateWithDelay(device, args, next_state, prev_state=state)
+                    next_state = MultiAgentStateWithDelay(
+                        device, n_states, n_agents, k, next_state, prev_state=state
+                    )
                     ep_reward += reward
                     state = next_state
-                    # env.render()
+                    env.render()
                 test_rewards.append(ep_reward)
 
             mean_reward = np.mean(test_rewards)
-            if stats['mean'] < mean_reward:
-                stats['mean'] = mean_reward
-                stats['std'] = np.std(test_rewards)
+            if stats["mean"] < mean_reward:
+                stats["mean"] = mean_reward
+                stats["std"] = np.std(test_rewards)
 
-                if debug and args.get('fname'):  # save the best model
-                    learner.save_model(args.get('env'), suffix=args.get('fname'))
+                if debug and args.get("fname"):  # save the best model
+                    learner.save_model(args.get("env"), suffix=args.get("fname"))
 
             if debug:
                 print(
                     "Episode: {}, updates: {}, total numsteps: {}, reward: {}, policy loss: {}".format(
-                        i, updates,
-                        total_numsteps,
-                        mean_reward,
-                        policy_loss_sum))
-
+                        i, updates, total_numsteps, mean_reward, policy_loss_sum
+                    )
+                )
 
     env.close()
     return stats

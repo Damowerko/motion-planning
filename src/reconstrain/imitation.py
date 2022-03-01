@@ -5,20 +5,49 @@ import torch
 import torch.nn.functional as F
 from torch.optim import Adam
 from torch.autograd import Variable
+from torch.utils.data import IterableDataset, DataLoader
+from typing import Callable, Iterator
 import pytorch_lightning as pl
 
 from learner.state_with_delay import MultiAgentStateWithDelay
 from learner.replay_buffer import ReplayBuffer
 from learner.replay_buffer import Transition
 from learner.actor import Actor
+import gym
+import gym_flock
+
+
+class ExperienceSourceDataset(IterableDataset):
+    """Basic experience source dataset.
+    Takes a generate_batch function that returns an iterator. The logic for the experience source and how the batch is
+    generated is defined the Lightning model itself
+    """
+
+    def __init__(self, generate_batch: Callable) -> None:
+        self.generate_batch = generate_batch
+
+    def __iter__(self) -> Iterator:
+        iterator = self.generate_batch()
+        return iterator
+
 
 # TODO: how to deal with bounded/unbounded action spaces?? Should I always assume bounded actions?
-
-
 class ImitationLearning(pl.LightningModule):
     def __init__(
-        self, n_s, n_a, k, n_agents, hidden_size=32, lr=1e-3
-    ):  # , n_s, n_a, k, device, hidden_size=32, gamma=0.99, tau=0.5):
+        self,
+        env_name: str,
+        n_states: int,
+        n_actions: int,
+        k: int,
+        n_agents: int,
+        hidden_size=32,
+        lr: float = 1e-3,
+        batch_size: int = 64,
+        buffer_size: int = 10000,
+        updates_per_step: int = 1,
+        n_train_episodes: int = 1000,
+        n_test_episodes: int = 100,
+    ):
         """
         Initialize the DDPG networks.
         :param device: CUDA device for torch
@@ -28,18 +57,19 @@ class ImitationLearning(pl.LightningModule):
 
         self.save_hyperparameters()
 
+        self.env = gym.make(env_name)
         self.n_agents = n_agents
-        self.n_states = n_s
-        self.n_actions = n_a
+        self.n_states = n_states
+        self.n_actions = n_actions
         self.k = k
 
         hidden_layers = [hidden_size, hidden_size]
         ind_agg = 0  # int(len(hidden_layers) / 2)  # aggregate halfway
 
         # Define Networks
-        self.actor = Actor(n_s, n_a, hidden_layers, k, ind_agg).to(self.device)
+        self.actor = Actor(n_states, n_actions, hidden_layers, k, ind_agg)
         self.state = MultiAgentStateWithDelay(
-            self.device, args, env.reset(), prev_state=None
+            self.device, n_states, n_agents, ind_agg, self.env.reset(), prev_state=None
         )
 
     def configure_optimizers(self):
@@ -72,7 +102,6 @@ class ImitationLearning(pl.LightningModule):
         :param batch: The batch of training samples.
         :return: The loss function in the network.
         """
-
         delay_gso_batch = Variable(
             torch.cat(tuple([s.delay_gso for s in batch.state]))
         ).to(self.device)
@@ -85,22 +114,19 @@ class ImitationLearning(pl.LightningModule):
         self.log("loss", loss)
         return loss
 
-    def generate_episode(self, env, buffer_size=100):
-        memory = ReplayBuffer(max_size=buffer_size)
+    def generate_episode(self):
         state = MultiAgentStateWithDelay(
             self.device,
             self.n_states,
             self.n_agents,
             self.k,
-            env.reset(),
+            self.env.reset(),
             prev_state=None,
         )
-
         done = False
-        policy_loss_sum = 0
         while not done:
-            optimal_action = env.env.controller()
-            next_state, reward, done, _ = env.step(optimal_action)
+            optimal_action = self.env.controller()
+            next_state, reward, done, _ = self.step(optimal_action)
             next_state = MultiAgentStateWithDelay(
                 self.device,
                 self.n_states,
@@ -109,9 +135,6 @@ class ImitationLearning(pl.LightningModule):
                 next_state,
                 prev_state=state,
             )
-
-            total_numsteps += 1
-
             # action = torch.Tensor(action)
             notdone = torch.Tensor([not done]).to(self.device)
             reward = torch.Tensor([reward]).to(self.device)
@@ -120,20 +143,36 @@ class ImitationLearning(pl.LightningModule):
             action = torch.Tensor(optimal_action).to(self.device)
             action = action.transpose(1, 0)
             action = action.reshape((1, 1, self.n_actions, self.n_agents))
-
-            memory.insert(Transition(state, action, notdone, next_state, reward))
-
+            self.memory.insert(Transition(state, action, notdone, next_state, reward))
             state = next_state
+        return self.memory
 
-        if memory.curr_size > self.batch_size:
-            for _ in range(updates_per_step):
-                transitions = memory.sample(self.batch_size)
-                batch = Transition(*zip(*transitions))
-                policy_loss = learner.gradient_step(batch)
-                policy_loss_sum += policy_loss
-                updates += 1
+    def train_batch(self):
+        memory = self.generate_episode(self.env)
+        for _ in range(self.hparams.updates_per_step):
+            transitions = memory.sample(self.hparams.batch_size)
+            yield Transition(*zip(*transitions))
 
-        return state
+    def train_dataloader(self) -> DataLoader:
+        self.memory = ReplayBuffer(max_size=self.hparams.buffer_size)
+        dataset = ExperienceSourceDataset(self.train_batch)
+        return DataLoader(dataset=dataset, batch_size=self.hparams.batch_size)
+
+    def test_step(self, batch, batch_idx):
+        test_rewards = []
+        for _ in range(n_test_episodes):
+            ep_reward = 0
+            state = MultiAgentStateWithDelay(device, args, env.reset(), prev_state=None)
+            done = False
+            while not done:
+                action = learner.select_action(state)
+                next_state, reward, done, _ = env.step(action.cpu().numpy())
+                next_state = MultiAgentStateWithDelay(
+                    device, args, next_state, prev_state=state
+                )
+                ep_reward += reward
+                state = next_state
+            test_rewards.append(ep_reward)
 
     def save_model(self, env_name, suffix="", actor_path=None):
         """
@@ -171,51 +210,11 @@ def train_cloning(env, args, device):
     total_numsteps = 0
     updates = 0
 
-    n_a = args.getint("n_actions")
-    n_agents = args.getint("n_agents")
-    batch_size = args.getint("batch_size")
-    updates_per_step = args.getint("updates_per_step")
-
-    n_train_episodes = args.getint("n_train_episodes")
-    test_interval = args.getint("test_interval")
-    n_test_episodes = args.getint("n_test_episodes")
-
     stats = {"mean": -1.0 * np.Inf, "std": 0}
 
     for i in range(n_train_episodes):
         if i % test_interval == 0:
-            test_rewards = []
-            for _ in range(n_test_episodes):
-                ep_reward = 0
-                state = MultiAgentStateWithDelay(
-                    device, args, env.reset(), prev_state=None
-                )
-                done = False
-                while not done:
-                    action = learner.select_action(state)
-                    next_state, reward, done, _ = env.step(action.cpu().numpy())
-                    next_state = MultiAgentStateWithDelay(
-                        device, args, next_state, prev_state=state
-                    )
-                    ep_reward += reward
-                    state = next_state
-                    # env.render()
-                test_rewards.append(ep_reward)
-
-            mean_reward = np.mean(test_rewards)
-            if stats["mean"] < mean_reward:
-                stats["mean"] = mean_reward
-                stats["std"] = np.std(test_rewards)
-
-                if debug and args.get("fname"):  # save the best model
-                    learner.save_model(args.get("env"), suffix=args.get("fname"))
-
-            if debug:
-                print(
-                    "Episode: {}, updates: {}, total numsteps: {}, reward: {}, policy loss: {}".format(
-                        i, updates, total_numsteps, mean_reward, policy_loss_sum
-                    )
-                )
+            pass
 
     env.close()
     return stats
