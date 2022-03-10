@@ -13,6 +13,8 @@ from learner.state_with_delay import MultiAgentStateWithDelay
 from learner.replay_buffer import ReplayBuffer
 from learner.replay_buffer import Transition
 from learner.actor import Actor
+from reconstrain.utils import auto_args
+
 import gym
 import gym_flock
 
@@ -32,21 +34,22 @@ class ExperienceSourceDataset(IterableDataset):
 
 
 # TODO: how to deal with bounded/unbounded action spaces?? Should I always assume bounded actions?
+@auto_args
 class ImitationLearning(pl.LightningModule):
     def __init__(
         self,
-        env_name: str,
-        n_states: int,
-        n_actions: int,
-        k: int,
-        n_agents: int,
+        env_name: str = "FlockingRelative-v0",
+        n_states: int = 6,
+        n_actions: int = 2,
+        n_agents: int = 100,
+        k: int = 2,
         hidden_size=32,
         lr: float = 1e-3,
         batch_size: int = 64,
         buffer_size: int = 10000,
         updates_per_step: int = 1,
-        n_train_episodes: int = 1000,
         n_test_episodes: int = 100,
+        **kwargs,
     ):
         """
         Initialize the DDPG networks.
@@ -71,6 +74,9 @@ class ImitationLearning(pl.LightningModule):
         self.state = MultiAgentStateWithDelay(
             self.device, n_states, n_agents, ind_agg, self.env.reset(), prev_state=None
         )
+
+    def __del__(self):
+        self.env.close()
 
     def configure_optimizers(self):
         return Adam(self.actor.parameters(), lr=self.hparams.lr)
@@ -113,6 +119,22 @@ class ImitationLearning(pl.LightningModule):
         loss = F.mse_loss(actor_batch, optimal_action_batch)
         self.log("loss", loss)
         return loss
+
+    def test(self):
+        test_rewards = []
+        for _ in range(n_test_episodes):
+            ep_reward = 0
+            state = MultiAgentStateWithDelay(device, args, env.reset(), prev_state=None)
+            done = False
+            while not done:
+                action = learner.select_action(state)
+                next_state, reward, done, _ = env.step(action.cpu().numpy())
+                next_state = MultiAgentStateWithDelay(
+                    device, args, next_state, prev_state=state
+                )
+                ep_reward += reward
+                state = next_state
+            test_rewards.append(ep_reward)
 
     def generate_episode(self):
         state = MultiAgentStateWithDelay(
@@ -158,22 +180,6 @@ class ImitationLearning(pl.LightningModule):
         dataset = ExperienceSourceDataset(self.train_batch)
         return DataLoader(dataset=dataset, batch_size=self.hparams.batch_size)
 
-    def test_step(self, batch, batch_idx):
-        test_rewards = []
-        for _ in range(n_test_episodes):
-            ep_reward = 0
-            state = MultiAgentStateWithDelay(device, args, env.reset(), prev_state=None)
-            done = False
-            while not done:
-                action = learner.select_action(state)
-                next_state, reward, done, _ = env.step(action.cpu().numpy())
-                next_state = MultiAgentStateWithDelay(
-                    device, args, next_state, prev_state=state
-                )
-                ep_reward += reward
-                state = next_state
-            test_rewards.append(ep_reward)
-
     def save_model(self, env_name, suffix="", actor_path=None):
         """
         Save the Actor Model after training is completed.
@@ -199,22 +205,3 @@ class ImitationLearning(pl.LightningModule):
         print("Loading model from {}".format(actor_path))
         if actor_path is not None:
             self.actor.load_state_dict(torch.load(actor_path).to(self.device))
-
-
-def train_cloning(env, args, device):
-    debug = args.getboolean("debug")
-
-    learner = ImitationLearning(device, args)
-
-    rewards = []
-    total_numsteps = 0
-    updates = 0
-
-    stats = {"mean": -1.0 * np.Inf, "std": 0}
-
-    for i in range(n_train_episodes):
-        if i % test_interval == 0:
-            pass
-
-    env.close()
-    return stats
