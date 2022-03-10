@@ -142,6 +142,14 @@ class FlockingRelativeEnv(gym.Env):
 
         self.adj_mat = (self.r2 < self.comm_radius2).astype(float)
 
+        D = np.diag(np.sum(self.adj_mat, axis=0))
+        L = D - self.adj_mat
+        w, V = np.linalg.eig(L)
+        n_connected = np.sum(np.abs(w) < 1e-6)
+        print(n_connected)
+        print(np.arange(L.shape[0])[np.diag(D) == 0])
+        assert n_connected == 1, f"Expected one connected component, got {n_connected}"
+
         # Normalize the adjacency matrix by the number of neighbors - results in mean pooling, instead of sum pooling
         n_neighbors = np.reshape(
             np.sum(self.adj_mat, axis=1), (self.n_agents, 1)
