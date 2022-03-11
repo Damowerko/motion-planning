@@ -1,13 +1,14 @@
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import argparse
 import os
-from reconstrain.imitation import ImitationLearning
+
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+from reconstrain.gpg import GPG
 
 
 def train(params):
-    model = ImitationLearning(**vars(params))
+    model = GPG(**vars(params))
 
     logger = (
         TensorBoardLogger(save_dir="./", name="tensorboard", version="")
@@ -16,19 +17,20 @@ def train(params):
     )
     callbacks = [
         ModelCheckpoint(
-            monitor="val/loss",
+            monitor="train/loss",
             dirpath="./checkpoints",
             filename="epoch={epoch}-loss={train/loss:0.4f}",
             auto_insert_metric_name=False,
             mode="min",
             save_last=True,
             save_top_k=1,
-        ),
+        ) if params.log else None,
         EarlyStopping(
-            monitor="val/loss",
+            monitor="train/loss",
             patience=params.patience,
         ),
     ]
+    callbacks = list(filter(lambda x: x is not None, callbacks))
 
     print("starting training")
     trainer = pl.Trainer(
@@ -38,6 +40,7 @@ def train(params):
         gpus=params.gpus,
         max_epochs=params.max_epochs,
         default_root_dir=".",
+        check_val_every_n_epoch=50,
     )
 
     # check if checkpoint exists
@@ -53,16 +56,10 @@ if __name__ == "__main__":
     # program arguments
     parser.add_argument("--log", type=int, default=1)
     parser.add_argument("--patience", type=int, default=10)
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=-1,
-        help="-1 uses all cpus. 0 uses the main process.",
-    )
 
     # model arguments
     group = parser.add_argument_group("Model")
-    ImitationLearning.add_args(group)
+    GPG.add_args(group)
 
     # trainer arguments
     group = parser.add_argument_group("Trainer")

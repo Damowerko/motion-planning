@@ -29,6 +29,7 @@ torch-geometric = "^2.0.3"
 black = "^21.12-beta.0"
 jupyter = "^1.0.0"
 pytest = "^7.0.0"
+guildai = "^0.7.5"
 
 [build-system]
 requires = ["poetry-core"]
