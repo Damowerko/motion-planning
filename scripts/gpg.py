@@ -1,15 +1,15 @@
 import argparse
 import os
+import re
+from glob import glob
 
+import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from reconstrain.gpg import GPG
 
-
-def train(params):
-    model = GPG(**vars(params))
-
+def make_trainer(params):
     logger = (
         TensorBoardLogger(save_dir="./", name="tensorboard", version="")
         if params.log
@@ -42,18 +42,32 @@ def train(params):
         default_root_dir=".",
         check_val_every_n_epoch=50,
     )
+    return trainer
 
+def train(params):
+    model = GPG(**vars(params))
+    trainer = make_trainer(params)
     # check if checkpoint exists
     ckpt_path = "./checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
-
     trainer.fit(model, ckpt_path=ckpt_path)
+
+def test(params):
+    # load from checkpoint with lowest loss
+    filenames = glob("./checkpoints/[!last]*.ckpt")
+    print(filenames)
+    losses = [float(re.search("loss=(-*[0-9]+.[0-9]+)", filename).group(1)) for filename in filenames]
+    model = GPG.load_from_checkpoint(filenames[np.argmin(losses)])
+    trainer = make_trainer(params)
+    trainer.test(model)
+        
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # program arguments
+    parser.add_argument("operation", metavar="OP", type=str, default="train")
     parser.add_argument("--log", type=int, default=1)
     parser.add_argument("--patience", type=int, default=10)
 
@@ -67,4 +81,10 @@ if __name__ == "__main__":
     group.add_argument("--gpus", type=int, default=1)
 
     params = parser.parse_args()
-    train(params)
+
+    if params.operation == "train":
+        train(params)
+    elif params.operation == "test":
+        test(params)
+    else:
+        raise ValueError(f"Invalid operation {params.operation}.")

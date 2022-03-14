@@ -7,9 +7,11 @@ class ExperienceSourceDataset(IterableDataset):
     generated is defined the Lightning model itself
     """
 
-    def __init__(self, generate_batch: Callable) -> None:
+    def __init__(self, generate_batch: Callable, *args, **kwargs) -> None:
         self.generate_batch = generate_batch
+        self.args = args
+        self.kwargs = kwargs
 
     def __iter__(self) -> Iterator:
-        iterator = self.generate_batch()
+        iterator = self.generate_batch(*self.args, **self.kwargs)
         return iterator

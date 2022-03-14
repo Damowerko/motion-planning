@@ -1,10 +1,13 @@
+from time import sleep
 from typing import Optional, Union
 
 import gym
-from gym import spaces
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.sparse
+from gym import spaces
 from scipy.spatial import KDTree
+import networkx as nx
 
 rng = np.random.default_rng()
 
@@ -25,7 +28,8 @@ class MotionPlanningRender:
         self.target_scatter = None
         self.agent_scatter = None
 
-    def render(self, goal_positions, agent_positions, reward):
+    def render(self, goal_positions, agent_positions, reward, observation):
+        self.reset()
         if self.target_scatter is None:
             self.target_scatter = self.ax.plot(
                 *goal_positions, "rx"
@@ -34,7 +38,13 @@ class MotionPlanningRender:
             self.agent_scatter = self.ax.plot(
                 *agent_positions, "bo"
             )[0]
-        
+
+        observation, adjacency = observation
+        G = nx.from_scipy_sparse_array(adjacency)
+        nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
+        targets = observation[:, 6:].reshape(-1, 3, 2).reshape(-1, 2)
+        self.ax.plot(*targets.T, "y^")
+
         self.ax.set_title(f"Reward: {reward:.2f}")
         self.agent_scatter.set_data(*agent_positions)
         self.ax.set_xlim(-self.width, self.width)
@@ -55,6 +65,7 @@ class MotionPlanning(gym.Env):
         self.max_accel = 1.0
         self.agent_radius = 1
         self.comm_radius = 10
+        self.n_neighbors = 3
         self.n_observed_targets = 3
         
 
@@ -96,11 +107,17 @@ class MotionPlanning(gym.Env):
 
     def adjacency(self):
         kdtree = KDTree(self.position)
-        distance_matrix = kdtree.sparse_distance_matrix(
-            kdtree, self.comm_radius, output_type="coo_matrix"
-        )
-        distance_matrix.data = np.exp(-(distance_matrix.data ** 2))
-        return distance_matrix
+        # distance_matrix = kdtree.sparse_distance_matrix(
+        #     kdtree, self.comm_radius, output_type="coo_matrix"
+        # )
+        # distance_matrix.data = np.exp(-(distance_matrix.data ** 2))
+        _, idx = kdtree.query(self.position, k=self.n_neighbors)
+        adj = scipy.sparse.dok_array((self.n_agents, self.n_agents))
+        for i in range(self.n_agents):
+            adj[i, i] = 1
+            for j in idx[i]:
+                adj[i, j] = 1
+        return adj
 
     def observe(self):
         _, idx = self.target_tree.query(self.position, k=self.n_observed_targets)
@@ -146,7 +163,7 @@ class MotionPlanning(gym.Env):
         assert mode == "human"
         if self.render_ is None:
             self.render_ = MotionPlanningRender(self.width)
-        self.render_.render(self.target_positions.T, self.position.T, self.reward)
+        self.render_.render(self.target_positions.T, self.position.T, self.reward, self.observe())
 
     def close(self):
         pass

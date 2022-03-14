@@ -40,9 +40,6 @@ class GPG(pl.LightningModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-        # manual optimization
-        self.automatic_optimization = False
-
         self.env = MotionPlanning()
 
         activation = nn.ReLU()
@@ -56,7 +53,7 @@ class GPG(pl.LightningModule):
         for i in range(n_layers):
             layers += [
                 (
-                    gnn.TAGConv(channels[i], channels[i + 1], K=K, normalize=False),
+                    gnn.TAGConv(channels[i], channels[i + 1], K=K, normalize=True),
                     "x, edge_index, edge_weight -> x",
                 ),
                 (activation if i < n_layers - 1 else nn.Identity(), "x -> x"),
@@ -68,10 +65,16 @@ class GPG(pl.LightningModule):
         x = torch.tanh(x) * self.env.max_accel
         return x
 
-    def choose_action(self, observation):
-        mu = self(*self.parse_observation(observation))
-        action = torch.normal(mu, self.policy_noise)
-        return action
+    def choose_action(self, x, edge_index, edge_weight, action=None):
+        mu = self(x, edge_index, edge_weight)
+        mu = mu.view(-1, *self.env.action_space.shape)
+        if not self.training:
+            return mu, None
+
+        distribution = torch.distributions.Normal(mu, self.policy_noise)
+        action = distribution.sample() if action is None else action
+        logp = distribution.log_prob(action).sum(axis=[-1, -2])
+        return action, logp
 
     def parse_observation(self, observation):
         x, graph = observation
@@ -81,83 +84,67 @@ class GPG(pl.LightningModule):
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)
         return x, edge_index, edge_weight
 
+    def training_step(self, batch, batch_idx):
+        _, logp = self.choose_action(batch.x, batch.edge_index, batch.edge_attr, action=batch.action)
+        weight = torch.exp(logp - batch.logp).detach()
+        loss = -(weight * batch.R[:, None, None] * logp).mean()
+        self.log("train/loss", loss, prog_bar=True)
+        self.log("train/reward", np.mean(batch.reward), prog_bar=True)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        self.log("test/reward", np.mean(batch.reward), prog_bar=True)
+
     def generate_episode(self, render=False):
         observation = self.env.reset()
-
-        actions, states, rewards = [], [], []
         done = False
+        actions, observations, rewards, logps = [], [], [], []
         while not done:
+            observations.append(observation)
             with torch.no_grad():
-                action = self.choose_action(observation)
+                action, logp = self.choose_action(*self.parse_observation(observation))
             observation, reward, done, _ = self.env.step(action.detach().cpu().numpy())
-            if render:
+            if render: 
                 self.env.render()
             actions.append(action)
-            states.append(observation)
             rewards.append(reward)
+            logps.append(logp)
 
         # assume the agents stay in the same position forever
-        R = rewards[-1] / (1 - self.discount)
+        R = 0
         Rs = []
         for reward in rewards[::-1]:
             # compute the discoutned cost to go
             R = reward + self.hparams.discount * R
             Rs.append(R)
-        Rs = Rs[::-1]
+        Rs = torch.tensor(Rs[::-1], device=self.device, dtype=self.dtype)
+        # standardize the rewards to improve stability
+        Rs = (Rs - Rs.mean()) / (Rs.std() + 1e-8)
 
-        for action, observation, R in zip(actions, states, Rs):
+        for observation, action, logp, reward, R in zip(observations, actions, logps, rewards, Rs):
             action = action.to(dtype=self.dtype, device=self.device)
             x, edge_index, edge_weight = self.parse_observation(observation)
-            R = torch.tensor(R).to(dtype=self.dtype, device=self.device)
             yield Data(
                 x=x,
                 edge_index=edge_index,
                 edge_attr=edge_weight,
                 action=action,
+                logp=logp,
+                reward=reward,
                 R=R,
             )
 
-    def on_train_epoch_start(self):
-        super().on_train_epoch_start()
-        opt = self.optimizers()
-        opt.zero_grad()
-
-    def training_step(self, batch, batch_idx):
-        ndim = np.prod(self.env.action_space.shape)
-        action = batch.action.view(-1, ndim)
-        
-        mu = self(batch.x, batch.edge_index, batch.edge_weight).view(-1, ndim)
-        cov = torch.eye(ndim, device=self.device, dtype=self.dtype) * self.policy_noise
-        dist = torch.distributions.MultivariateNormal(mu, cov)
-
-        logp = dist.log_prob(action)
-        loss = -(batch.R[:, None, None] * logp).mean()
-        self.manual_backward(loss)
-        self.log("train/loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("train/reward", batch.R.mean(), prog_bar=True, on_step=False, on_epoch=True)
-        return loss
-
-    def validation_step(self, *args, **kwargs):
-        pass
-
-    def on_train_epoch_end(self):
-        super().on_train_epoch_end()
-        opt = self.optimizers()
-        opt.step()
+    def _dataloader(self, render=False):
+        return DataLoader(
+            ExperienceSourceDataset(self.generate_episode, render=render),
+            batch_size=self.batch_size,
+        )
 
     def train_dataloader(self):
-        dataset = ExperienceSourceDataset(self.generate_episode)
-        return DataLoader(
-            dataset=dataset,
-            batch_size=self.batch_size
-        )
+        return self._dataloader()
 
-    def val_dataloader(self):
-        dataset = ExperienceSourceDataset(lambda: self.generate_episode(render=True))
-        return DataLoader(
-            dataset=dataset,
-            batch_size=self.batch_size
-        )
+    def test_dataloader(self):
+        return self._dataloader(True)
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)

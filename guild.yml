@@ -1,6 +1,7 @@
-- operations:
-    gpg:
-      main: scripts/gpg
+- model: gpg
+  operations:
+    train:
+      main: scripts/gpg train
       output-scalars: off
       flags-dest: args
       flags-import: all
@@ -11,6 +12,20 @@
               dir: scripts
           - include:
               dir: src
+    test:
+      main: scripts/gpg test
+      output-scalars: off
+      flags-dest: args
+      flags-import: all
+      sourcecode:
+        select:
+          - "*.py"
+          - include:
+              dir: scripts
+          - include:
+              dir: src
+      requires:
+        - operation: train
   resources:
     data:
       - file: data/
