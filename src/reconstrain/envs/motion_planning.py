@@ -76,8 +76,8 @@ class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
 
     def __init__(self):
-        self.n_targets = 3
-        self.n_agents = 3
+        self.n_targets = 20
+        self.n_agents = 20
         self.dt = 0.1
         self.max_steps = 200
         self.width = 1.0
@@ -202,22 +202,14 @@ class MotionPlanning(GraphEnv):
         return self._observation(), self._reward(), self._done(), {}
 
     def reset(self):
-        theta = np.linspace(0, 2 * np.pi, self.n_targets + 1)[:-1]
-        self.target_positions = np.stack(
-            (
-                0.5 * np.cos(theta),
-                0.5 * np.sin(theta),
-            ),
-            axis=1,
+        self.target_positions = rng.uniform(
+            -self.width, self.width, (self.n_targets, 2)
         )
         self.target_tree = KDTree(self.target_positions)
 
         self.state = np.zeros((self.n_agents, self.state_ndim))
-        theta = np.linspace(0, 2 * np.pi, self.n_agents + 1)[:-1]
-        self.position = np.stack(
-            (self.start_radius * np.cos(theta), self.start_radius * np.sin(theta)),
-            axis=1,
-        )
+        self.position = rng.uniform(-self.width, self.width, (self.n_agents, 2))
+
         self.t = 0
         if self.render_ is not None:
             self.render_.reset()
