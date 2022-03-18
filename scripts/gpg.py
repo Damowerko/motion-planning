@@ -9,6 +9,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from reconstrain.gpg import GPG
+from reconstrain.utils import TensorboardHistogramLogger
 
 
 def make_trainer(params):
@@ -17,11 +18,11 @@ def make_trainer(params):
         EarlyStopping(
             monitor="train/loss",
             patience=params.patience,
-        )
+        ),
     ]
     if params.log:
         logger = TensorBoardLogger(save_dir="./", name="tensorboard", version="")
-        callbacks.append(
+        callbacks += [
             ModelCheckpoint(
                 monitor="train/loss",
                 dirpath="./checkpoints",
@@ -30,15 +31,16 @@ def make_trainer(params):
                 mode="min",
                 save_last=True,
                 save_top_k=1,
-            )
-        )
-    callbacks = list(filter(lambda x: x is not None, callbacks))
+            ),
+            TensorboardHistogramLogger(every_n_steps=1000),
+        ]
 
     print("starting training")
     trainer = pl.Trainer(
         logger=logger,
         callbacks=callbacks,
-        precision=64,
+        enable_checkpointing=params.log,
+        precision=32,
         gpus=params.gpus,
         max_epochs=params.max_epochs,
         default_root_dir=".",
