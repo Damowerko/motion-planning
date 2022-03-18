@@ -12,6 +12,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
+from torch.utils.tensorboard import SummaryWriter
 
 from reconstrain.envs.motion_planning import GraphEnv, MotionPlanning
 from reconstrain.rl import ExperienceSourceDataset
@@ -27,8 +28,9 @@ class GPG(pl.LightningModule):
         n_layers: int = 2,
         lr: float = 0.001,
         gamma: float = 0.95,
-        entropy_weight: float = 0.1,
-        n_envs: int = 32,
+        entropy_weight: float = 0.001,
+        n_envs: int = 1,
+        batch_size: int = 32,
         **kwargs
     ):
         super().__init__()
@@ -41,6 +43,7 @@ class GPG(pl.LightningModule):
         self.n_layers = n_layers
         self.entropy_weight = entropy_weight
         self.n_envs = n_envs
+        self.batch_size = batch_size
 
         env = gym.make("motion-planning-v0")
         assert isinstance(env, GraphEnv)
@@ -70,14 +73,15 @@ class GPG(pl.LightningModule):
 
     def forward(self, x, edge_index, edge_weight) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.model(x, edge_index, edge_weight)
-        x = torch.tanh(x)
         mu = x[..., : self.env.action_ndim].reshape(
             -1, self.env.n_nodes * self.env.action_ndim
         )
         logvar = x[..., self.env.action_ndim :].reshape(
             -1, self.env.n_nodes * self.env.action_ndim
         )
-        sigma = torch.exp(logvar / 2)
+        mu = torch.tanh(mu)
+        logvar = torch.tanh(logvar)
+        sigma = torch.exp(2 * logvar)
         return mu, sigma
 
     def choose_action(self, mu, sigma):
@@ -106,7 +110,7 @@ class GPG(pl.LightningModule):
         return Data(x=x, edge_index=edge_index, edge_attr=edge_weight)
 
     def training_step(self, batch, batch_idx):
-        log_prob, entropy, R, reward, sigma = batch
+        log_prob, entropy, reward, R, sigma = batch
         policy_loss = -(R[:, None, None] * log_prob).mean()
         entropy_loss = -self.entropy_weight * entropy.mean()
         loss = policy_loss + entropy_loss
@@ -131,37 +135,37 @@ class GPG(pl.LightningModule):
         opt.zero_grad()
 
     def validation_step(self, batch, batch_idx):
-        log_prob, entropy, R, reward, sigma = batch
+        log_prob, entropy, reward, R, sigma = batch
         self.log("val/reward", reward.mean(), prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        log_prob, entropy, R, reward, sigma = batch
+        log_prob, entropy, reward, R, sigma = batch
         self.log("test/reward", reward.mean(), prog_bar=True)
 
-    def generate_episode(self, render=False):
-        env = self.env if render else self.vec_env
+    def generate_episode(self, render=False, parallel=False):
+        if parallel and render:
+            raise ValueError("Cannot render in parallel.")
+        env = self.vec_env if parallel else self.env
 
         # rollout on the vec env
         observation = env.reset()
         done = False
         rewards, log_probs, entropys, sigmas = [], [], [], []
         while not done:
-            adjacency = env.adjacency() if render else env.env_method("adjacency")
+            adjacency = env.adjacency() if not parallel else env.env_method("adjacency")
             data = self.to_graph_data(observation, adjacency)
             mu, sigma = self(data.x, data.edge_index, data.edge_attr)
             action, log_prob, entropy = self.choose_action(mu, sigma)
             observation, reward, done, _ = env.step(action.detach().cpu().numpy())
-            if not isinstance(done, bool):
-                done = done.all()
-            if render:
-                env.render()
-
-            rewards.append(
-                torch.as_tensor(reward, dtype=self.dtype, device=self.device)
-            )
+            rewards.append(torch.as_tensor(reward))
             log_probs.append(log_prob)
             entropys.append(entropy)
             sigmas.append(sigma)
+
+            if parallel:
+                done = done.all()
+            if render:
+                env.render()
 
         # compute the discoutned cost to go
         rewards = torch.stack(rewards)
@@ -169,13 +173,14 @@ class GPG(pl.LightningModule):
         R[-1] = 0
         for i in range(1, len(rewards)):
             R[-i - 1] = rewards[-i] + self.gamma * R[-i]
-        # standardize to improve stability
-        R = (R - R.mean(axis=0)) / (R.std(axis=0) + 1e-8)
+        # baseline
+        R = R - R.mean()
         return zip(log_probs, entropys, rewards, R, sigmas)
 
     def _dataloader(self, render=False):
         return DataLoader(
             ExperienceSourceDataset(self.generate_episode, render=render),
+            batch_size=self.batch_size,
         )
 
     def train_dataloader(self):
