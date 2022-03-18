@@ -1701,11 +1701,11 @@ python-versions = ">=3.6"
 
 [[package]]
 name = "torch"
-version = "1.11.0+cu113"
+version = "1.10.2+cu113"
 description = "Tensors and Dynamic neural networks in Python with strong GPU acceleration"
 category = "main"
 optional = false
-python-versions = ">=3.7.0"
+python-versions = ">=3.6.2"
 
 [package.dependencies]
 typing-extensions = "*"
@@ -1879,7 +1879,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 
 [[package]]
 name = "virtualenv"
-version = "20.13.3"
+version = "20.13.4"
 description = "Virtual Python Environment builder"
 category = "dev"
 optional = false
@@ -1979,7 +1979,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9,<3.11"
-content-hash = "acb4d4f6fb4a173d373035a660b910bccdecef9061fbb595b6fa4f314f062265"
+content-hash = "7f7204f07b012501b07f46707020524fefcc84a9562eb24a718ad4fdcd8f6d33"
 
 [metadata.files]
 absl-py = [
@@ -3238,14 +3238,14 @@ tomli = [
     {file = "tomli-1.2.3.tar.gz", hash = "sha256:05b6166bff487dc068d322585c7ea4ef78deed501cc124060e0f238e89a9231f"},
 ]
 torch = [
-    {file = "torch-1.11.0+cu113-cp310-cp310-linux_x86_64.whl", hash = "sha256:a68c33657a546131eb9bc44e2a98d2fa704aafae861460b051b82813852ccb44"},
-    {file = "torch-1.11.0+cu113-cp310-cp310-win_amd64.whl", hash = "sha256:ddc57495195aa2456e78bfc7d8d3f45dabbb8b7b268b3b5dbed4f0e4db492f33"},
-    {file = "torch-1.11.0+cu113-cp37-cp37m-linux_x86_64.whl", hash = "sha256:f56333470daea3c97078b37607e0035cccf72fc5c36fd84546e1a4b8d9944f2b"},
-    {file = "torch-1.11.0+cu113-cp37-cp37m-win_amd64.whl", hash = "sha256:e9df65c1fb2d80283b276114878fd38f411b70880e0b406c451d000e6159f451"},
-    {file = "torch-1.11.0+cu113-cp38-cp38-linux_x86_64.whl", hash = "sha256:b6a799bdb6ee3d914e5e62bddb4276d4a10248c1af4f2d217738e5f9ee27485b"},
-    {file = "torch-1.11.0+cu113-cp38-cp38-win_amd64.whl", hash = "sha256:7fd4751bbf39bbb04ec6116c7243ce6528aded4197afcf380537340e1eebd19a"},
-    {file = "torch-1.11.0+cu113-cp39-cp39-linux_x86_64.whl", hash = "sha256:e9126b0a5d95704bee40a9d0ef1cbd82d8dc7863e4638a376bef702dfd659370"},
-    {file = "torch-1.11.0+cu113-cp39-cp39-win_amd64.whl", hash = "sha256:e4bb14d953db9aad5bdb945a328410638721d77e3e622d0a8d77063c01daf40b"},
+    {file = "torch-1.10.2+cu113-cp36-cp36m-linux_x86_64.whl", hash = "sha256:bb3a9405184c78f041c83e1483a239986794009f531f94ad53173bdb71e3c35f"},
+    {file = "torch-1.10.2+cu113-cp36-cp36m-win_amd64.whl", hash = "sha256:368d0b1ac91b556a100da35a7784a0f2cd4b1a7298b9122faa5dd2facf9871fc"},
+    {file = "torch-1.10.2+cu113-cp37-cp37m-linux_x86_64.whl", hash = "sha256:cadda6a1d51efde306eb057667e1da91a8f98d7f7cf4ad7ae1c94a5e1a6a4f5e"},
+    {file = "torch-1.10.2+cu113-cp37-cp37m-win_amd64.whl", hash = "sha256:a1a1f50ff5c6d83fac2adc07a8e76a197381bcd847be0d80fa2ab446eb70039f"},
+    {file = "torch-1.10.2+cu113-cp38-cp38-linux_x86_64.whl", hash = "sha256:c59e8f17a76757f22ffdf6da37561ce7bd7f92c5d602e3371eb223e5a976b6ec"},
+    {file = "torch-1.10.2+cu113-cp38-cp38-win_amd64.whl", hash = "sha256:2a9ca5be12ab83e59a8b2a9522c62c3b17c92ac06ac94f3fda9ba8393fb1cea6"},
+    {file = "torch-1.10.2+cu113-cp39-cp39-linux_x86_64.whl", hash = "sha256:f1f985ce8591b20aa038756a83c348144ca10119952f4ae5703dbb7aae1b3ce2"},
+    {file = "torch-1.10.2+cu113-cp39-cp39-win_amd64.whl", hash = "sha256:15c87057a7c221460abee15795710c9b50898167abb134fdb39eced76f6e9dff"},
 ]
 torch-cluster = []
 torch-geometric = [
@@ -3318,8 +3318,8 @@ urllib3 = [
     {file = "urllib3-1.26.9.tar.gz", hash = "sha256:aabaf16477806a5e1dd19aa41f8c2b7950dd3c746362d7e3223dbe6de6ac448e"},
 ]
 virtualenv = [
-    {file = "virtualenv-20.13.3-py2.py3-none-any.whl", hash = "sha256:dd448d1ded9f14d1a4bfa6bfc0c5b96ae3be3f2d6c6c159b23ddcfd701baa021"},
-    {file = "virtualenv-20.13.3.tar.gz", hash = "sha256:e9dd1a1359d70137559034c0f5433b34caf504af2dc756367be86a5a32967134"},
+    {file = "virtualenv-20.13.4-py2.py3-none-any.whl", hash = "sha256:c3e01300fb8495bc00ed70741f5271fc95fed067eb7106297be73d30879af60c"},
+    {file = "virtualenv-20.13.4.tar.gz", hash = "sha256:ce8901d3bbf3b90393498187f2d56797a8a452fb2d0d7efc6fd837554d6f679c"},
 ]
 wcwidth = [
     {file = "wcwidth-0.2.5-py2.py3-none-any.whl", hash = "sha256:beb4802a9cebb9144e99086eff703a642a13d6a0052920003a230f3294bbe784"},

@@ -13,7 +13,7 @@ secondary = true
 
 [tool.poetry.dependencies]
 python = "^3.9,<3.11"
-torch = {version = "1.11.0+cu113", source = "pytorch"}
+torch = {version = "1.10.2+cu113", source = "pytorch"}
 pytorch-lightning = "^1.5.9"
 numpy = "^1.22.1"
 matplotlib = "^3.5.1"
