@@ -1,5 +1,7 @@
 from torch.utils.data import IterableDataset
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
+from collections import deque, namedtuple
+
 
 class ExperienceSourceDataset(IterableDataset):
     """Basic experience source dataset.

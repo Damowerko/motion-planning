@@ -1,20 +1,28 @@
-import gym
-import reconstrain
-from stable_baselines3 import A2C
-from stable_baselines3.common.vec_env import SubprocVecEnv
-from stable_baselines3.common.env_util import make_vec_env
+from reconstrain.envs.motion_planning import MotionPlanning
+import numpy as np
 
-if __name__ == "__main__":
-    env = make_vec_env("motion-planning-v0", n_envs=32, vec_env_cls=SubprocVecEnv)
+env = MotionPlanning()
 
-    model = A2C("MlpPolicy", env, verbose=1)
-    model.learn(total_timesteps=32000)
+n_trials = 10
 
-    env = gym.make("motion-planning-v0")
-    obs = env.reset()
-    for _ in range(10000):
-        action, _state = model.predict(obs, deterministic=True)
-        obs, rewards, done, info = env.step(action)
-        if done:
-            break
+rewards = []
+for i in range(n_trials):
+    env.reset()
+    done = False
+    trial_rewards = []
+    while not done:
         env.render()
+        action = env.decentralized_policy(hops=0)
+        obs, reward, done, info = env.step(action)
+        trial_rewards.append(reward)
+    trial_reward = np.mean(trial_rewards)
+    print(f"Trial reward: {trial_reward:0.2f}")
+    rewards.append(trial_reward)
+
+rewards = np.asarray(rewards)
+print(
+    f"""
+MEAN: {rewards.mean():.2f}
+STD: {rewards.std():.2f}
+"""
+)

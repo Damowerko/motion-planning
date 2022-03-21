@@ -1,5 +1,20 @@
+- package: gpkg.reconstrain
+  
+
 - model: gpg
   operations:
+    pretrain:
+      main: scripts/gpg pretrain
+      output-scalars: off
+      flags-dest: args
+      flags-import: all
+      sourcecode:
+        select:
+          - "*.py"
+          - include:
+              dir: scripts
+          - include:
+                dir: src
     train:
       main: scripts/gpg train
       output-scalars: off
@@ -12,6 +27,8 @@
               dir: scripts
           - include:
               dir: src
+      requires:
+        - operation: pretrain
     test:
       main: scripts/gpg test
       output-scalars: off

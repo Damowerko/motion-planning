@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse
 from gym import spaces
-from scipy.spatial import KDTree
+from scipy.spatial import KDTree, distance_matrix
+from scipy.optimize import linear_sum_assignment
 import networkx as nx
 from abc import ABC, abstractmethod
 
@@ -86,14 +87,14 @@ class MotionPlanning(GraphEnv):
 
         # agent properties
         self.start_radius = 0.1
-        self.max_accel = 0.1
+        self.max_accel = 0.5
         self.agent_radius = 0.01
-        self.n_observed_agents = 1
-        self.n_observed_targets = 2
+        self.n_observed_agents = 3
+        self.n_observed_targets = 3
 
         # comm graph properties
         self.adj_type = "knn"  # distance or knn
-        self.n_neighbors = 1
+        self.n_neighbors = 5
         self.comm_radius = 0.5
 
         self._n_nodes = self.n_agents
@@ -102,7 +103,10 @@ class MotionPlanning(GraphEnv):
         self.action_space = spaces.Box(
             low=-1,
             high=1,
-            shape=(self.n_agents * self.action_ndim,),
+            shape=(
+                self.n_agents,
+                self.action_ndim,
+            ),
         )
 
         self.state_ndim = 4
@@ -110,7 +114,12 @@ class MotionPlanning(GraphEnv):
             self.state_ndim + self.n_observed_targets * 2 + self.n_observed_agents * 2
         )
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.n_agents * self.observation_ndim,)
+            low=-np.inf,
+            high=np.inf,
+            shape=(
+                self.n_agents,
+                self.observation_ndim,
+            ),
         )
 
         self.render_: Optional[MotionPlanningRender] = None
@@ -147,10 +156,10 @@ class MotionPlanning(GraphEnv):
     def adjacency(self):
         position_tree = KDTree(self.position)
         if self.adj_type == "distance":
-            adj = position_tree.sparse_distance_matrix(
-                position_tree, self.comm_radius, output_type="coo_matrix"
-            )
-            adj.data = np.exp(-(adj.data ** 2))
+            adj = position_tree.sparse_distance_matrix(position_tree, self.comm_radius)
+            # adj.data = np.exp(-(adj.data ** 2))
+            adj[adj > 0] = 1
+            adj[np.arange(self.n_agents), np.arange(self.n_agents)] = 1
         elif self.adj_type == "knn":
             _, idx = position_tree.query(self.position, k=self.n_neighbors + 1)
             adj = scipy.sparse.dok_array((self.n_agents, self.n_agents))
@@ -161,6 +170,40 @@ class MotionPlanning(GraphEnv):
         else:
             raise ValueError(f"Unknown adjacency type: {self.adj_type}")
         return scipy.sparse.coo_matrix(adj)
+
+    def reference_policy(self):
+        distance = distance_matrix(self.position, self.target_positions)
+        row_idx, col_idx = linear_sum_assignment(distance)
+        assert (row_idx == np.arange(self.n_agents)).all()
+        action = self.target_positions[col_idx] - self.position[row_idx]
+
+        action = np.clip(action, -self.max_accel, self.max_accel)
+        return action.reshape(self.action_space.shape)
+
+    def decentralized_policy(self, hops=0):
+        observed_targets = self._observed_targets().reshape(
+            self.n_agents, self.n_observed_targets, 2
+        )
+        observed_agents = self._observed_agents().reshape(
+            self.n_agents, self.n_observed_agents, 2
+        )
+        if hops == 0:
+            action = observed_targets[:, 0, :] - self.position
+        else:
+            action = np.zeros(self.action_space.shape)
+            for i in range(self.n_agents):
+                agent_positions = np.concatenate(
+                    (self.position[i, None, :], observed_agents[i]), axis=0
+                )
+                target_positions = observed_targets[i]
+                distances = distance_matrix(agent_positions, target_positions)
+                row_idx, col_idx = linear_sum_assignment(distances)
+                assignment = col_idx[np.nonzero(row_idx == 0)]
+                if len(assignment) > 0:
+                    action[i] = target_positions[assignment] - agent_positions[0]
+
+        action = np.clip(action, -self.max_accel, self.max_accel)
+        return action.reshape(self.action_space.shape)
 
     def _observed_agents(self):
         position_tree = KDTree(self.position)
@@ -178,7 +221,7 @@ class MotionPlanning(GraphEnv):
     def _observation(self):
         return np.concatenate(
             (self.state, self._observed_targets(), self._observed_agents()), axis=1
-        ).reshape(self.n_agents * self.observation_ndim)
+        ).reshape(self.observation_space.shape)
 
     def _done(self):
         timeout = self.t >= self.max_steps * self.dt
@@ -194,7 +237,7 @@ class MotionPlanning(GraphEnv):
         return np.sum(reward)
 
     def step(self, action):
-        action = action.reshape(self.n_agents, 2)
+        action = action.reshape(self.n_agents, self.action_ndim)
         action = np.clip(action, -1, 1) * self.max_accel
         self.velocity = action
         self.position += self.velocity * self.dt
