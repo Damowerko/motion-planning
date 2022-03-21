@@ -125,7 +125,7 @@ class MotionPlanningImitation(MotionPlanningPolicy):
         buffer_size: int = 10000,
         target_policy: str = "c",
         render: bool = False,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(F=F, K=K, n_layers=n_layers, lr=lr, weight_decay=weight_decay)
         self.save_hyperparameters()
@@ -164,6 +164,8 @@ class MotionPlanningImitation(MotionPlanningPolicy):
                 action = self.env.decentralized_policy(0)
             elif self.target_policy == "d1":
                 action = self.env.decentralized_policy(1)
+            else:
+                raise ValueError(f"Unknown target policy {self.target_policy}")
 
             data = self.to_graph_data(observation, self.env.adjacency())
             mu, _ = self.policy(data.x, data.edge_index, data.edge_attr)
@@ -202,7 +204,7 @@ class MotionPlanningGPG(MotionPlanningPolicy):
         entropy_weight: float = 0.001,
         n_envs: int = 1,
         batch_size: int = 32,
-        **kwargs
+        **kwargs,
     ):
         super().__init__()
         self.save_hyperparameters()
