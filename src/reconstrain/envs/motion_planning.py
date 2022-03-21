@@ -171,7 +171,7 @@ class MotionPlanning(GraphEnv):
             raise ValueError(f"Unknown adjacency type: {self.adj_type}")
         return scipy.sparse.coo_matrix(adj)
 
-    def reference_policy(self):
+    def centralized_policy(self):
         distance = distance_matrix(self.position, self.target_positions)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()

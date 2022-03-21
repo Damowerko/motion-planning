@@ -123,7 +123,7 @@ class MotionPlanningImitation(MotionPlanningPolicy):
         weight_decay: float = 0.01,
         batch_size: int = 32,
         buffer_size: int = 10000,
-        target_policy: str = "reference",
+        target_policy: str = "c",
         render: bool = False,
         **kwargs
     ):
@@ -158,11 +158,11 @@ class MotionPlanningImitation(MotionPlanningPolicy):
             if render:
                 self.env.render()
 
-            if self.target_policy == "reference":
-                action = self.env.reference_policy()
-            elif self.target_policy == "decentralized0":
+            if self.target_policy == "c":
+                action = self.env.centralized_policy()
+            elif self.target_policy == "d0":
                 action = self.env.decentralized_policy(0)
-            elif self.target_policy == "decentralized1":
+            elif self.target_policy == "d1":
                 action = self.env.decentralized_policy(1)
 
             data = self.to_graph_data(observation, self.env.adjacency())
