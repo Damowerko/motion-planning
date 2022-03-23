@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 from typing import Union
+import shutil
 
 import numpy as np
 import pytorch_lightning as pl
@@ -20,7 +21,7 @@ import torch
 
 def make_trainer(params):
     logger = (
-        TensorBoardLogger(save_dir="./", name="tensorboard", version="")
+        TensorBoardLogger(save_dir=f"./{params.operation}/", name="tensorboard", version="")
         if params.log
         else None
     )
@@ -32,7 +33,7 @@ def make_trainer(params):
         (
             ModelCheckpoint(
                 monitor="val/metric",
-                dirpath=f"./checkpoints/{params.operation}/",
+                dirpath=f"./{params.operation}/checkpoints/",
                 filename="best",
                 auto_insert_metric_name=False,
                 mode="min",
@@ -66,8 +67,8 @@ def make_trainer(params):
 
 def find_checkpoint(operation):
     candidates = [
-        f"./checkpoints/{operation}/best.ckpt",
-        f"./checkpoints/{operation}/last.ckpt",
+        f"./{operation}/checkpoints/best.ckpt",
+        f"./{operation}/checkpoints/last.ckpt",
     ]
     for ckpt in candidates:
         if os.path.exists(ckpt):
@@ -77,38 +78,42 @@ def find_checkpoint(operation):
 def pretrain(params):
     trainer = make_trainer(params)
     model = MotionPlanningImitation(**vars(params))
-    ckpt_path = "./checkpoints/pretrain/last.ckpt"
+    ckpt_path = "./pretrain/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
 
     model.load_from_checkpoint(find_checkpoint("pretrain"))
-    model.save_policy("./policy.pt")
+    model.save_policy("./pretrain/policy.pt")
 
 
 def train(params):
     trainer = make_trainer(params)
 
+    if os.path.exists("./checkpoints"):
+        os.makedirs("./pretrain")
+        shutil.copytree("./checkpoints/pretrain/", "./pretrain/checkpoints/")
+        shutil.copy("./policy.pt", "./pretrain/policy.pt")
+
     pretrain_checkpoint = find_checkpoint("pretrain")
     if pretrain_checkpoint is not None:
         print("Resuming from pretraining.")
         imitation = MotionPlanningImitation.load_from_checkpoint(pretrain_checkpoint)
-        model = MotionPlanningGPG(
-            {
+        merged = {
                 **vars(params),
                 **{
-                    "K": imitation.K,
                     "F": imitation.F,
+                    "K": imitation.K,
                     "n_layers": imitation.n_layers,
                 },
-            }
-        )
+        }
+        model = MotionPlanningGPG(**merged)
         model.policy = imitation.policy
     else:
         print("Did not find a pretrain checkpoint.")
         model = MotionPlanningGPG(**vars(params))
 
     # check if checkpoint exists
-    ckpt_path = "./checkpoints/train/last.ckpt"
+    ckpt_path = "./train/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
     trainer.test(model)
