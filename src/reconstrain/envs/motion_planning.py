@@ -76,11 +76,11 @@ class GraphEnv(gym.Env, ABC):
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
 
-    def __init__(self):
+    def __init__(self, max_steps=200):
         self.n_targets = 20
         self.n_agents = 20
         self.dt = 0.1
-        self.max_steps = 200
+        self.max_steps = max_steps
         self.width = 1.0
         self.reward_cutoff = 0.2
         self.reward_sigma = 0.1

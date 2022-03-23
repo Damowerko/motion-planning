@@ -1,5 +1,5 @@
 from time import sleep
-from typing import Tuple
+from typing import List, Tuple
 import gym
 import numpy as np
 import pytorch_lightning as pl
@@ -68,6 +68,9 @@ class MotionPlanningPolicy(pl.LightningModule):
     ):
         super().__init__()
 
+        self.F = F
+        self.K = K
+        self.n_layers = n_layers
         self.lr = lr
         self.weight_decay = weight_decay
 
@@ -83,6 +86,15 @@ class MotionPlanningPolicy(pl.LightningModule):
 
     def forward(self, *args, **kwargs):
         return self.policy(*args, **kwargs)
+
+    def choose_action(self, mu, sigma, deterministic=False):
+        distribution = torch.distributions.MultivariateNormal(
+            mu, torch.diag_embed(sigma)
+        )
+        action = mu if deterministic else distribution.sample()
+        log_prob = distribution.log_prob(action)
+        entropy = distribution.entropy()
+        return action, log_prob, entropy
 
     def configure_optimizers(self):
         return torch.optim.AdamW(
@@ -134,24 +146,34 @@ class MotionPlanningImitation(MotionPlanningPolicy):
         self.weight_decay = weight_decay
         self.batch_size = batch_size
         self.target_policy = target_policy
-        self.render = render
+        self.render = render > 0
         self.buffer = deque(maxlen=buffer_size)
 
     def training_step(self, data, batch_idx):
         yhat, _ = self.policy(data.x, data.edge_index, data.edge_attr)
         loss = F.mse_loss(yhat.view(data.y.shape), data.y)
         self.log("train/loss", loss, prog_bar=True)
+        self.log("train/reward", data.reward.mean(), prog_bar=True)
         return loss
 
     def validation_step(self, data, batch_idx):
         yhat, _ = self.policy(data.x, data.edge_index, data.edge_attr)
         loss = F.mse_loss(yhat.view(data.y.shape), data.y)
         self.log("val/loss", loss, prog_bar=True)
+        self.log("val/reward", data.reward.mean(), prog_bar=True)
+        self.log("val/metric", -data.reward.mean())
+        return loss
+
+    def test_step(self, data, batch_idx):
+        yhat, _ = self.policy(data.x, data.edge_index, data.edge_attr)
+        loss = F.mse_loss(yhat.view(data.y.shape), data.y)
+        self.log("test/loss", loss)
+        self.log("test/reward", data.reward.mean())
         return loss
 
     @torch.no_grad()
-    def generate_batch(self, render=False):
-        # rollout on the vec env
+    def rollout(self, render=False) -> List[Data]:
+        episode = []
         observation = self.env.reset()
         done = False
         while not done:
@@ -159,37 +181,51 @@ class MotionPlanningImitation(MotionPlanningPolicy):
                 self.env.render()
 
             if self.target_policy == "c":
-                action = self.env.centralized_policy()
+                expert_action = self.env.centralized_policy()
             elif self.target_policy == "d0":
-                action = self.env.decentralized_policy(0)
+                expert_action = self.env.decentralized_policy(0)
             elif self.target_policy == "d1":
-                action = self.env.decentralized_policy(1)
+                expert_action = self.env.decentralized_policy(1)
             else:
                 raise ValueError(f"Unknown target policy {self.target_policy}")
 
             data = self.to_graph_data(observation, self.env.adjacency())
             mu, _ = self.policy(data.x, data.edge_index, data.edge_attr)
-            observation, _, done, _ = self.env.step(mu.detach().cpu().numpy())
+            observation, reward, done, _ = self.env.step(mu.detach().cpu().numpy())
 
             data = self.to_graph_data(observation, self.env.adjacency())
             # since we are doing imitation want to learn action
-            data.y = torch.from_numpy(action).to(dtype=self.dtype, device=self.device)
-            self.buffer.append(data)
-        buffer_data = list(self.buffer)
-        random.shuffle(buffer_data)
-        return iter(buffer_data)
+            data.y = torch.from_numpy(expert_action).to(dtype=self.dtype, device=self.device)
+            data.reward = torch.as_tensor(reward).to(dtype=self.dtype, device=self.device)
+            episode.append(data)
+        return episode
 
-    def _dataloader(self, render=False):
+    def generate_batch(self, n_episodes=1, render=False, use_buffer=True):
+        data = []
+        for _ in range(n_episodes):
+            data.extend(self.rollout(render=render))
+        # no point in not using the validation data in training
+        self.buffer.extend(data)
+
+        if use_buffer:
+            data = list(self.buffer)
+            random.shuffle(data)
+        return iter(data)
+
+    def _dataloader(self, **kwargs):
         return DataLoader(
-            ExperienceSourceDataset(self.generate_batch, render=render),
+            ExperienceSourceDataset(self.generate_batch, **kwargs),
             batch_size=self.batch_size,
         )
 
     def train_dataloader(self):
-        return self._dataloader()
+        return self._dataloader(use_buffer=True)
 
     def val_dataloader(self):
-        return self._dataloader(render=self.render)
+        return self._dataloader(render=self.render, use_buffer=False)
+
+    def test_dataloader(self):
+        return self._dataloader(n_episodes=100, render=self.render, use_buffer=False)
 
 
 @auto_args
@@ -204,6 +240,7 @@ class MotionPlanningGPG(MotionPlanningPolicy):
         entropy_weight: float = 0.001,
         n_envs: int = 1,
         batch_size: int = 32,
+        render: int = 0,
         **kwargs,
     ):
         super().__init__()
@@ -217,6 +254,7 @@ class MotionPlanningGPG(MotionPlanningPolicy):
         self.entropy_weight = entropy_weight
         self.n_envs = n_envs
         self.batch_size = batch_size
+        self.render = render > 0
 
         env = gym.make("motion-planning-v0")
         assert isinstance(env, GraphEnv)
@@ -228,15 +266,6 @@ class MotionPlanningGPG(MotionPlanningPolicy):
 
     def forward(self, *args, **kwargs):
         return self.policy(*args, **kwargs)
-
-    def choose_action(self, mu, sigma):
-        distribution = torch.distributions.MultivariateNormal(
-            mu, torch.diag_embed(sigma)
-        )
-        action = distribution.sample()
-        log_prob = distribution.log_prob(action)
-        entropy = distribution.entropy()
-        return action, log_prob, entropy
 
     def training_step(self, batch, batch_idx):
         log_prob, entropy, reward, R, sigma = batch
@@ -266,11 +295,11 @@ class MotionPlanningGPG(MotionPlanningPolicy):
     def validation_step(self, batch, batch_idx):
         log_prob, entropy, reward, R, sigma = batch
         self.log("val/reward", reward.mean(), prog_bar=True)
-        self.log("val/loss", -reward.mean())
+        self.log("val/metric", -reward.mean())
 
     def test_step(self, batch, batch_idx):
         log_prob, entropy, reward, R, sigma = batch
-        self.log("test/reward", reward.mean(), prog_bar=True)
+        self.log("test/reward", reward.mean())
 
     def generate_batch(self, render=False, parallel=False):
         if parallel and render:
@@ -322,7 +351,7 @@ class MotionPlanningGPG(MotionPlanningPolicy):
         return self._dataloader(self.n_envs > 1, False)
 
     def val_dataloader(self):
-        return self._dataloader(self.n_envs > 1, False)
+        return self._dataloader(self.n_envs > 1, self.render)
 
     def test_dataloader(self):
-        return self._dataloader(False, True)
+        return self._dataloader(False, self.render)
