@@ -195,8 +195,12 @@ class MotionPlanningImitation(MotionPlanningPolicy):
 
             data = self.to_graph_data(observation, self.env.adjacency())
             # since we are doing imitation want to learn action
-            data.y = torch.from_numpy(expert_action).to(dtype=self.dtype, device=self.device)
-            data.reward = torch.as_tensor(reward).to(dtype=self.dtype, device=self.device)
+            data.y = torch.from_numpy(expert_action).to(
+                dtype=self.dtype, device=self.device
+            )
+            data.reward = torch.as_tensor(reward).to(
+                dtype=self.dtype, device=self.device
+            )
             episode.append(data)
         return episode
 

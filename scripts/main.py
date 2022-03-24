@@ -21,7 +21,9 @@ import torch
 
 def make_trainer(params):
     logger = (
-        TensorBoardLogger(save_dir=f"./{params.operation}/", name="tensorboard", version="")
+        TensorBoardLogger(
+            save_dir=f"./{params.operation}/", name="tensorboard", version=""
+        )
         if params.log
         else None
     )
@@ -81,6 +83,7 @@ def pretrain(params):
     ckpt_path = "./pretrain/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
+    trainer.test(model)
 
     model.load_from_checkpoint(find_checkpoint("pretrain"))
     model.save_policy("./pretrain/policy.pt")
@@ -99,12 +102,12 @@ def train(params):
         print("Resuming from pretraining.")
         imitation = MotionPlanningImitation.load_from_checkpoint(pretrain_checkpoint)
         merged = {
-                **vars(params),
-                **{
-                    "F": imitation.F,
-                    "K": imitation.K,
-                    "n_layers": imitation.n_layers,
-                },
+            **vars(params),
+            **{
+                "F": imitation.F,
+                "K": imitation.K,
+                "n_layers": imitation.n_layers,
+            },
         }
         model = MotionPlanningGPG(**merged)
         model.policy = imitation.policy
