@@ -1,1 +1,0 @@
-from gym_flock.envs.shepherding.shepherding import ShepherdingEnv
