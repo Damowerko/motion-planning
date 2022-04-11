@@ -1,6 +1,13 @@
+import random
 from torch.utils.data import IterableDataset
-from typing import Callable, Iterable, Iterator
+from typing import Any, Iterable, Iterator, List, Generic, TypeVar
 from collections import deque, namedtuple
+from typing import Protocol
+
+
+class SampleGenerator(Protocol):
+    def __call__(self, *args, **kwargs) -> Iterator[Any]:
+        ...
 
 
 class ExperienceSourceDataset(IterableDataset):
@@ -9,11 +16,42 @@ class ExperienceSourceDataset(IterableDataset):
     generated is defined the Lightning model itself
     """
 
-    def __init__(self, generate_batch: Callable, *args, **kwargs) -> None:
-        self.generate_batch = generate_batch
+    def __init__(self, sample_generator: SampleGenerator, *args, **kwargs):
+        self.sample_generator = sample_generator
         self.args = args
         self.kwargs = kwargs
 
     def __iter__(self) -> Iterator:
-        iterator = self.generate_batch(*self.args, **self.kwargs)
-        return iterator
+        return self.sample_generator(*self.args, **self.kwargs)
+
+
+T = TypeVar("T")
+
+
+class ReplayBuffer(Generic[T]):
+    def __init__(self, max_size):
+        self.buffer = [None] * max_size
+        self.max_size = max_size
+        self.index = 0
+        self.size = 0
+
+    def append(self, data: T):
+        self.buffer[self.index] = data
+        self.size = min(self.size + 1, self.max_size)
+        self.index = (self.index + 1) % self.max_size
+
+    def extend(self, iterable: Iterable[T]):
+        for data in iterable:
+            self.append(data)
+
+    def collect(self, shuffle=False) -> List[T]:
+        if shuffle:
+            return self.sample(self.size)
+        return self.buffer[: self.size]
+
+    def sample(self, num_samples) -> List[T]:
+        indices = random.sample(range(self.size), num_samples)
+        return [self.buffer[index] for index in indices]
+
+    def __len__(self) -> int:
+        return self.size

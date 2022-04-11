@@ -2,21 +2,21 @@ import argparse
 import os
 import sys
 from typing import Union
-import shutil
 
 import numpy as np
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from reconstrain.envs.motion_planning import MotionPlanning
 from reconstrain.models import (
+    MotionPlanningActorCritic,
     MotionPlanningGPG,
     MotionPlanningImitation,
-    MotionPlanningPolicy,
+    MotionPlanningTD3,
 )
 from reconstrain.utils import TensorboardHistogramLogger
 from tqdm import tqdm
-import torch
 
 
 def make_trainer(params):
@@ -77,30 +77,22 @@ def find_checkpoint(operation):
             return ckpt
 
 
-def pretrain(params):
+def imitation(params):
     trainer = make_trainer(params)
     model = MotionPlanningImitation(**vars(params))
-    ckpt_path = "./pretrain/checkpoints/last.ckpt"
+    ckpt_path = "./imitation/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
-    trainer.test(model)
-
-    model.load_from_checkpoint(find_checkpoint("pretrain"))
-    model.save_policy("./pretrain/policy.pt")
+    if params.test:
+        trainer.test(model)
 
 
 def train(params):
     trainer = make_trainer(params)
-
-    if os.path.exists("./checkpoints"):
-        os.makedirs("./pretrain")
-        shutil.copytree("./checkpoints/pretrain/", "./pretrain/checkpoints/")
-        shutil.copy("./policy.pt", "./pretrain/policy.pt")
-
-    pretrain_checkpoint = find_checkpoint("pretrain")
-    if pretrain_checkpoint is not None:
+    imitation_checkpoint = find_checkpoint("imitation")
+    if imitation_checkpoint is not None:
         print("Resuming from pretraining.")
-        imitation = MotionPlanningImitation.load_from_checkpoint(pretrain_checkpoint)
+        imitation = MotionPlanningImitation.load_from_checkpoint(imitation_checkpoint)
         merged = {
             **vars(params),
             **{
@@ -110,7 +102,7 @@ def train(params):
             },
         }
         model = MotionPlanningGPG(**merged)
-        model.policy = imitation.policy
+        model.actor = imitation.actor
     else:
         print("Did not find a pretrain checkpoint.")
         model = MotionPlanningGPG(**vars(params))
@@ -119,10 +111,16 @@ def train(params):
     ckpt_path = "./train/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
-    trainer.test(model)
+    if params.test:
+        trainer.test(model)
 
 
-def _test(policy: Union[MotionPlanningPolicy, str], n_trials=10, render=False):
+def _test(
+    policy: Union[MotionPlanningActorCritic, str],
+    max_steps=200,
+    n_trials=10,
+    render=False,
+):
     env = MotionPlanning()
     rewards = []
 
@@ -133,20 +131,19 @@ def _test(policy: Union[MotionPlanningPolicy, str], n_trials=10, render=False):
     }
 
     for _ in tqdm(range(n_trials)):
-        done = False
         trial_rewards = []
         observation = env.reset()
-        while not done:
+        for _ in range(max_steps):
             if render:
                 env.render()
             if isinstance(policy, str):
                 action = reference_policy[policy]()
             else:
                 with torch.no_grad():
-                    data = policy.to_graph_data(observation, env.adjacency())
+                    data = policy.to_data(observation, env.adjacency())
                     action = (
-                        policy.choose_action(
-                            *policy(data.x, data.edge_index, data.edge_attr),
+                        policy.policy(
+                            *policy.forward(data.x, data.edge_index, data.edge_attr),
                             deterministic=True,
                         )[0]
                         .detach()
@@ -155,6 +152,8 @@ def _test(policy: Union[MotionPlanningPolicy, str], n_trials=10, render=False):
                     )
             observation, reward, done, _ = env.step(action)
             trial_rewards.append(reward)
+            if done:
+                break
         trial_reward = np.mean(trial_rewards)
         rewards.append(trial_reward)
 
@@ -177,40 +176,54 @@ def test(params):
     _test(model, n_trials=params.n_trials, render=params.render)
 
 
+def get_model(model_str) -> MotionPlanningActorCritic:
+    return {
+        "imitation": MotionPlanningImitation,
+        "gpg": MotionPlanningGPG,
+        "td3": MotionPlanningTD3,
+    }[model_str]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # program arguments
-    parser.add_argument("operation", metavar="OP", type=str, default="train")
+    parser.add_argument(
+        "operation",
+        metavar="OP",
+        type=str,
+        default="td3",
+        choices=["imitation", "gpg", "td3", "test", "baseline"],
+    )
+    operation = sys.argv[1]
+
     parser.add_argument("--log", type=int, default=1)
     parser.add_argument("--histograms", type=int, default=0)
     parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--test", type=int, default=1)
 
     # trainer arguments
     group = parser.add_argument_group("Trainer")
     group.add_argument("--max_epochs", type=int, default=1000)
     group.add_argument("--gpus", type=int, default=1)
 
-    # model arguments
-    operation = sys.argv[1]
-    group = parser.add_argument_group("Model")
-    if operation == "pretrain":
-        MotionPlanningImitation.add_args(group)
-    elif operation == "train":
-        MotionPlanningGPG.add_args(group)
+    # operation specific arguments arguments
+    group = parser.add_argument_group("Operation")
+    if operation in ("imitation", "gpg", "td3"):
+        get_model(operation).add_args(group)
     elif operation in ("test", "baseline"):
         group.add_argument("--render", type=int, default=0)
         group.add_argument("--n_trials", type=int, default=10)
-        group.add_argument("--policy", type=str, default="c")
+        if operation == "baseline":
+            group.add_argument("--policy", type=str, default="c")
 
     params = parser.parse_args()
-
-    if params.operation == "train":
+    if params.operation in ("gpg", "td3"):
         train(params)
     elif params.operation == "test":
         test(params)
-    elif params.operation == "pretrain":
-        pretrain(params)
+    elif params.operation == "imitation":
+        imitation(params)
     elif params.operation == "baseline":
         _test(params.policy, n_trials=params.n_trials, render=params.render)
     else:

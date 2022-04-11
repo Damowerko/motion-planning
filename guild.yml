@@ -1,55 +1,40 @@
-- model: gpg
+- model: ump
+  sourcecode:
+    select:
+      - "*.py"
+      - include:
+          dir: scripts
+      - include:
+            dir: src
   operations:
-    pretrain:
-      main: scripts/main pretrain
+    imitation:
+      main: scripts/main imitation
       output-scalars: off
       flags-dest: args
       flags-import: all
-      sourcecode:
-        select:
-          - "*.py"
-          - include:
-              dir: scripts
-          - include:
-                dir: src
-    train:
-      main: scripts/main train
+    gpg:
+      main: scripts/main gpg
       output-scalars: off
       flags-dest: args
       flags-import: all
-      sourcecode:
-        select:
-          - "*.py"
-          - include:
-              dir: scripts
-          - include:
-              dir: src
       requires:
-        - operation: pretrain
+        - operation: imitation
+    td3:
+      main: scripts/main td3
+      output-scalars: off
+      flags-dest: args
+      flags-import: all
+      requires:
+        - operation: imitation
     test:
       main: scripts/main test
       output-scalars: off
       flags-dest: args
       flags-import: all
-      sourcecode:
-        select:
-          - "*.py"
-          - include:
-              dir: scripts
-          - include:
-              dir: src
       requires:
         - operation: ${target}
           name: model
       flags:
         target:
-          choices: [pretrain, train]
-          default: train
+          choices: [imitation, gpg, td3]
           arg-skip: yes
-  resources:
-    data:
-      - file: data/
-        target-type: link
-    logs:
-      - file: logs/
-        target-type: link
