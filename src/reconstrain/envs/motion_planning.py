@@ -22,7 +22,6 @@ class MotionPlanningRender:
         self.fig = plt.figure()
         self.ax = plt.axes()
         self.reset()
-        # plt.show(block=False)
 
     def reset(self):
         self.ax.clear()
@@ -53,10 +52,11 @@ class MotionPlanningRender:
 
 def argtopk(X, K, axis=-1):
     """
-    Return the indices of the top K largest elements along an axis. Not sorted.
+    Return the indices of the top K largest elements along an axis in descending order.
     """
-    idx = np.argpartition(X, -K, axis=axis)
-    return idx.take(range(-K, 0), axis=axis)
+    r = range(K)
+    idx = np.argpartition(-X, r, axis=axis)
+    return idx.take(r, axis=axis)
 
 
 def index_to_coo(idx):
@@ -109,8 +109,8 @@ class MotionPlanning(GraphEnv):
 
         self.dt = 0.1
         self.width = 1.0 * np.sqrt(self.n_agents)
-        self.reward_cutoff = 0.5
-        self.reward_sigma = 0.25
+        self.reward_cutoff = 0.2
+        self.reward_sigma = 0.1
 
         # agent properties
         self.max_accel = 0.5
@@ -179,7 +179,7 @@ class MotionPlanning(GraphEnv):
 
     def adjacency(self):
         dist = cdist(self.position, self.position)
-        idx = argtopk(dist, self.n_neighbors, axis=1)
+        idx = argtopk(-dist, self.n_neighbors + 1, axis=1)
         return index_to_coo(idx)
 
     def centralized_policy(self):
@@ -218,13 +218,14 @@ class MotionPlanning(GraphEnv):
 
     def _observed_agents(self):
         dist = cdist(self.position, self.position)
-        idx = argtopk(-dist, self.n_observed_agents, axis=1)
+        idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
+        idx = idx[:, 1:]  # remove self
         return self.position[idx].reshape(self.n_agents, -1)
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx].reshape(self.n_agents, -1)
+        return self.target_positions[idx, :].reshape(self.n_agents, -1)
 
     def _observation(self):
         return np.concatenate(
@@ -239,7 +240,8 @@ class MotionPlanning(GraphEnv):
         dist = cdist(self.target_positions, self.position)
         idx = argtopk(-dist, 1, axis=1).reshape(-1)
         d = dist[np.arange(len(idx)), idx]
-        reward = np.exp(-(d ** 2) / (2 * self.reward_sigma ** 2))
+        reward = np.exp(-((d / self.reward_sigma) ** 2))
+        reward[d > self.reward_cutoff] = 0
         return reward.mean()
 
     def step(self, action):
