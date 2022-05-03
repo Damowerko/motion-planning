@@ -101,11 +101,11 @@ def train(params):
                 "n_layers": imitation.n_layers,
             },
         }
-        model = MotionPlanningGPG(**merged)
+        model = get_model(params.operation)(**merged)
         model.actor = imitation.actor
     else:
         print("Did not find a pretrain checkpoint.")
-        model = MotionPlanningGPG(**vars(params))
+        model = get_model(params.operation)(**vars(params))
 
     # check if checkpoint exists
     ckpt_path = "./train/checkpoints/last.ckpt"
