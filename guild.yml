@@ -1,33 +1,33 @@
+- package: gpkg.ump
+  description: unlabeled motion planning
 - model: ump
   sourcecode:
     select:
       - "*.py"
       - include:
-          dir: scripts
-      - include:
             dir: src
   operations:
     imitation:
-      main: scripts/main imitation
+      main: reconstrain.main imitation
       output-scalars: off
       flags-dest: args
       flags-import: all
     gpg:
-      main: scripts/main gpg
+      main: reconstrain.main gpg
       output-scalars: off
       flags-dest: args
       flags-import: all
       requires:
         - operation: imitation
     td3:
-      main: scripts/main td3
+      main: reconstrain.main td3
       output-scalars: off
       flags-dest: args
       flags-import: all
       requires:
         - operation: imitation
     test:
-      main: scripts/main test
+      main: reconstrain.main test
       output-scalars: off
       flags-dest: args
       flags-import: all
