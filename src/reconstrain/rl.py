@@ -1,7 +1,6 @@
 import random
 from torch.utils.data import IterableDataset
 from typing import Any, Iterable, Iterator, List, Generic, TypeVar
-from collections import deque, namedtuple
 from typing import Protocol
 
 
@@ -50,7 +49,7 @@ class ReplayBuffer(Generic[T]):
         return self.buffer[: self.size]
 
     def sample(self, num_samples) -> List[T]:
-        indices = random.sample(range(self.size), num_samples)
+        indices = random.choices(range(self.size), k=num_samples)
         return [self.buffer[index] for index in indices]
 
     def __len__(self) -> int:
