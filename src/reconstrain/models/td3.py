@@ -51,7 +51,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
                 self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
             ),
             torch.optim.AdamW(
-                chain(self.critic[0].parameters(), self.critic[1].parameters()),
+                chain(self.critics[0].parameters(), self.critics[1].parameters()),
                 lr=self.lr,
                 weight_decay=self.weight_decay,
             ),
@@ -66,7 +66,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         return torch.clamp(mu + eps, -1, 1)
 
     def batch_generator(self, n_episodes=1, use_buffer=True, render=False):
-        data = chain(*[self.rollout(render=render) for _ in range(n_episodes)])
+        data = list(chain(*[self.rollout(render=render) for _ in range(n_episodes)]))
         self.buffer.extend(data)
         if use_buffer:
             return iter(self.buffer.sample(self.batch_size * self.batches_per_epoch))
@@ -76,11 +76,11 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def training_step(self, data: Data, batch_idx, optimizer_idx):
         while len(self.buffer) < self.start_steps:
             self.buffer.extend(self.rollout())
-        mu, _ = self.actor(data.x, data.edge_index, data.edge_attr)
+        mu, _ = self.actor(data.x, data)
         if optimizer_idx == 0 and batch_idx % self.policy_delay == 0:
             # actor optimizer
-            mu = self.actor(data.x, data.edge_index, data.edge_attr)[0]
-            q = self.critic(data.x, mu, data.edge_index, data.edge_attr)
+            mu = self.actor(data.x, data)[0]
+            q = self.critic(data.x, mu, data)
             loss = -q.mean()  # maximize
             self.log("train/actor_loss", loss, prog_bar=True)
 
@@ -92,17 +92,15 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             # critic optimizer
             # compute the target
             with torch.no_grad():
-                muprime, _ = self.actor_swa(
-                    data.xprime, data.edge_index, data.edge_attr
-                )
+                muprime, _ = self.actor_swa(data.xprime, data)
                 action = self.policy(muprime, self.target_noise, self.target_clip)
                 qprime = torch.min(
-                    critic_swa(data.xprime, action, data.edge_index, data.edge_attr)
+                    critic_swa(data.xprime, action, data)
                     for critic_swa in self.critics_swa
                 )
                 target = data.reward + self.gamma * qprime
             # minimize mse to target
-            q = self.critic(data.x, data.action, data.edge_index, data.edge_attr)
+            q = self.critic(data.x, data.action, data)
             loss = F.mse_loss(q, target)
             self.log("train/critic_loss", loss, prog_bar=True)
         return loss

@@ -1,20 +1,18 @@
-from typing import Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
-import gym
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as gnn
-from stable_baselines3.common.env_util import make_vec_env
+from reconstrain.envs.motion_planning import MotionPlanning
+from reconstrain.rl import ExperienceSourceDataset
+from reconstrain.utils import auto_args
 from torch_geometric.data import Batch, Data
 from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
-
-from reconstrain.envs.motion_planning import GraphEnv, MotionPlanning
-from reconstrain.rl import ExperienceSourceDataset
-from reconstrain.utils import auto_args
+from torch_scatter import scatter_mean
 
 
 class GNN(nn.Module):
@@ -44,7 +42,7 @@ class GNN(nn.Module):
             raise ValueError(f"Unknown activation {activation}.")
         activation_: nn.Module = self.activations[activation]
 
-        Fs = [F_in] + [F] * (n_layers) + [F_out]
+        Fs = [F_in] + [F] * n_layers + [F_out]
         layers = []
         for i in range(n_layers + 1):
             layers += [
@@ -56,10 +54,8 @@ class GNN(nn.Module):
             ]
         self.gnn = gnn.Sequential("x, edge_index, edge_weight", layers)
 
-    def forward(
-        self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor
-    ) -> torch.Tensor:
-        return self.gnn(x, edge_index, edge_weight)
+    def forward(self, x: torch.Tensor, data: BaseData) -> torch.Tensor:
+        return self.gnn(x, data.edge_index, data.edge_weight)
 
 
 class GNNActor(nn.Module):
@@ -68,35 +64,37 @@ class GNNActor(nn.Module):
         state_ndim: int,
         action_ndim: int,
         n_nodes: int,
-        F: int = 512,
+        F: int = 256,
         K: int = 4,
-        n_layers: int = 2,
+        n_layers: int = 4,
         activation: str = "leaky_relu",
-        predict_sigma=True,
+        logsigma_scale: float = 3.0,
     ):
         super().__init__()
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
         self.n_nodes = n_nodes
-        self.predict_sigma = predict_sigma
-        self.gnn = GNN(
+        self.logsigma_scale = logsigma_scale
+        self.gnn_mu = GNN(
             state_ndim,
-            action_ndim * (2 if predict_sigma else 1),
+            action_ndim,
+            F,
+            K,
+            n_layers,
+            activation=activation,
+        )
+        self.gnn_sigma = GNN(
+            state_ndim,
+            action_ndim,
             F,
             K,
             n_layers,
             activation=activation,
         )
 
-    def forward(
-        self, state: torch.Tensor, edge_index: torch.Tensor, edge_weight: torch.Tensor
-    ):
-        x = self.gnn(state, edge_index, edge_weight)
-        mu = x[..., : self.action_ndim]
-        if not self.predict_sigma:
-            return mu
-        logsigma = x[..., self.action_ndim :]
-        sigma = torch.exp(logsigma)
+    def forward(self, state: torch.Tensor, data: BaseData):
+        mu = self.gnn_mu.forward(state, data)
+        sigma = self.gnn_sigma.forward(state, data).abs()
         return mu, sigma
 
     def policy(
@@ -118,13 +116,14 @@ class GNNActor(nn.Module):
             log_prob: (batch_size, 1) log probability of the action (if action is given).
             entropy: (batch_size, 1) entropy of the action (if action is given).
         """
-        normal = torch.distributions.Normal(mu, sigma)
-        dist = torch.distributions.Independent(normal, 1)
         if action is None:
-            action = dist.rsample()
+            eps = torch.randn_like(mu)
+            action = torch.tanh(mu + sigma * eps)
             assert isinstance(action, torch.Tensor)
-            return action
-        log_prob = dist.log_prob(action)
+            return torch.tanh(action)
+        log_prob_corr = torch.log(1 - action ** 2 + 1e-6)
+        print(log_prob_corr.shape)
+        assert False  # TODO: check above
         entropy = dist.entropy()
         assert isinstance(log_prob, torch.Tensor) and isinstance(entropy, torch.Tensor)
         return action, log_prob, entropy
@@ -153,12 +152,11 @@ class GNNCritic(nn.Module):
         self,
         state: torch.Tensor,
         action: torch.Tensor,
-        edge_index: torch.Tensor,
-        edge_weight: torch.Tensor,
+        data: BaseData,
     ) -> torch.Tensor:
         x = torch.cat([state, action], dim=-1)
-        y = self.gnn(x, edge_index, edge_weight)
-        return y.view(-1, self.n_nodes).mean(-1)
+        y = self.gnn(x, data)
+        return scatter_mean(y, data.batch, dim=0)
 
 
 @auto_args
@@ -167,7 +165,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self,
         F: int = 512,
         K: int = 4,
-        n_layers: int = 2,
+        n_layers: int = 4,
         lr: float = 0.001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
@@ -208,12 +206,22 @@ class MotionPlanningActorCritic(pl.LightningModule):
             activation=activation,
         )
 
-    def before_rollout_step(self, data: BaseData):
-        """Modify the data object before rollout step. Override this to add custom behavior."""
-        return data
+    def rollout_start(self):
+        """
+        Called before rollout starts.
+        """
+        return None
+
+    def rollout_step(self, data: BaseData):
+        """
+        Called after rollout step.
+        """
+        next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
+        return data, next_state, reward, done
 
     @torch.no_grad()
     def rollout(self, render=False) -> List[BaseData]:
+        self.rollout_start()
         episode = []
         observation = self.env.reset()
         data = self.to_data(observation, self.env.adjacency())
@@ -222,18 +230,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
                 self.env.render()
 
             # sample action
-            mu, sigma = self.actor(data.state, data.edge_index, data.edge_attr)
-            action = self.actor.policy(mu, sigma)
-            assert isinstance(action, torch.Tensor)
-
-            data = self.before_rollout_step(data)
-
+            data.mu, data.sigma = self.actor(data.state, data)
+            data.action = (
+                self.actor.policy(data.mu, data.sigma) if self.training else data.mu
+            )
             # take step
-            next_state, reward, done, _ = self.env.step(action.detach().cpu().numpy())
-            next_data = self.to_data(next_state, self.env.adjacency())
+            data, next_state, reward, done = self.rollout_step(data)
 
             # add additional attributes
-            data.action = action
+            next_data = self.to_data(next_state, self.env.adjacency())
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
@@ -276,11 +281,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
             for i, adj in enumerate(adjacency):
                 data.append(self.to_data(state[i], adj))
             return Batch.from_data_list(data)
-        state = (
-            torch.from_numpy(state)
-            .to(dtype=self.dtype, device=self.device)  # type: ignore
-            .reshape(-1, self.env.observation_ndim)
+        state = torch.from_numpy(state).to(
+            dtype=self.dtype, device=self.device  # type: ignore
         )
+        assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore

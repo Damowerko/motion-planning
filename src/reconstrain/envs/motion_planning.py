@@ -101,7 +101,7 @@ class GraphEnv(gym.Env, ABC):
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
 
-    def __init__(self, n_agents=100):
+    def __init__(self, n_agents=10):
         self.n_agents = n_agents
         self.n_targets = n_agents
 
@@ -115,11 +115,11 @@ class MotionPlanning(GraphEnv):
         # agent properties
         self.max_accel = 0.5
         self.agent_radius = 0.1
-        self.n_observed_agents = 3
-        self.n_observed_targets = 3
+        self.n_observed_agents = self.n_agents - 1  # 3
+        self.n_observed_targets = self.n_targets  # 3
 
         # comm graph properties
-        self.n_neighbors = 3
+        self.n_neighbors = self.n_agents - 1  # 3
 
         self._n_nodes = self.n_agents
 
@@ -189,15 +189,12 @@ class MotionPlanning(GraphEnv):
         action = self.target_positions[col_idx] - self.position[row_idx]
 
         action = np.clip(action, -self.max_accel, self.max_accel)
-        return action.reshape(self.action_space.shape)
+        assert action.shape == self.action_space.shape
+        return action
 
     def decentralized_policy(self, hops=0):
-        observed_targets = self._observed_targets().reshape(
-            self.n_agents, self.n_observed_targets, 2
-        )
-        observed_agents = self._observed_agents().reshape(
-            self.n_agents, self.n_observed_agents, 2
-        )
+        observed_targets = self._observed_targets()
+        observed_agents = self._observed_agents()
         if hops == 0:
             action = observed_targets[:, 0, :] - self.position
         else:
@@ -214,23 +211,26 @@ class MotionPlanning(GraphEnv):
                     action[i] = target_positions[assignment] - agent_positions[0]
 
         action = np.clip(action, -self.max_accel, self.max_accel)
-        return action.reshape(self.action_space.shape)
+        assert action.shape == self.action_space.shape
+        return action
 
     def _observed_agents(self):
         dist = cdist(self.position, self.position)
         idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx].reshape(self.n_agents, -1)
+        return self.position[idx]
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :].reshape(self.n_agents, -1)
+        return self.target_positions[idx, :]
 
     def _observation(self):
-        return np.concatenate(
-            (self.state, self._observed_targets(), self._observed_agents()), axis=1
-        ).reshape(self.observation_space.shape)
+        tgt = self._observed_targets().reshape(self.n_agents, -1)
+        agt = self._observed_agents().reshape(self.n_agents, -1)
+        obs = np.concatenate((self.state, tgt, agt), axis=1)
+        assert obs.shape == self.observation_space.shape
+        return obs
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)
@@ -238,14 +238,14 @@ class MotionPlanning(GraphEnv):
 
     def _reward(self):
         dist = cdist(self.target_positions, self.position)
-        idx = argtopk(-dist, 1, axis=1).reshape(-1)
+        idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
         reward = np.exp(-((d / self.reward_sigma) ** 2))
         reward[d > self.reward_cutoff] = 0
         return reward.mean()
 
     def step(self, action):
-        action = action.reshape(self.n_agents, self.action_ndim)
+        assert action.shape == self.action_space.shape
         action = np.clip(action, -1, 1) * self.max_accel
         self.velocity = action
         self.position += self.velocity * self.dt
@@ -289,3 +289,4 @@ if __name__ == "__main__":
             action = env.decentralized_policy()
             done = env.step(action)[2]
             adj = env.adjacency()
+            env.render()

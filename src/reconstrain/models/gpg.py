@@ -27,9 +27,8 @@ class MotionPlanningGPG(MotionPlanningActorCritic):
     def forward(self, *args, **kwargs):
         return self.actor(*args, **kwargs)
 
-    def training_step(self, batch, batch_idx):
-        log_prob, entropy, reward, R, sigma = batch
-        policy_loss = -(R[:, None, None] * log_prob).mean()
+    def training_step(self, data, batch_idx, optimizer_idx):
+        policy_loss = -(data.R[:, None, None] * log_prob).mean()
         entropy_loss = -self.entropy_weight * entropy.mean()
         loss = policy_loss + entropy_loss
         self.manual_backward(loss)

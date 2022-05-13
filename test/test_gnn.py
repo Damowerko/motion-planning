@@ -1,20 +1,16 @@
-from reconstrain.gnn import GraphConv, GNN
+from reconstrain.models.base import GNN
 import torch
 
 
-def test_filter():
-    x = torch.rand(16, 10, 2)
-    S = torch.rand(10, 10)
-    filter = GraphConv(2, 5, 4)
-    y = filter(x, S)
-    assert y.shape == (16, 10, 5)
-
-
 def test_gnn():
-    x = torch.rand(16, 10, 2)
+    K = 8
+    F_in = 2
+    F = 16
+    F_out = 4
+
+    x = torch.rand(16, 10, F_in)
     S = torch.rand(10, 10)
-    K = [4, 8]
-    F = [2, 8, 4]
-    gnn = GNN(K, F, torch.relu)
+    gnn = GNN(F_in=F_in, F_out=F_out, K=K, F=F, n_layers=4)
     y = gnn(x, S)
-    assert y.shape == (16, 10, 4)
+
+    assert y.shape == (16, 10, 4), "GNN output shape is incorrect"

@@ -143,7 +143,7 @@ def _test(
                     data = policy.to_data(observation, env.adjacency())
                     action = (
                         policy.policy(
-                            *policy.forward(data.x, data.edge_index, data.edge_attr),
+                            *policy.forward(data.x, data),
                             deterministic=True,
                         )[0]
                         .detach()
@@ -204,7 +204,7 @@ if __name__ == "__main__":
 
     # trainer arguments
     group = parser.add_argument_group("Trainer")
-    group.add_argument("--max_epochs", type=int, default=1000)
+    group.add_argument("--max_epochs", type=int, default=100)
     group.add_argument("--gpus", type=int, default=1)
 
     # operation specific arguments arguments
