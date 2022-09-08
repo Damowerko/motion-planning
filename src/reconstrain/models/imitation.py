@@ -1,5 +1,4 @@
 import random
-from typing import Callable, Union
 from reconstrain.models.base import *
 from reconstrain.rl import ReplayBuffer
 
@@ -33,9 +32,9 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
     def training_step(self, data, batch_idx, optimizer_idx):
         if optimizer_idx == 0:
             mu, _ = self.actor.forward(data.state, data)
-            mu = F.mse_loss(mu, data.expert)
-            self.log("train/mu_loss", mu, prog_bar=True)
-            return mu
+            loss = F.mse_loss(torch.tanh(mu), data.expert)
+            self.log("train/mu_loss", loss, prog_bar=True)
+            return loss
         elif optimizer_idx == 1:
             q = self.critic.forward(data.state, data.action, data)
             with torch.no_grad():
