@@ -62,7 +62,7 @@ def make_trainer(params):
         gpus=params.gpus,
         max_epochs=params.max_epochs,
         default_root_dir=".",
-        check_val_every_n_epoch=10,
+        check_val_every_n_epoch=1,
     )
     return trainer
 

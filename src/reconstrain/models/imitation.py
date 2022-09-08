@@ -104,7 +104,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         return self._dataloader(n_episodes=1, render=False, use_buffer=True)
 
     def val_dataloader(self):
-        return self._dataloader(n_episodes=10, render=self.render, use_buffer=False)
+        return self._dataloader(n_episodes=1, render=self.render, use_buffer=False)
 
     def test_dataloader(self):
         return self._dataloader(n_episodes=100, render=self.render, use_buffer=False)
