@@ -101,7 +101,7 @@ class GraphEnv(gym.Env, ABC):
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
 
-    def __init__(self, n_agents=10):
+    def __init__(self, n_agents=100):
         self.n_agents = n_agents
         self.n_targets = n_agents
 
