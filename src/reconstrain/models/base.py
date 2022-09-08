@@ -1,3 +1,5 @@
+from platform import architecture
+import sched
 from typing import Any, Dict, Iterator, List, Optional
 
 import pytorch_lightning as pl
@@ -30,6 +32,7 @@ class GNN(nn.Module):
         K: int,
         n_layers: int,
         activation: str = "leaky_relu",
+        architecture: str = "tag",
     ):
         super().__init__()
         if F_in < 1 or F_out < 1 or F < 1 or K < 1:
@@ -45,9 +48,15 @@ class GNN(nn.Module):
         Fs = [F_in] + [F] * n_layers + [F_out]
         layers = []
         for i in range(n_layers + 1):
+
+            gnn_layer = {
+                "tag": gnn.TAGConv(Fs[i], Fs[i + 1], K=K, normalize=True),
+                "gat": gnn.GATv2Conv(Fs[i], Fs[i + 1], K),
+            }[architecture]
+
             layers += [
                 (
-                    gnn.TAGConv(Fs[i], Fs[i + 1], K=K, normalize=True),
+                    gnn_layer,
                     "x, edge_index, edge_weight -> x",
                 ),
                 (activation_ if i < n_layers - 1 else nn.Identity(), "x -> x"),
