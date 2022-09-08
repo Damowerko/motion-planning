@@ -1,6 +1,6 @@
 import random
 from torch.utils.data import IterableDataset
-from typing import Any, Iterable, Iterator, List, Generic, TypeVar
+from typing import Any, Iterable, Iterator, List, Generic, TypeVar, Tuple
 from typing import Protocol
 
 
@@ -43,14 +43,34 @@ class ReplayBuffer(Generic[T]):
         for data in iterable:
             self.append(data)
 
+    def sample(self, num_samples) -> List[T]:
+        indices = random.choices(range(self.size), k=num_samples)
+        return [self.buffer[index] for index in indices]
+
     def collect(self, shuffle=False) -> List[T]:
         if shuffle:
             return self.sample(self.size)
         return self.buffer[: self.size]
 
-    def sample(self, num_samples) -> List[T]:
-        indices = random.choices(range(self.size), k=num_samples)
-        return [self.buffer[index] for index in indices]
-
     def __len__(self) -> int:
         return self.size
+
+
+class WeightedReplayBuffer(ReplayBuffer[T]):
+    def __init__(self, max_size):
+        super().__init__(max_size)
+        self.weights = [0.0] * max_size
+
+    def append(self, data: T, weight: float):
+        self.weights[self.index] = weight
+        super().append(data)
+
+    def extend(self, iterable: Iterable[Tuple[T, float]]):
+        for data, weight in iterable:
+            self.append(data, weight)
+
+    def sample(self, num_samples) -> List[T]:
+        indices = random.choices(
+            range(self.size), weights=self.weights[: self.size], k=num_samples
+        )
+        return [self.buffer[index] for index in indices]
