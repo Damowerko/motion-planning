@@ -15,11 +15,11 @@ matplotlib = "^3.5.1"
 PySide6 = "^6.2.2.1"
 gym = "^0.19.0"
 scipy = "^1.8.0"
-torch-scatter = {url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_scatter-2.0.9-cp39-cp39-linux_x86_64.whl"}
-torch-sparse = {url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_sparse-0.6.14-cp39-cp39-linux_x86_64.whl"}
 torch-cluster = {url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_cluster-1.6.0-cp39-cp39-linux_x86_64.whl"}
+torch-scatter = {url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_scatter-2.0.9-cp39-cp39-linux_x86_64.whl"}
+torch-sparse = {url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_sparse-0.6.15-cp39-cp39-linux_x86_64.whl"}
 torch-spline-conv = {url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_spline_conv-1.2.1-cp39-cp39-linux_x86_64.whl"}
-torch-geometric = "^2.0.3"
+torch-geometric = "^2.1.0.post1"
 stable-baselines3 = "^1.4.0"
 networkx = "^2.7.1"
 numba = "^0.55.1"
