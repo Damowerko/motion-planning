@@ -36,17 +36,18 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             self.log("train/mu_loss", loss, prog_bar=True)
             return loss
         elif optimizer_idx == 1:
-            q = self.critic.forward(data.state, data.action, data)
-            with torch.no_grad():
-                muprime, _ = self.actor.forward(data.next_state, data)
-                qprime = self.critic(data.next_state, muprime, data)
-            loss = self.critic_loss(q, qprime, data.reward, data.done)
-            self.log("train/critic_loss", loss, prog_bar=True)
-            return loss
+            pass
+            # q = self.critic.forward(data.state, data.action, data)
+            # with torch.no_grad():
+            #     muprime, _ = self.actor.forward(data.next_state, data)
+            #     qprime = self.critic(data.next_state, muprime, data)
+            # loss = self.critic_loss(q, qprime, data.reward[:, None], data.done[:, None])
+            # self.log("train/critic_loss", loss, prog_bar=True)
+            # return loss
 
     def validation_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.state, data)
-        loss = F.mse_loss(yhat, data.expert)
+        loss = F.mse_loss(torch.tanh(yhat), data.expert)
         self.log("val/loss", loss, prog_bar=True)
         self.log("val/reward", data.reward.mean(), prog_bar=True)
         self.log("val/metric", -data.reward.mean())
