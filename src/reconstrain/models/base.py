@@ -1,5 +1,3 @@
-from platform import architecture
-import sched
 from typing import Any, Dict, Iterator, List, Optional
 
 import pytorch_lightning as pl
@@ -48,12 +46,10 @@ class GNN(nn.Module):
         Fs = [F_in] + [F] * n_layers + [F_out]
         layers = []
         for i in range(n_layers + 1):
-
             gnn_layer = {
                 "tag": gnn.TAGConv(Fs[i], Fs[i + 1], K=K, normalize=True),
-                "gat": gnn.GATv2Conv(Fs[i], Fs[i + 1], K),
+                "gat": gnn.GATv2Conv(Fs[i], Fs[i + 1]),
             }[architecture]
-
             layers += [
                 (
                     gnn_layer,
@@ -77,6 +73,7 @@ class GNNActor(nn.Module):
         K: int = 4,
         n_layers: int = 4,
         activation: str = "leaky_relu",
+        architecture: str = "tag",
         logsigma_scale: float = 3.0,
     ):
         super().__init__()
@@ -91,6 +88,7 @@ class GNNActor(nn.Module):
             K,
             n_layers,
             activation=activation,
+            architecture=architecture,
         )
         self.gnn_sigma = GNN(
             state_ndim,
@@ -99,6 +97,7 @@ class GNNActor(nn.Module):
             K,
             n_layers,
             activation=activation,
+            architecture=architecture,
         )
 
     def forward(self, state: torch.Tensor, data: BaseData):
@@ -148,13 +147,20 @@ class GNNCritic(nn.Module):
         K: int = 2,
         n_layers: int = 2,
         activation: str = "leaky_relu",
+        architecture: str = "tag",
     ):
         super().__init__()
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
         self.n_nodes = n_nodes
         self.gnn = GNN(
-            state_ndim + action_ndim, 1, F, K, n_layers, activation=activation
+            state_ndim + action_ndim,
+            1,
+            F,
+            K,
+            n_layers,
+            activation=activation,
+            architecture=architecture,
         )
 
     def forward(
@@ -172,15 +178,16 @@ class GNNCritic(nn.Module):
 class MotionPlanningActorCritic(pl.LightningModule):
     def __init__(
         self,
-        F: int = 512,
-        K: int = 4,
-        n_layers: int = 4,
+        F: int = 128,
+        K: int = 8,
+        n_layers: int = 2,
         lr: float = 0.001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
-        gamma=0.99,
+        gamma=0.95,
         max_steps=200,
         activation: str = "leaky_relu",
+        architecture: str = "tag",
         **kwargs,
     ):
         super().__init__()
@@ -204,6 +211,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             K=K,
             n_layers=n_layers,
             activation=activation,
+            architecture=architecture,
         )
         self.critic = GNNCritic(
             self.env.observation_ndim,
@@ -213,6 +221,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             K=K,
             n_layers=n_layers,
             activation=activation,
+            architecture=architecture,
         )
 
     def rollout_start(self):
@@ -268,8 +277,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
     def critic_loss(
         self,
         q: torch.Tensor,
-        reward: torch.Tensor,
         qprime: torch.Tensor,
+        reward: torch.Tensor,
         done: torch.Tensor,
     ) -> torch.Tensor:
         return F.mse_loss(q, reward + torch.logical_not(done) * self.gamma * qprime)
