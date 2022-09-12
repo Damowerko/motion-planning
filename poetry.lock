@@ -1800,34 +1800,32 @@ python-versions = ">=3.6"
 
 [[package]]
 name = "torch"
-version = "1.10.2+cu113"
+version = "1.12.1+cu116"
 description = "Tensors and Dynamic neural networks in Python with strong GPU acceleration"
 category = "main"
 optional = false
-python-versions = ">=3.6.2"
+python-versions = ">=3.7.0"
 
 [package.dependencies]
 typing-extensions = "*"
 
 [package.source]
-type = "legacy"
-url = "https://eternalphane.github.io/pytorch-pypi"
-reference = "pytorch"
-
+type = "url"
+url = "https://download.pytorch.org/whl/cu116/torch-1.12.1%2Bcu116-cp39-cp39-linux_x86_64.whl"
 [[package]]
 name = "torch-cluster"
-version = "1.5.9"
+version = "1.6.0"
 description = "PyTorch Extension Library of Optimized Graph Cluster Algorithms"
 category = "main"
 optional = false
-python-versions = ">=3.6"
+python-versions = ">=3.7"
 
 [package.extras]
-test = ["pytest", "pytest-cov", "pytest-runner", "scipy"]
+test = ["pytest", "pytest-cov", "scipy"]
 
 [package.source]
 type = "url"
-url = "https://data.pyg.org/whl/torch-1.10.0+cu113/torch_cluster-1.5.9-cp39-cp39-linux_x86_64.whl"
+url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_cluster-1.6.0-cp39-cp39-linux_x86_64.whl"
 [[package]]
 name = "torch-geometric"
 version = "2.1.0.post1"
@@ -1865,24 +1863,24 @@ test = ["pytest", "pytest-cov"]
 
 [package.source]
 type = "url"
-url = "https://data.pyg.org/whl/torch-1.10.0+cu113/torch_scatter-2.0.9-cp39-cp39-linux_x86_64.whl"
+url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_scatter-2.0.9-cp39-cp39-linux_x86_64.whl"
 [[package]]
 name = "torch-sparse"
-version = "0.6.12"
+version = "0.6.14"
 description = "PyTorch Extension Library of Optimized Autograd Sparse Matrix Operations"
 category = "main"
 optional = false
-python-versions = ">=3.6"
+python-versions = ">=3.7"
 
 [package.dependencies]
 scipy = "*"
 
 [package.extras]
-test = ["pytest", "pytest-cov", "pytest-runner"]
+test = ["pytest", "pytest-cov"]
 
 [package.source]
 type = "url"
-url = "https://data.pyg.org/whl/torch-1.10.0+cu113/torch_sparse-0.6.12-cp39-cp39-linux_x86_64.whl"
+url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_sparse-0.6.14-cp39-cp39-linux_x86_64.whl"
 [[package]]
 name = "torch-spline-conv"
 version = "1.2.1"
@@ -1896,7 +1894,7 @@ test = ["pytest", "pytest-cov"]
 
 [package.source]
 type = "url"
-url = "https://data.pyg.org/whl/torch-1.10.0+cu113/torch_spline_conv-1.2.1-cp39-cp39-linux_x86_64.whl"
+url = "https://data.pyg.org/whl/torch-1.12.0%2Bcu116/torch_spline_conv-1.2.1-cp39-cp39-linux_x86_64.whl"
 [[package]]
 name = "torchmetrics"
 version = "0.9.3"
@@ -2078,7 +2076,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9,<3.10"
-content-hash = "f36bdf2995fc15b7c56c95146ec125022bd7092cee57cbf2f5962a02bc92d1d7"
+content-hash = "b576b89408ae15d8b47f8dcdad121b666c6435f3ef31524a53a1613512d12246"
 
 [metadata.files]
 absl-py = [
@@ -3585,16 +3583,7 @@ tomli = [
     {file = "tomli-1.2.3-py3-none-any.whl", hash = "sha256:e3069e4be3ead9668e21cb9b074cd948f7b3113fd9c8bba083f48247aab8b11c"},
     {file = "tomli-1.2.3.tar.gz", hash = "sha256:05b6166bff487dc068d322585c7ea4ef78deed501cc124060e0f238e89a9231f"},
 ]
-torch = [
-    {file = "torch-1.10.2+cu113-cp36-cp36m-linux_x86_64.whl", hash = "sha256:bb3a9405184c78f041c83e1483a239986794009f531f94ad53173bdb71e3c35f"},
-    {file = "torch-1.10.2+cu113-cp36-cp36m-win_amd64.whl", hash = "sha256:368d0b1ac91b556a100da35a7784a0f2cd4b1a7298b9122faa5dd2facf9871fc"},
-    {file = "torch-1.10.2+cu113-cp37-cp37m-linux_x86_64.whl", hash = "sha256:cadda6a1d51efde306eb057667e1da91a8f98d7f7cf4ad7ae1c94a5e1a6a4f5e"},
-    {file = "torch-1.10.2+cu113-cp37-cp37m-win_amd64.whl", hash = "sha256:a1a1f50ff5c6d83fac2adc07a8e76a197381bcd847be0d80fa2ab446eb70039f"},
-    {file = "torch-1.10.2+cu113-cp38-cp38-linux_x86_64.whl", hash = "sha256:c59e8f17a76757f22ffdf6da37561ce7bd7f92c5d602e3371eb223e5a976b6ec"},
-    {file = "torch-1.10.2+cu113-cp38-cp38-win_amd64.whl", hash = "sha256:2a9ca5be12ab83e59a8b2a9522c62c3b17c92ac06ac94f3fda9ba8393fb1cea6"},
-    {file = "torch-1.10.2+cu113-cp39-cp39-linux_x86_64.whl", hash = "sha256:f1f985ce8591b20aa038756a83c348144ca10119952f4ae5703dbb7aae1b3ce2"},
-    {file = "torch-1.10.2+cu113-cp39-cp39-win_amd64.whl", hash = "sha256:15c87057a7c221460abee15795710c9b50898167abb134fdb39eced76f6e9dff"},
-]
+torch = []
 torch-cluster = []
 torch-geometric = [
     {file = "torch_geometric-2.1.0.post1.tar.gz", hash = "sha256:32347402076ccf60fa50312825178f1e3e5ce5e7b3b3a8b2729ac699da24525d"},
