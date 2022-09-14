@@ -100,10 +100,17 @@ class GraphEnv(gym.Env, ABC):
 
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
+    scenarios = {"uniform", "gaussian_uniform"}
 
-    def __init__(self, n_agents=100):
+    def __init__(self, n_agents=100, scenario="uniform"):
         self.n_agents = n_agents
         self.n_targets = n_agents
+
+        if scenario not in self.scenarios:
+            raise ValueError(
+                f"Scenario {scenario} is not a valid scenario. Possibilities {self.scenarios}."
+            )
+        self.scenario = scenario
 
         # Since space is 2D scale is inversely proportional to sqrt of the number of agents
 
@@ -115,11 +122,11 @@ class MotionPlanning(GraphEnv):
         # agent properties
         self.max_accel = 0.5
         self.agent_radius = 0.1
-        self.n_observed_agents = self.n_agents - 1  # 3
-        self.n_observed_targets = self.n_targets  # 3
+        self.n_observed_agents = 3
+        self.n_observed_targets = 3
 
         # comm graph properties
-        self.n_neighbors = self.n_agents - 1  # 3
+        self.n_neighbors = 3
 
         self._n_nodes = self.n_agents
 
@@ -189,7 +196,7 @@ class MotionPlanning(GraphEnv):
         action = self.target_positions[col_idx] - self.position[row_idx]
 
         action = np.clip(action, -self.max_accel, self.max_accel)
-        assert action.shape == self.action_space.shape
+        assert action.shape == self.action_space.shape  # type: ignore
         return action
 
     def decentralized_policy(self, hops=0):
@@ -197,8 +204,8 @@ class MotionPlanning(GraphEnv):
         observed_agents = self._observed_agents()
         if hops == 0:
             action = observed_targets[:, 0, :] - self.position
-        else:
-            action = np.zeros(self.action_space.shape)
+        elif hops == 1:
+            action = np.zeros(self.action_space.shape)  # type: ignore
             for i in range(self.n_agents):
                 agent_positions = np.concatenate(
                     (self.position[i, None, :], observed_agents[i]), axis=0
@@ -209,9 +216,10 @@ class MotionPlanning(GraphEnv):
                 assignment = col_idx[np.nonzero(row_idx == 0)]
                 if len(assignment) > 0:
                     action[i] = target_positions[assignment] - agent_positions[0]
-
+        else:
+            raise NotImplementedError("Hops > 1 not implemented.")
         action = np.clip(action, -self.max_accel, self.max_accel)
-        assert action.shape == self.action_space.shape
+        assert action.shape == self.action_space.shape  # type: ignore
         return action
 
     def _observed_agents(self):
@@ -229,7 +237,7 @@ class MotionPlanning(GraphEnv):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
         obs = np.concatenate((self.state, tgt, agt), axis=1)
-        assert obs.shape == self.observation_space.shape
+        assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
     def _done(self) -> bool:
@@ -245,7 +253,7 @@ class MotionPlanning(GraphEnv):
         return reward.mean()
 
     def step(self, action):
-        assert action.shape == self.action_space.shape
+        assert action.shape == self.action_space.shape  # type: ignore
         action = np.clip(action, -1, 1) * self.max_accel
         self.velocity = action
         self.position += self.velocity * self.dt
@@ -253,11 +261,25 @@ class MotionPlanning(GraphEnv):
         return self._observation(), self._reward(), self._done(), {}
 
     def reset(self):
-        self.target_positions = rng.uniform(
-            -self.width / 2, self.width / 2, (self.n_targets, 2)
-        )
         self.state = np.zeros((self.n_agents, self.state_ndim))
-        self.position = rng.uniform(-self.width / 2, self.width / 2, (self.n_agents, 2))
+        if self.scenario == "uniform":
+            self.target_positions = rng.uniform(
+                -self.width / 2, self.width / 2, (self.n_targets, 2)
+            )
+            self.position = rng.uniform(
+                -self.width / 2, self.width / 2, (self.n_agents, 2)
+            )
+        elif self.scenario == "gaussian_uniform":
+            # agents are normally distributed around the origin
+            # targets are uniformly distributed
+            self.target_positions = rng.uniform(
+                -self.width / 2, self.width / 2, (self.n_targets, 2)
+            )
+            self.position = rng.normal(size=(self.n_agents, 2))
+        else:
+            raise ValueError(
+                f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."
+            )
 
         self.t = 0
         if self.render_ is not None:
@@ -281,12 +303,14 @@ class MotionPlanning(GraphEnv):
 
 
 if __name__ == "__main__":
-    env = MotionPlanning()
+    env = MotionPlanning(scenario="gaussian_uniform")
+    n_steps = 200
     for i in range(100):
         env.reset()
-        done = False
-        while not done:
-            action = env.decentralized_policy()
+        for i in range(n_steps):
+            action = env.decentralized_policy(hops=0)
             done = env.step(action)[2]
             adj = env.adjacency()
             env.render()
+            if done:
+                break

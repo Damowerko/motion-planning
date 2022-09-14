@@ -188,6 +188,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         max_steps=200,
         activation: str = "leaky_relu",
         architecture: str = "tag",
+        n_agents: int = 100,
+        scenario: str = "uniform",
         **kwargs,
     ):
         super().__init__()

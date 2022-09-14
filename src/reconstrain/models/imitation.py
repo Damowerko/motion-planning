@@ -7,7 +7,7 @@ from reconstrain.rl import ReplayBuffer
 class MotionPlanningImitation(MotionPlanningActorCritic):
     def __init__(
         self,
-        buffer_size: int = 1000000,
+        buffer_size: int = 100000,
         target_policy: str = "c",
         expert_probability: float = 0.5,
         expert_probability_decay: float = 0.99,
@@ -101,7 +101,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         return iter(data)
 
     def train_dataloader(self):
-        return self._dataloader(n_episodes=1, render=False, use_buffer=True)
+        return self._dataloader(n_episodes=10, render=False, use_buffer=True)
 
     def val_dataloader(self):
         return self._dataloader(n_episodes=1, render=self.render, use_buffer=False)

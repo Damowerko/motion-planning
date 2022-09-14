@@ -120,9 +120,13 @@ def _test(
     max_steps=200,
     n_trials=10,
     render=False,
+    n_agents=100,
+    scenario="uniform",
 ):
-    env = MotionPlanning()
-    rewards = []
+    if isinstance(policy, str):
+        env = MotionPlanning(n_agents=n_agents, scenario=scenario)
+    else:
+        env = policy.env
 
     reference_policy = {
         "c": env.centralized_policy,
@@ -130,6 +134,7 @@ def _test(
         "d1": lambda: env.decentralized_policy(1),
     }
 
+    rewards = []
     for _ in tqdm(range(n_trials)):
         trial_rewards = []
         observation = env.reset()
