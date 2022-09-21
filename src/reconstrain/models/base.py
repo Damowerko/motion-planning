@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import pytorch_lightning as pl
 import torch
@@ -129,7 +129,7 @@ class GNNActor(nn.Module):
             action = torch.tanh(mu + sigma * eps)
             assert isinstance(action, torch.Tensor)
             return torch.tanh(action)
-        log_prob_corr = torch.log(1 - action ** 2 + 1e-6)
+        log_prob_corr = torch.log(1 - action**2 + 1e-6)
         print(log_prob_corr.shape)
         assert False  # TODO: check above
         entropy = dist.entropy()
@@ -190,6 +190,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         architecture: str = "tag",
         n_agents: int = 100,
         scenario: str = "uniform",
+        optimizer: str = "adamw",
         **kwargs,
     ):
         super().__init__()
@@ -203,8 +204,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.batch_size = batch_size
         self.gamma = gamma
         self.max_steps = max_steps
+        self.optimizer = optimizer
 
-        self.env = MotionPlanning()
+        self.env = MotionPlanning(n_agents=n_agents, scenario=scenario)
         self.actor = GNNActor(
             self.env.observation_ndim,
             self.env.action_ndim,
@@ -286,14 +288,26 @@ class MotionPlanningActorCritic(pl.LightningModule):
         return F.mse_loss(q, reward + torch.logical_not(done) * self.gamma * qprime)
 
     def configure_optimizers(self):
-        return [
-            torch.optim.AdamW(
-                self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            ),
-            torch.optim.AdamW(
-                self.critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            ),
-        ]
+        if self.optimizer == "adamw":
+            return [
+                torch.optim.AdamW(
+                    self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
+                ),
+                torch.optim.AdamW(
+                    self.critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
+                ),
+            ]
+        elif self.optimizer == "sgd":
+            return [
+                torch.optim.SGD(
+                    self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
+                ),
+                torch.optim.SGD(
+                    self.critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
+                ),
+            ]
+        else:
+            raise ValueError(f"Unknown optimizer: {self.optimizer}")
 
     def to_data(self, state, adjacency) -> BaseData:
         if isinstance(adjacency, list):

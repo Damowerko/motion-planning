@@ -219,6 +219,12 @@ if __name__ == "__main__":
     elif operation in ("test", "baseline"):
         group.add_argument("--render", type=int, default=0)
         group.add_argument("--n_trials", type=int, default=10)
+        group.add_argument(
+            "--scenario",
+            type=str,
+            default="uniform",
+            choices=["uniform", "gaussian_uniform"],
+        )
         if operation == "baseline":
             group.add_argument("--policy", type=str, default="c")
 
@@ -230,6 +236,11 @@ if __name__ == "__main__":
     elif params.operation == "imitation":
         imitation(params)
     elif params.operation == "baseline":
-        _test(params.policy, n_trials=params.n_trials, render=params.render)
+        _test(
+            params.policy,
+            n_trials=params.n_trials,
+            render=params.render,
+            scenario=params.scenario,
+        )
     else:
         raise ValueError(f"Invalid operation {params.operation}.")
