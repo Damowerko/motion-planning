@@ -85,12 +85,12 @@ class GraphEnv(gym.Env, ABC):
 
     @property
     @abstractmethod
-    def action_ndim(self):
+    def action_ndim(self) -> int:
         pass
 
     @property
     @abstractmethod
-    def observation_ndim(self):
+    def observation_ndim(self) -> int:
         pass
 
     @abstractmethod
