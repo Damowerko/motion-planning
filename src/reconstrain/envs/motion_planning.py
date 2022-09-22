@@ -268,7 +268,7 @@ class MotionPlanning(GraphEnv):
             )
             self.position = rng.uniform(
                 -self.width / 2, self.width / 2, (self.n_agents, 2)
-            )
+            )  
         elif self.scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
             # targets are uniformly distributed
