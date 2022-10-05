@@ -10,7 +10,7 @@ def test_gnn():
 
     x = torch.rand(16, 10, F_in)
     S = torch.rand(10, 10)
-    gnn = GNN(F_in=F_in, F_out=F_out, K=K, F=F, n_layers=4)
+    gnn = GNN(F_in=F_in, F_out=F_out, K=K, F=F, n_layers_gnn=4)
     y = gnn(x, S)
 
     assert y.shape == (16, 10, 4), "GNN output shape is incorrect"

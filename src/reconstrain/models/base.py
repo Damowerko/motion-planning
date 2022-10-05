@@ -17,8 +17,8 @@ from torch_scatter import scatter_mean
 
 class GNN(nn.Module):
     activations: Dict[str, nn.Module] = {
-        "relu": nn.ReLU(),
-        "leaky_relu": nn.LeakyReLU(),
+        "relu": nn.ReLU(True),
+        "leaky_relu": nn.LeakyReLU(True),
         "tanh": nn.Tanh(),
     }
 
@@ -28,7 +28,9 @@ class GNN(nn.Module):
         F_out: int,
         F: int,
         K: int,
-        n_layers: int,
+        n_layers_gnn: int,
+        n_layers_mlp: int,
+        dropout: float = 0.0,
         activation: str = "leaky_relu",
         architecture: str = "tag",
     ):
@@ -37,30 +39,54 @@ class GNN(nn.Module):
             raise ValueError(
                 f"F_in, F_out, F, K must be positive. Got {F_in}, {F_out}, {F}, {K}."
             )
-        if n_layers < 0:
-            raise ValueError(f"n_layers must be non-negative. Got {n_layers}.")
+        if n_layers_gnn <= 0:
+            raise ValueError(f"n_layers must be positive. Got {n_layers_gnn}.")
+        if n_layers_mlp <= 0:
+            raise ValueError(f"n_layers_mlp must be positive. Got {n_layers_mlp}.")
         if activation not in self.activations:
             raise ValueError(f"Unknown activation {activation}.")
         activation_: nn.Module = self.activations[activation]
 
-        Fs = [F_in] + [F] * n_layers + [F_out]
-        layers = []
-        for i in range(n_layers + 1):
+        
+        encoder_layers = []
+        for i in range(n_layers_mlp):
+            encoder_layers += [
+                nn.Linear(F_in if i == 0 else F, F),
+                activation_,
+                nn.Dropout(dropout),
+            ]
+
+        decoder_layers = []
+        for i in range(n_layers_mlp):
+            decoder_layers += [
+                nn.Linear(F, F_out if i == n_layers_mlp - 1 else F),
+            ]
+            if i < n_layers_mlp - 1:
+                decoder_layers += [activation_, nn.Dropout(dropout)]
+
+        gnn_layers = []
+        for i in range(n_layers_gnn):
             gnn_layer = {
-                "tag": gnn.TAGConv(Fs[i], Fs[i + 1], K=K, normalize=True),
-                "gat": gnn.GATv2Conv(Fs[i], Fs[i + 1]),
+                "tag": gnn.TAGConv(F, F, K=K, normalize=True),
+                "gat": gnn.GATv2Conv(F, F),
             }[architecture]
-            layers += [
+            gnn_layers += [
                 (
                     gnn_layer,
                     "x, edge_index, edge_weight -> x",
                 ),
-                (activation_ if i < n_layers - 1 else nn.Identity(), "x -> x"),
+                (activation_ if i < n_layers_gnn - 1 else nn.Identity(), "x -> x"),
             ]
-        self.gnn = gnn.Sequential("x, edge_index, edge_weight", layers)
+
+        self.encoder = nn.Sequential(*encoder_layers)
+        self.gnn = gnn.Sequential("x, edge_index, edge_weight", gnn_layers)
+        self.decoder = nn.Sequential(*decoder_layers)
 
     def forward(self, x: torch.Tensor, data: BaseData) -> torch.Tensor:
-        return self.gnn(x, data.edge_index, data.edge_weight)
+        x = self.encoder(x)
+        x = self.gnn(x, data.edge_index, data.edge_weight)
+        x = self.decoder(x)
+        return x
 
 
 class GNNActor(nn.Module):
@@ -71,7 +97,9 @@ class GNNActor(nn.Module):
         n_nodes: int,
         F: int = 256,
         K: int = 4,
-        n_layers: int = 4,
+        n_layers_gnn: int = 4,
+        n_layers_mlp: int = 1,
+        dropout: float = 0.0,
         activation: str = "leaky_relu",
         architecture: str = "tag",
         logsigma_scale: float = 3.0,
@@ -86,18 +114,22 @@ class GNNActor(nn.Module):
             action_ndim,
             F,
             K,
-            n_layers,
+            n_layers_gnn,
+            n_layers_mlp,
             activation=activation,
             architecture=architecture,
+            dropout=dropout,
         )
         self.gnn_sigma = GNN(
             state_ndim,
             action_ndim,
             F,
             K,
-            n_layers,
+            n_layers_gnn,
+            n_layers_mlp,
             activation=activation,
             architecture=architecture,
+            dropout=dropout,
         )
 
     def forward(self, state: torch.Tensor, data: BaseData):
@@ -145,7 +177,9 @@ class GNNCritic(nn.Module):
         n_nodes: int,
         F: int = 128,
         K: int = 2,
-        n_layers: int = 2,
+        dropout: float = 0.0,
+        n_layers_gnn: int = 4,
+        n_layers_mlp: int = 1,
         activation: str = "leaky_relu",
         architecture: str = "tag",
     ):
@@ -158,9 +192,11 @@ class GNNCritic(nn.Module):
             1,
             F,
             K,
-            n_layers,
+            n_layers_gnn,
+            n_layers_mlp,
             activation=activation,
             architecture=architecture,
+            dropout=dropout,
         )
 
     def forward(
@@ -180,12 +216,14 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self,
         F: int = 128,
         K: int = 8,
-        n_layers: int = 2,
-        lr: float = 0.001,
+        n_layers_gnn: int = 1,
+        n_layers_mlp: int = 2,
+        lr: float = 0.0001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
         gamma=0.95,
         max_steps=200,
+        dropout: float = 0.0,
         activation: str = "leaky_relu",
         architecture: str = "tag",
         n_agents: int = 100,
@@ -198,13 +236,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         self.F = F
         self.K = K
-        self.n_layers = n_layers
+        self.n_layers_gnn = n_layers_gnn
+        self.n_layers_mlp = n_layers_mlp
         self.lr = lr
         self.weight_decay = weight_decay
         self.batch_size = batch_size
         self.gamma = gamma
         self.max_steps = max_steps
         self.optimizer = optimizer
+        self.dropout = dropout
 
         self.env = MotionPlanning(n_agents=n_agents, scenario=scenario)
         self.actor = GNNActor(
@@ -213,9 +253,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
             self.env.n_nodes,
             F=F,
             K=K,
-            n_layers=n_layers,
+            n_layers_gnn=n_layers_gnn,
+            n_layers_mlp=n_layers_mlp,
             activation=activation,
             architecture=architecture,
+            dropout=dropout,
         )
         self.critic = GNNCritic(
             self.env.observation_ndim,
@@ -223,9 +265,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
             self.env.n_nodes,
             F=F,
             K=K,
-            n_layers=n_layers,
+            n_layers_gnn=n_layers_gnn,
+            n_layers_mlp=n_layers_mlp,
             activation=activation,
             architecture=architecture,
+            dropout=dropout,
         )
 
     def rollout_start(self):
