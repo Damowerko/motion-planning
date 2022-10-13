@@ -47,7 +47,6 @@ class GNN(nn.Module):
             raise ValueError(f"Unknown activation {activation}.")
         activation_: nn.Module = self.activations[activation]
 
-        
         encoder_layers = []
         for i in range(n_layers_mlp):
             encoder_layers += [
