@@ -1,3 +1,6 @@
+import gym
+from stable_baselines3.common.env_util import make_vec_env
+
 from .base import *
 
 
@@ -20,7 +23,6 @@ class MotionPlanningGPG(MotionPlanningActorCritic):
         self.render = render > 0
 
         env = gym.make("motion-planning-v0")
-        assert isinstance(env, GraphEnv)
         self.env = env
         self.vec_env = make_vec_env("motion-planning-v0", n_envs=n_envs)
 

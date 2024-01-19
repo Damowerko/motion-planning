@@ -1,9 +1,9 @@
-import typing
 from copy import deepcopy
 from itertools import chain
 from typing import Optional
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Data
 from torchcps.utils import add_model_specific_args
@@ -23,7 +23,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         action_noise=0.1,
         target_noise=0.2,
         target_clip=0.5,
-        batches_per_epoch=100,
+        batches_per_epoch=1000,
         buffer_size=100_000,
         start_steps=2_000,
         render=False,
@@ -41,10 +41,10 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         self.buffer = ReplayBuffer[Data](buffer_size)
         self.actor_swa = torch.optim.swa_utils.AveragedModel(self.actor)
-        self.critics = [self.critic, deepcopy(self.critic)]
-        self.critics_swa = [
-            torch.optim.swa_utils.AveragedModel(critic) for critic in self.critics
-        ]
+        self.critics = nn.ModuleList([self.critic, deepcopy(self.critic)])
+        self.critics_swa = nn.ModuleList(
+            [torch.optim.swa_utils.AveragedModel(critic) for critic in self.critics]
+        )
         self.automatic_optimization = False
 
     def configure_optimizers(self):
@@ -112,17 +112,22 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         # minimize mse to target
         q = self.critic(data.state, data.action, data)
         loss = F.mse_loss(q, target)
-        self.log("train/critic_loss", loss, prog_bar=True)
+        self.log("train/critic_loss", loss, prog_bar=True, batch_size=data.batch_size)
 
         opt_critic.zero_grad()
         self.manual_backward(loss)
         opt_critic.step()
 
     def validation_step(self, data: Data, batch_idx):
-        self.log("val/reward", data.reward.mean(), prog_bar=True)
+        self.log(
+            "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
+        )
+        self.log("val/metric", -data.reward.mean(), batch_size=data.batch_size)
 
     def test_step(self, data: Data, batch_idx):
-        self.log("test/reward", data.reward.mean(), prog_bar=True)
+        self.log(
+            "test/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
+        )
 
     def train_dataloader(self):
         return self._dataloader(n_episodes=1, use_buffer=True, render=False)

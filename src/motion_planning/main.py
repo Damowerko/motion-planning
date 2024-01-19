@@ -26,7 +26,7 @@ def make_trainer(params):
             save_dir=f"./{params.operation}/", name="tensorboard", version=""
         )
         if params.log
-        else None
+        else False
     )
     callbacks = [
         EarlyStopping(
