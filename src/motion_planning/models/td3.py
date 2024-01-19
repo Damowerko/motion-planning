@@ -9,9 +9,9 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from pytorch_lightning.callbacks import LambdaCallback
 
-from reconstrain.utils import auto_args
-from reconstrain.models.base import MotionPlanningActorCritic
-from reconstrain.rl import ReplayBuffer
+from motion_planning.utils import auto_args
+from motion_planning.models.base import MotionPlanningActorCritic
+from motion_planning.rl import ReplayBuffer
 
 
 @auto_args

@@ -1,7 +1,7 @@
 import random
+from typing import Any, Generic, Iterable, Iterator, List, Protocol, Tuple, TypeVar
+
 from torch.utils.data import IterableDataset
-from typing import Any, Iterable, Iterator, List, Generic, TypeVar, Tuple
-from typing import Protocol
 
 
 class SampleGenerator(Protocol):

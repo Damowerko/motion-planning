@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as gnn
-from reconstrain.envs.motion_planning import MotionPlanning
-from reconstrain.rl import ExperienceSourceDataset
-from reconstrain.utils import auto_args
+from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.rl import ExperienceSourceDataset
+from motion_planning.utils import auto_args
 from torch_geometric.data import Batch, Data
 from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader

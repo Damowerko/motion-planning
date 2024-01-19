@@ -1,6 +1,6 @@
 import random
-from reconstrain.models.base import *
-from reconstrain.rl import ReplayBuffer
+from motion_planning.models.base import *
+from motion_planning.rl import ReplayBuffer
 
 
 @auto_args
@@ -65,7 +65,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         if self.training:
             expert_probability = (
                 self.expert_probability
-                * self.expert_probability_decay ** self.current_epoch
+                * self.expert_probability_decay**self.current_epoch
             )
             self.use_expert = random.random() < expert_probability
         else:

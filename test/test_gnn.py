@@ -1,4 +1,4 @@
-from reconstrain.models.base import GNN
+from motion_planning.models.base import GNN
 import torch
 
 

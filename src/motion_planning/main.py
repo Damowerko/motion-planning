@@ -8,14 +8,14 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
-from reconstrain.envs.motion_planning import MotionPlanning
-from reconstrain.models import (
+from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.models import (
     MotionPlanningActorCritic,
     MotionPlanningGPG,
     MotionPlanningImitation,
     MotionPlanningTD3,
 )
-from reconstrain.utils import TensorboardHistogramLogger
+from motion_planning.utils import TensorboardHistogramLogger
 from tqdm import tqdm
 
 
