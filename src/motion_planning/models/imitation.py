@@ -1,10 +1,14 @@
 import random
+
 from motion_planning.models.base import *
 from motion_planning.rl import ReplayBuffer
 
 
-@auto_args
 class MotionPlanningImitation(MotionPlanningActorCritic):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
     def __init__(
         self,
         buffer_size: int = 100000,
@@ -28,36 +32,45 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.buffer = ReplayBuffer[BaseData](buffer_size)
         self.expert_probability = expert_probability
         self.expert_probability_decay = expert_probability_decay
+        self.automatic_optimization = False
 
-    def training_step(self, data, batch_idx, optimizer_idx):
-        if optimizer_idx == 0:
-            mu, _ = self.actor.forward(data.state, data)
-            loss = F.mse_loss(torch.tanh(mu), data.expert)
-            self.log("train/mu_loss", loss, prog_bar=True)
-            return loss
-        elif optimizer_idx == 1:
-            pass
-            # q = self.critic.forward(data.state, data.action, data)
-            # with torch.no_grad():
-            #     muprime, _ = self.actor.forward(data.next_state, data)
-            #     qprime = self.critic(data.next_state, muprime, data)
-            # loss = self.critic_loss(q, qprime, data.reward[:, None], data.done[:, None])
-            # self.log("train/critic_loss", loss, prog_bar=True)
-            # return loss
+    def training_step(self, data, batch_idx):
+        opt_actor, opt_critic = self.optimizers()
+
+        # actor step
+        mu, _ = self.actor.forward(data.state, data)
+        loss = F.mse_loss(torch.tanh(mu), data.expert)
+        self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
+        opt_actor.zero_grad()
+        self.manual_backward(loss)
+        opt_actor.step()
+
+        # critic step
+        # q = self.critic.forward(data.state, data.action, data)
+        # with torch.no_grad():
+        #     muprime, _ = self.actor.forward(data.next_state, data)
+        #     qprime = self.critic(data.next_state, muprime, data)
+        # loss = self.critic_loss(q, qprime, data.reward[:, None], data.done[:, None])
+        # self.log("train/critic_loss", loss, prog_bar=True, batch_size=data.batch_size)
+        # opt_critic.zero_grad()
+        # self.manual_backward(loss)
+        # opt_critic.step()
 
     def validation_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.state, data)
         loss = F.mse_loss(torch.tanh(yhat), data.expert)
-        self.log("val/loss", loss, prog_bar=True)
-        self.log("val/reward", data.reward.mean(), prog_bar=True)
-        self.log("val/metric", -data.reward.mean())
+        self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
+        self.log(
+            "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
+        )
+        self.log("val/metric", -data.reward.mean(), batch_size=data.batch_size)
         return loss
 
     def test_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.state, data)
         loss = F.mse_loss(yhat, data.expert)
-        self.log("test/loss", loss)
-        self.log("test/reward", data.reward.mean())
+        self.log("test/loss", loss, batch_size=data.batch_size)
+        self.log("test/reward", data.reward.mean(), batch_size=data.batch_size)
         return loss
 
     def rollout_start(self):

@@ -1,21 +1,22 @@
-from pickletools import optimize
-from typing import List, Optional
-from itertools import chain
+import typing
 from copy import deepcopy
+from itertools import chain
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
 from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
-from pytorch_lightning.callbacks import LambdaCallback
+from torchcps.utils import add_model_specific_args
 
-from motion_planning.utils import auto_args
 from motion_planning.models.base import MotionPlanningActorCritic
 from motion_planning.rl import ReplayBuffer
 
 
-@auto_args
 class MotionPlanningTD3(MotionPlanningActorCritic):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
     def __init__(
         self,
         policy_delay=2,
@@ -44,9 +45,10 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.critics_swa = [
             torch.optim.swa_utils.AveragedModel(critic) for critic in self.critics
         ]
+        self.automatic_optimization = False
 
     def configure_optimizers(self):
-        return [
+        return (
             torch.optim.AdamW(
                 self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
             ),
@@ -55,7 +57,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
                 lr=self.lr,
                 weight_decay=self.weight_decay,
             ),
-        ]
+        )
 
     def policy(
         self, mu: torch.Tensor, noise: float, noise_clip: Optional[float] = None
@@ -73,37 +75,48 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         else:
             return iter(data)
 
-    def training_step(self, data: Data, batch_idx, optimizer_idx):
+    def training_step(self, data: Data, batch_idx):
         while len(self.buffer) < self.start_steps:
             self.buffer.extend(self.rollout())
-        mu, _ = self.actor(data.x, data)
-        if optimizer_idx == 0 and batch_idx % self.policy_delay == 0:
-            # actor optimizer
-            mu = self.actor(data.x, data)[0]
-            q = self.critic(data.x, mu, data)
-            loss = -q.mean()  # maximize
-            self.log("train/actor_loss", loss, prog_bar=True)
+        mu, _ = self.actor(data.state, data)
 
-            # also update swa for BOTH actor and critics since we use policy delay
-            self.actor_swa.update_parameters(self.actor)
-            for critic_swa, critic in zip(self.critics_swa, self.critics):
-                critic_swa.update_parameters(critic)
-        elif optimizer_idx == 1:
-            # critic optimizer
-            # compute the target
-            with torch.no_grad():
-                muprime, _ = self.actor_swa(data.xprime, data)
-                action = self.policy(muprime, self.target_noise, self.target_clip)
-                qprime = torch.min(
-                    critic_swa(data.xprime, action, data)
+        opt_actor, opt_critic = self.optimizers()
+
+        # actor optimizer
+        mu = self.actor(data.state, data)[0]
+        q = self.critic(data.state, mu, data)
+        loss = -q.mean()  # maximize
+        self.log("train/actor_loss", loss, prog_bar=True)
+
+        opt_actor.zero_grad()
+        self.manual_backward(loss)
+        opt_actor.step()
+
+        # also update swa for BOTH actor and critics since we use policy delay
+        self.actor_swa.update_parameters(self.actor)
+        for critic_swa, critic in zip(self.critics_swa, self.critics):
+            critic_swa.update_parameters(critic)
+
+        # critic optimizer
+        # compute the target
+        with torch.no_grad():
+            muprime, _ = self.actor_swa(data.next_state, data)
+            action = self.policy(muprime, self.target_noise, self.target_clip)
+            qprime = torch.min(
+                *[
+                    critic_swa(data.next_state, action, data)
                     for critic_swa in self.critics_swa
-                )
-                target = data.reward + self.gamma * qprime
-            # minimize mse to target
-            q = self.critic(data.x, data.action, data)
-            loss = F.mse_loss(q, target)
-            self.log("train/critic_loss", loss, prog_bar=True)
-        return loss
+                ]
+            )
+            target = data.reward + self.gamma * qprime
+        # minimize mse to target
+        q = self.critic(data.state, data.action, data)
+        loss = F.mse_loss(q, target)
+        self.log("train/critic_loss", loss, prog_bar=True)
+
+        opt_critic.zero_grad()
+        self.manual_backward(loss)
+        opt_critic.step()
 
     def validation_step(self, data: Data, batch_idx):
         self.log("val/reward", data.reward.mean(), prog_bar=True)

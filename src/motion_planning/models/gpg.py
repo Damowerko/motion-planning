@@ -1,8 +1,11 @@
 from .base import *
 
 
-@auto_args
 class MotionPlanningGPG(MotionPlanningActorCritic):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
     def __init__(
         self,
         entropy_weight: float = 0.001,
@@ -27,7 +30,7 @@ class MotionPlanningGPG(MotionPlanningActorCritic):
     def forward(self, *args, **kwargs):
         return self.actor(*args, **kwargs)
 
-    def training_step(self, data, batch_idx, optimizer_idx):
+    def training_step(self, data, batch_idx):
         policy_loss = -(data.R[:, None, None] * log_prob).mean()
         entropy_loss = -self.entropy_weight * entropy.mean()
         loss = policy_loss + entropy_loss

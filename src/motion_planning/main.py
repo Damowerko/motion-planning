@@ -8,6 +8,8 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
+from tqdm import tqdm
+
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.models import (
     MotionPlanningActorCritic,
@@ -16,7 +18,6 @@ from motion_planning.models import (
     MotionPlanningTD3,
 )
 from motion_planning.utils import TensorboardHistogramLogger
-from tqdm import tqdm
 
 
 def make_trainer(params):
@@ -59,7 +60,6 @@ def make_trainer(params):
         callbacks=callbacks,
         enable_checkpointing=params.log,
         precision=32,
-        gpus=params.gpus,
         max_epochs=params.max_epochs,
         default_root_dir=".",
         check_val_every_n_epoch=1,
@@ -148,7 +148,7 @@ def _test(
                     data = policy.to_data(observation, env.adjacency())
                     action = (
                         policy.policy(
-                            *policy.forward(data.x, data),
+                            *policy.forward(data.state, data),
                             deterministic=True,
                         )[0]
                         .detach()
@@ -210,12 +210,11 @@ if __name__ == "__main__":
     # trainer arguments
     group = parser.add_argument_group("Trainer")
     group.add_argument("--max_epochs", type=int, default=100)
-    group.add_argument("--gpus", type=int, default=1)
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
     if operation in ("imitation", "gpg", "td3"):
-        get_model(operation).add_args(group)
+        get_model(operation).add_model_specific_args(group)
     elif operation in ("test", "baseline"):
         group.add_argument("--render", type=int, default=0)
         group.add_argument("--n_trials", type=int, default=10)

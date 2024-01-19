@@ -7,21 +7,22 @@ license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.12"
+python = ">=3.11,<3.12"
 torch = {version = "=2.0.0"}
 torch-geometric = {version = "^2.3.1"}
-pytorch-lightning = "^1.7.5"
+pytorch-lightning = "^2.0.5"
 numpy = "^1.21.1"
 matplotlib = "^3.5.1"
 PySide6 = "^6.2.2.1"
 gym = "^0.26.2"
+stable-baselines3 = "^2.2.1"
 scipy = "^1.8.0"
 torch-sparse = "^0.6.18+pt20cu118"
 torch-cluster = "^1.6.3+pt20cu118"
-stable-baselines3 = "^2.2.1"
+torch-scatter = "^2.1.2+pt20cu118"
 networkx = "^2.7.1"
 numba = ">=0.55.1"
-torch-scatter = "^2.1.2+pt20cu118"
+torchcps = {git = "https://github.com/Damowerko/torchcps"}
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"

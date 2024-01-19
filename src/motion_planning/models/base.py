@@ -5,14 +5,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as gnn
-from motion_planning.envs.motion_planning import MotionPlanning
-from motion_planning.rl import ExperienceSourceDataset
-from motion_planning.utils import auto_args
 from torch_geometric.data import Batch, Data
 from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
+from torchcps.utils import add_model_specific_args
+
+from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.rl import ExperienceSourceDataset
 
 
 class GNN(nn.Module):
@@ -209,8 +210,11 @@ class GNNCritic(nn.Module):
         return scatter_mean(y, data.batch, dim=0)
 
 
-@auto_args
 class MotionPlanningActorCritic(pl.LightningModule):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
     def __init__(
         self,
         F: int = 128,
@@ -330,6 +334,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
     ) -> torch.Tensor:
         return F.mse_loss(q, reward + torch.logical_not(done) * self.gamma * qprime)
 
+    def optimizers(self):
+        opts = super().optimizers()
+        if not isinstance(opts, list) or len(opts) != 2:
+            raise ValueError(
+                "Expect exactly two optimizers: actor and critic. Double check that `configure_optimizers` returns two optimziers."
+            )
+        opt_actor, opt_critic = opts
+        return opt_actor, opt_critic
+
     def configure_optimizers(self):
         if self.optimizer == "adamw":
             return [
@@ -365,7 +378,12 @@ class MotionPlanningActorCritic(pl.LightningModule):
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore
-        return Data(state=state, edge_index=edge_index, edge_attr=edge_weight)
+        return Data(
+            state=state,
+            edge_index=edge_index,
+            edge_attr=edge_weight,
+            num_nodes=state.shape[0],
+        )
 
     def batch_generator(self, *args, **kwargs) -> Iterator:
         """
