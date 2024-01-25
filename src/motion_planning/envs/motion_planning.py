@@ -189,13 +189,22 @@ class MotionPlanning(GraphEnv):
         idx = argtopk(-dist, self.n_neighbors + 1, axis=1)
         return index_to_coo(idx)
 
+    def clip_action(self, action):
+        """
+        Clip action to a unit circle with radius self.max_accel.
+        Args:
+            action: An array of shape (..., 2) representing the action for each agent.
+        """
+        magnitude = np.linalg.norm(action, axis=-1, keepdims=True)
+        magnitude = np.minimum(magnitude, self.max_accel)
+        return action / magnitude
+
     def centralized_policy(self):
         distance = cdist(self.position, self.target_positions)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
         action = self.target_positions[col_idx] - self.position[row_idx]
-
-        action = np.clip(action, -self.max_accel, self.max_accel)
+        action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
 
@@ -218,7 +227,7 @@ class MotionPlanning(GraphEnv):
                     action[i] = target_positions[assignment] - agent_positions[0]
         else:
             raise NotImplementedError("Hops > 1 not implemented.")
-        action = np.clip(action, -self.max_accel, self.max_accel)
+        action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
 
@@ -254,7 +263,7 @@ class MotionPlanning(GraphEnv):
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
-        action = np.clip(action, -1, 1) * self.max_accel
+        action = self.clip_action(action)
         self.velocity = action
         self.position += self.velocity * self.dt
         self.t += self.dt
@@ -268,7 +277,7 @@ class MotionPlanning(GraphEnv):
             )
             self.position = rng.uniform(
                 -self.width / 2, self.width / 2, (self.n_agents, 2)
-            )  
+            )
         elif self.scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
             # targets are uniformly distributed
