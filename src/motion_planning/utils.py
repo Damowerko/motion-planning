@@ -1,5 +1,7 @@
 import pytorch_lightning as pl
 from torch.utils.tensorboard import SummaryWriter
+import torch
+import torch.nn.functional as F
 
 
 class TensorboardHistogramLogger(pl.Callback):

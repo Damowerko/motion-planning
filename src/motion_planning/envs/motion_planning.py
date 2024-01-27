@@ -130,7 +130,8 @@ class MotionPlanning(GraphEnv):
 
         self._n_nodes = self.n_agents
 
-        self._action_ndim = 2
+        # self._action_ndim = 2
+        self._action_ndim = 4
         self.action_space = spaces.Box(
             low=-1,
             high=1,
@@ -206,6 +207,7 @@ class MotionPlanning(GraphEnv):
         assert (row_idx == np.arange(self.n_agents)).all()
         action = self.target_positions[col_idx] - self.position[row_idx]
         action = self.clip_action(action)
+        action = np.concatenate((action, self.target_positions[col_idx]), axis=1)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
 
@@ -264,8 +266,9 @@ class MotionPlanning(GraphEnv):
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
-        action = self.clip_action(action)
-        self.velocity = action
+        accel = action[:,:2]
+        accel = self.clip_action(accel)
+        self.velocity = accel
         self.position += self.velocity * self.dt
         self.t += self.dt
         return self._observation(), self._reward(), self._done(), {}
