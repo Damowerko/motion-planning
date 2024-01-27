@@ -2,7 +2,7 @@ import pytorch_lightning as pl
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.nn.functional as F
-
+import numpy as np
 
 class TensorboardHistogramLogger(pl.Callback):
     def __init__(self, every_n_steps=1000):
@@ -29,3 +29,12 @@ class TensorboardHistogramLogger(pl.Callback):
         assert isinstance(writer, SummaryWriter), "Expexted logger to be SummaryWriter."
         for name, param in pl_module.named_parameters():
             writer.add_histogram("param/" + name, param, trainer.current_epoch)
+
+def mse_loss_target(input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    assert input.shape == target.shape, 'Arguments of loss function should have the same shape'
+    vel_loss = F.mse_loss(input[:,:2], target[:,:2])
+    target_loss = np.zeros(input.shape[0])
+    for i in range(input.shape[0]):
+        target_loss[i] = -1 if input[i,3:] == target[i,3:] else 0
+    target_loss = torch.tensor(target_loss.mean())
+    return vel_loss + target_loss

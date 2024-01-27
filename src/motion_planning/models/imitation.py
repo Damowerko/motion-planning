@@ -3,6 +3,7 @@ import random
 from motion_planning.models.base import *
 from motion_planning.rl import ReplayBuffer
 
+from motion_planning.utils import mse_loss_target
 
 class MotionPlanningImitation(MotionPlanningActorCritic):
     @classmethod
@@ -39,7 +40,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
         # actor step
         mu, _ = self.actor.forward(data.state, data)
-        loss = F.mse_loss(torch.tanh(mu), data.expert)
+        loss = mse_loss_target(mu, data.expert)
         self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
         self.manual_backward(loss)
@@ -58,7 +59,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def validation_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.state, data)
-        loss = F.mse_loss(torch.tanh(yhat), data.expert)
+        loss = mse_loss_target(yhat, data.expert)
         self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
@@ -68,7 +69,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def test_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.state, data)
-        loss = F.mse_loss(yhat, data.expert)
+        loss = mse_loss_target(yhat, data.expert)
         self.log("test/loss", loss, batch_size=data.batch_size)
         self.log("test/reward", data.reward.mean(), batch_size=data.batch_size)
         return loss
