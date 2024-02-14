@@ -29,7 +29,7 @@ class MotionPlanningRender:
         self.agent_scatter = None
 
     def render(
-        self, goal_positions, agent_positions, reward, observed_targets, adjacency
+        self, goal_positions, agent_positions, reward, observed_targets, adjacency, num=0, path='./plots/'
     ):
         self.reset()
         if self.target_scatter is None:
@@ -48,6 +48,9 @@ class MotionPlanningRender:
         self.ax.set_ylim(-self.width / 2, self.width / 2)
         self.fig.canvas.flush_events()
         self.fig.canvas.draw_idle()
+        filename = path + 'snapshot' + str(num) + '.png'
+        plt.savefig(filename)
+        return filename
 
 
 def argtopk(X, K, axis=-1):
@@ -296,16 +299,17 @@ class MotionPlanning(GraphEnv):
             self.render_.reset()
         return self._observation()
 
-    def render(self, mode="human"):
+    def render(self, num=0, mode="human"):
         assert mode == "human"
         if self.render_ is None:
             self.render_ = MotionPlanningRender(self.width, self.state_ndim)
-        self.render_.render(
+        return self.render_.render(
             self.target_positions.T,
             self.position.T,
             self._reward(),
             self._observed_targets(),
             self.adjacency(),
+            num=num,
         )
 
     def close(self):

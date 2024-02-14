@@ -4,6 +4,8 @@ import sys
 from typing import Union
 
 import numpy as np
+import matplotlib.pyplot as plt
+import imageio
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
@@ -19,6 +21,11 @@ from motion_planning.models import (
 )
 from motion_planning.utils import TensorboardHistogramLogger
 
+def to_gif(filenames, path='./plots/', filename='renderedvideo.gif'):
+    images = []
+    for name in filenames:
+        images.append(imageio.imread(name))
+    imageio.mimsave(path + filename, images, fps=30)
 
 def make_trainer(params):
     logger = (
@@ -137,10 +144,11 @@ def _test(
     rewards = []
     for _ in tqdm(range(n_trials)):
         trial_rewards = []
+        filenames = []
         observation = env.reset()
-        for _ in range(max_steps):
+        for i in range(max_steps):
             if render:
-                env.render()
+                filenames.append(env.render(num=i))
             if isinstance(policy, str):
                 action = reference_policy[policy]()
             else:
@@ -169,10 +177,11 @@ def _test(
     STD: {rewards.std():.2f}
     """
     )
+    to_gif(filenames)
 
 
 def test(params):
-    checkpoint_path = find_checkpoint("pretrain")
+    checkpoint_path = find_checkpoint("imitation")
     if checkpoint_path is not None:
         model = MotionPlanningImitation.load_from_checkpoint(checkpoint_path)
     else:
