@@ -33,7 +33,7 @@ class GNN(nn.Module):
         n_layers_mlp: int,
         dropout: float = 0.0,
         activation: str = "leaky_relu",
-        architecture: str = "tag",
+        architecture: str = "gin",
     ):
         super().__init__()
         if F_in < 1 or F_out < 1 or F < 1 or K < 1:
@@ -66,9 +66,15 @@ class GNN(nn.Module):
 
         gnn_layers = []
         for i in range(n_layers_gnn):
+            gin_mlp = nn.Sequential(
+                nn.Linear(F, F),
+                activation_,
+                nn.Dropout(dropout)
+            )
             gnn_layer = {
                 "tag": gnn.TAGConv(F, F, K=K, normalize=True),
                 "gat": gnn.GATv2Conv(F, F),
+                "gin": gnn.GINConv(gin_mlp, train_eps=True),
             }[architecture]
             gnn_layers += [
                 (
@@ -101,7 +107,7 @@ class GNNActor(nn.Module):
         n_layers_mlp: int = 1,
         dropout: float = 0.0,
         activation: str = "leaky_relu",
-        architecture: str = "tag",
+        architecture: str = "gin",
         logsigma_scale: float = 3.0,
     ):
         super().__init__()
@@ -181,7 +187,7 @@ class GNNCritic(nn.Module):
         n_layers_gnn: int = 4,
         n_layers_mlp: int = 1,
         activation: str = "leaky_relu",
-        architecture: str = "tag",
+        architecture: str = "gin",
     ):
         super().__init__()
         self.state_ndim = state_ndim
@@ -219,7 +225,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self,
         F: int = 128,
         K: int = 8,
-        n_layers_gnn: int = 1,
+        n_layers_gnn: int = 4,
         n_layers_mlp: int = 2,
         lr: float = 0.0001,
         weight_decay: float = 0.0,
@@ -228,7 +234,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         max_steps=200,
         dropout: float = 0.0,
         activation: str = "leaky_relu",
-        architecture: str = "tag",
+        architecture: str = "gin",
         n_agents: int = 100,
         scenario: str = "uniform",
         optimizer: str = "adamw",
