@@ -215,10 +215,10 @@ if __name__ == "__main__":
     )
     operation = sys.argv[1]
 
-    parser.add_argument("--log", type=int, default=1)
-    parser.add_argument("--histograms", type=int, default=0)
+    parser.add_argument("--no_log", action="store_false", dest="log")
+    parser.add_argument("--histograms", action="store_true")
     parser.add_argument("--patience", type=int, default=10)
-    parser.add_argument("--test", type=int, default=1)
+    parser.add_argument("--test", action="store_true")
 
     # trainer arguments
     group = parser.add_argument_group("Trainer")
