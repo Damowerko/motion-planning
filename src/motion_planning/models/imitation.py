@@ -1,10 +1,9 @@
 import random
 
+import numpy as np
+
 from motion_planning.models.base import *
 from motion_planning.rl import ReplayBuffer
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 
 class MotionPlanningImitation(MotionPlanningActorCritic):
