@@ -12,7 +12,7 @@ torch = {version = "=2.0.0"}
 torch-geometric = {version = "^2.3.1"}
 pytorch-lightning = "^2.0.5"
 numpy = "^1.21.1"
-matplotlib = "^3.5.1"
+matplotlib = "^3.8.3"
 PySide6 = "^6.2.2.1"
 gym = "^0.26.2"
 stable-baselines3 = "^2.2.1"
@@ -23,6 +23,7 @@ torch-scatter = "^2.1.2+pt20cu118"
 networkx = "^2.7.1"
 numba = ">=0.55.1"
 torchcps = {git = "https://github.com/Damowerko/torchcps"}
+imageio = {extras = ["ffmpeg"], version = "^2.34.0"}
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"

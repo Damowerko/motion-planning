@@ -1,5 +1,7 @@
 import random
 
+import numpy as np
+
 from motion_planning.models.base import *
 from motion_planning.rl import ReplayBuffer
 

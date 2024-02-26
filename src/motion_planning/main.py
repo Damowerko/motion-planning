@@ -3,6 +3,8 @@ import os
 import sys
 from typing import Union
 
+import imageio.v3 as iio
+import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -135,12 +137,16 @@ def _test(
     }
 
     rewards = []
-    for _ in tqdm(range(n_trials)):
+    for trial_idx in tqdm(range(n_trials)):
         trial_rewards = []
+        frames = []
         observation = env.reset()
         for _ in range(max_steps):
             if render:
-                env.render()
+                env.render(mode="human")
+            else:
+                frames.append(env.render(mode="rgb_array"))
+
             if isinstance(policy, str):
                 action = reference_policy[policy]()
             else:
@@ -155,10 +161,16 @@ def _test(
                         .cpu()
                         .numpy()
                     )
+
             observation, reward, done, _ = env.step(action)
             trial_rewards.append(reward)
             if done:
                 break
+
+        # save as gif
+        if not render:
+            iio.imwrite(f"figures/test_{trial_idx}.mp4", frames, fps=30)
+
         trial_reward = np.mean(trial_rewards)
         rewards.append(trial_reward)
 
@@ -172,11 +184,12 @@ def _test(
 
 
 def test(params):
-    checkpoint_path = find_checkpoint("pretrain")
+    checkpoint_path = find_checkpoint("imitation")
     if checkpoint_path is not None:
         model = MotionPlanningImitation.load_from_checkpoint(checkpoint_path)
     else:
         checkpoint_path = find_checkpoint("train")
+        assert checkpoint_path is not None
         model = MotionPlanningGPG.load_from_checkpoint(checkpoint_path)
     _test(model, n_trials=params.n_trials, render=params.render)
 
@@ -216,7 +229,7 @@ if __name__ == "__main__":
     if operation in ("imitation", "gpg", "td3"):
         get_model(operation).add_model_specific_args(group)
     elif operation in ("test", "baseline"):
-        group.add_argument("--render", type=int, default=0)
+        group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
         group.add_argument(
             "--scenario",
