@@ -1,5 +1,6 @@
 .vscode/
 figures/
+logs/
 
 ## PYTHON
 # Byte-compiled / optimized / DLL files
