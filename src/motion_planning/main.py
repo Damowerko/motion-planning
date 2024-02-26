@@ -3,9 +3,9 @@ import os
 import sys
 from typing import Union
 
-import numpy as np
+import imageio.v3 as iio
 import matplotlib.pyplot as plt
-import imageio
+import numpy as np
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
@@ -21,11 +21,6 @@ from motion_planning.models import (
 )
 from motion_planning.utils import TensorboardHistogramLogger
 
-def to_gif(filenames, path='./plots/', filename='renderedvideo.gif'):
-    images = []
-    for name in filenames:
-        images.append(imageio.imread(name))
-    imageio.mimsave(path + filename, images, fps=30)
 
 def make_trainer(params):
     logger = (
@@ -95,16 +90,18 @@ def imitation(params):
     rewards = np.array(model.running_reward)
     T = np.arange(rewards.shape[1])
 
-    plt.plot(T, rewards.mean(axis=0), color='red', label='Average reward')
-    plt.fill_between(T, rewards.min(axis=0), rewards.max(axis=0), alpha=0.4, color='orange')
-    plt.title('Reward over time during training (sampled at each epoch)')
-    plt.xlabel('Timestep')
+    plt.plot(T, rewards.mean(axis=0), color="red", label="Average reward")
+    plt.fill_between(
+        T, rewards.min(axis=0), rewards.max(axis=0), alpha=0.4, color="orange"
+    )
+    plt.title("Reward over time during training (sampled at each epoch)")
+    plt.xlabel("Timestep")
     plt.xlim(0, 200)
-    plt.ylabel('Reward')
+    plt.ylabel("Reward")
     plt.ylim(0, 1)
     plt.legend()
 
-    plt.savefig('plots/trainreward.png')
+    plt.savefig("plots/trainreward.png")
 
     if params.test:
         trainer.test(model)
@@ -137,7 +134,7 @@ def train(params):
 
     plt.cla()
     plt.plot(model.running_reward[0])
-    plt.savefig('plots/trainreward.png')
+    plt.savefig("plots/trainreward.png")
 
     if params.test:
         trainer.test(model)
@@ -147,7 +144,7 @@ def _test(
     policy: Union[MotionPlanningActorCritic, str],
     max_steps=200,
     n_trials=10,
-    render=False,
+    render_human=False,
     n_agents=100,
     scenario="uniform",
 ):
@@ -163,13 +160,16 @@ def _test(
     }
 
     rewards = []
-    for _ in tqdm(range(n_trials)):
+    for trial_idx in tqdm(range(n_trials)):
         trial_rewards = []
-        filenames = []
+        frames = []
         observation = env.reset()
-        for i in range(max_steps):
-            if render:
-                filenames.append(env.render(num=i))
+        for _ in range(max_steps):
+            if render_human:
+                env.render(mode="human")
+            else:
+                frames.append(env.render(mode="rgb_array"))
+
             if isinstance(policy, str):
                 action = reference_policy[policy]()
             else:
@@ -184,10 +184,16 @@ def _test(
                         .cpu()
                         .numpy()
                     )
+
             observation, reward, done, _ = env.step(action)
             trial_rewards.append(reward)
             if done:
                 break
+
+        # save as gif
+        if not render_human:
+            iio.imwrite(f"figures/test_{trial_idx}.mp4", frames, fps=30)
+
         trial_reward = np.mean(trial_rewards)
         rewards.append(trial_reward)
 
@@ -198,7 +204,6 @@ def _test(
     STD: {rewards.std():.2f}
     """
     )
-    to_gif(filenames)
 
 
 def test(params):
@@ -207,8 +212,9 @@ def test(params):
         model = MotionPlanningImitation.load_from_checkpoint(checkpoint_path)
     else:
         checkpoint_path = find_checkpoint("train")
+        assert checkpoint_path is not None
         model = MotionPlanningGPG.load_from_checkpoint(checkpoint_path)
-    _test(model, n_trials=params.n_trials, render=params.render)
+    _test(model, n_trials=params.n_trials, render_human=params.render_human)
 
 
 def get_model(model_str) -> MotionPlanningActorCritic:
@@ -246,7 +252,7 @@ if __name__ == "__main__":
     if operation in ("imitation", "gpg", "td3"):
         get_model(operation).add_model_specific_args(group)
     elif operation in ("test", "baseline"):
-        group.add_argument("--render", type=int, default=0)
+        group.add_argument("--render_human", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
         group.add_argument(
             "--scenario",
@@ -268,7 +274,7 @@ if __name__ == "__main__":
         _test(
             params.policy,
             n_trials=params.n_trials,
-            render=params.render,
+            render_human=params.render_human,
             scenario=params.scenario,
         )
     else:

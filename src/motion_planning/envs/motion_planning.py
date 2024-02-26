@@ -7,6 +7,7 @@ import networkx as nx
 import numpy as np
 import scipy.sparse
 from gym import spaces
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
@@ -14,11 +15,15 @@ rng = np.random.default_rng()
 
 
 class MotionPlanningRender:
-    def __init__(self, width, state_ndim):
+    def __init__(self, width, state_ndim, mode="human"):
         self.positions = []
         self.width = width
         self.state_ndim = state_ndim
-        plt.ion()
+        self.mode = mode
+        if mode == "human":
+            plt.ion()
+        else:
+            plt.ioff()
         self.fig = plt.figure()
         self.ax = plt.axes()
         self.reset()
@@ -29,28 +34,55 @@ class MotionPlanningRender:
         self.agent_scatter = None
 
     def render(
-        self, goal_positions, agent_positions, reward, observed_targets, adjacency, num=0, path='./plots/'
+        self, goal_positions, agent_positions, reward, observed_targets, adjacency
     ):
+        """
+        Renders the environment with the given parameters.
+
+        Args:
+            goal_positions (array-like): The positions of the goal targets.
+            agent_positions (array-like): The positions of the agents.
+            reward (float): The reward value.
+            observed_targets (array-like): The observed targets.
+            adjacency (scipy.sparse.csr_matrix): The adjacency matrix.
+
+        Returns:
+            matplotlib.figure.Figure: The rendered figure.
+        """
         self.reset()
+        if not isinstance(self.fig.canvas, FigureCanvasAgg):
+            raise ValueError("Only agg matplotlib backend is supported.")
+
         if self.target_scatter is None:
             self.target_scatter = self.ax.plot(*goal_positions, "rx")[0]
+
         if self.agent_scatter is None:
             self.agent_scatter = self.ax.plot(*agent_positions, "bo")[0]
+
+        self.ax.set_xlim(-self.width / 2, self.width / 2)
+        self.ax.set_ylim(-self.width / 2, self.width / 2)
 
         G = nx.from_scipy_sparse_array(adjacency)
         G.remove_edges_from(nx.selfloop_edges(G))
         nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
+
         targets = observed_targets.reshape(-1, 2)
         self.ax.plot(*targets.T, "y^")
+
         self.ax.set_title(f"Reward: {reward:.2f}")
+
         self.agent_scatter.set_data(*agent_positions)
-        self.ax.set_xlim(-self.width / 2, self.width / 2)
-        self.ax.set_ylim(-self.width / 2, self.width / 2)
-        self.fig.canvas.flush_events()
-        self.fig.canvas.draw_idle()
-        filename = path + 'snapshot' + str(num) + '.png'
-        plt.savefig(filename)
-        return filename
+
+        if self.mode == "human":
+            self.fig.canvas.flush_events()
+            self.fig.canvas.draw_idle()
+        elif self.mode == "rgb_array":
+            self.fig.canvas.draw()
+            return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].copy()
+        else:
+            raise ValueError(
+                "Unknown mode: {self.mode}. Should be one of ['human', 'rgb_array']."
+            )
 
 
 def argtopk(X, K, axis=-1):
@@ -299,17 +331,16 @@ class MotionPlanning(GraphEnv):
             self.render_.reset()
         return self._observation()
 
-    def render(self, num=0, mode="human"):
-        assert mode == "human"
-        if self.render_ is None:
-            self.render_ = MotionPlanningRender(self.width, self.state_ndim)
+    def render(self, mode="human"):
+        if self.render_ is None or self.render_.mode != mode:
+            self.render_ = MotionPlanningRender(self.width, self.state_ndim, mode=mode)
+
         return self.render_.render(
             self.target_positions.T,
             self.position.T,
             self._reward(),
             self._observed_targets(),
             self.adjacency(),
-            num=num,
         )
 
     def close(self):
