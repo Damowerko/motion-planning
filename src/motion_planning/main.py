@@ -144,7 +144,7 @@ def _test(
     policy: Union[MotionPlanningActorCritic, str],
     max_steps=200,
     n_trials=10,
-    render_human=False,
+    render=False,
     n_agents=100,
     scenario="uniform",
 ):
@@ -165,7 +165,7 @@ def _test(
         frames = []
         observation = env.reset()
         for _ in range(max_steps):
-            if render_human:
+            if render:
                 env.render(mode="human")
             else:
                 frames.append(env.render(mode="rgb_array"))
@@ -191,7 +191,7 @@ def _test(
                 break
 
         # save as gif
-        if not render_human:
+        if not render:
             iio.imwrite(f"figures/test_{trial_idx}.mp4", frames, fps=30)
 
         trial_reward = np.mean(trial_rewards)
@@ -214,7 +214,7 @@ def test(params):
         checkpoint_path = find_checkpoint("train")
         assert checkpoint_path is not None
         model = MotionPlanningGPG.load_from_checkpoint(checkpoint_path)
-    _test(model, n_trials=params.n_trials, render_human=params.render_human)
+    _test(model, n_trials=params.n_trials, render=params.render)
 
 
 def get_model(model_str) -> MotionPlanningActorCritic:
@@ -252,7 +252,7 @@ if __name__ == "__main__":
     if operation in ("imitation", "gpg", "td3"):
         get_model(operation).add_model_specific_args(group)
     elif operation in ("test", "baseline"):
-        group.add_argument("--render_human", action="store_true")
+        group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
         group.add_argument(
             "--scenario",
@@ -274,7 +274,7 @@ if __name__ == "__main__":
         _test(
             params.policy,
             n_trials=params.n_trials,
-            render_human=params.render_human,
+            render=params.render,
             scenario=params.scenario,
         )
     else:
