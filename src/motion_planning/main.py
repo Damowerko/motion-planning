@@ -85,24 +85,6 @@ def imitation(params):
     ckpt_path = "./imitation/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
-
-    plt.cla()
-    rewards = np.array(model.running_reward)
-    T = np.arange(rewards.shape[1])
-
-    plt.plot(T, rewards.mean(axis=0), color="red", label="Average reward")
-    plt.fill_between(
-        T, rewards.min(axis=0), rewards.max(axis=0), alpha=0.4, color="orange"
-    )
-    plt.title("Reward over time during training (sampled at each epoch)")
-    plt.xlabel("Timestep")
-    plt.xlim(0, 200)
-    plt.ylabel("Reward")
-    plt.ylim(0, 1)
-    plt.legend()
-
-    plt.savefig("plots/trainreward.png")
-
     if params.test:
         trainer.test(model)
 
@@ -131,11 +113,6 @@ def train(params):
     ckpt_path = "./train/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
-
-    plt.cla()
-    plt.plot(model.running_reward[0])
-    plt.savefig("plots/trainreward.png")
-
     if params.test:
         trainer.test(model)
 

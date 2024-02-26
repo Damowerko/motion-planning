@@ -35,7 +35,6 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.expert_probability = expert_probability
         self.expert_probability_decay = expert_probability_decay
         self.automatic_optimization = False
-        self.running_reward = []
 
     def training_step(self, data, batch_idx):
         opt_actor, opt_critic = self.optimizers()
@@ -47,12 +46,6 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         opt_actor.zero_grad()
         self.manual_backward(loss)
         opt_actor.step()
-
-        # TODO: Create global variable that records the reward
-        if batch_idx == 0:
-            to_numpy = lambda x: x.detach().cpu().numpy()
-            e = self.rollout()
-            self.running_reward.append(np.array([to_numpy(d.reward) for d in e]))
 
         # critic step
         # q = self.critic.forward(data.state, data.action, data)
