@@ -230,10 +230,11 @@ class MotionPlanning(GraphEnv):
         Args:
             action: An array of shape (..., 2) representing the action for each agent.
         """
-        magnitude = np.linalg.norm(action, axis=-1, keepdims=True)
-        normalized = action / magnitude
-        magnitude = np.minimum(magnitude, self.max_accel)
-        return normalized * magnitude
+        action = action.copy()
+        magnitude = np.linalg.norm(action, axis=-1)
+        to_clip = magnitude > self.max_accel
+        action[to_clip] = action[to_clip] / magnitude[to_clip, None] * self.max_accel
+        return action
 
     def centralized_policy(self):
         distance = cdist(self.position, self.target_positions)
