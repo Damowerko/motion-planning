@@ -5,5 +5,6 @@ COPY poetry.lock pyproject.toml README.md ./
 RUN poetry install --no-root
 
 # install motion-planning package in editable mode
-COPY src scripts ./
+COPY src/ src/
+COPY scripts/ scripts/
 RUN poetry install --only-root
