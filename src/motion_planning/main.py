@@ -101,7 +101,7 @@ def imitation(params):
     plt.ylim(0, 1)
     plt.legend()
 
-    plt.savefig("plots/trainreward.png")
+    plt.savefig("figures/trainreward.png")
 
     if params.test:
         trainer.test(model)
@@ -134,7 +134,7 @@ def train(params):
 
     plt.cla()
     plt.plot(model.running_reward[0])
-    plt.savefig("plots/trainreward.png")
+    plt.savefig("figures/trainreward.png")
 
     if params.test:
         trainer.test(model)
@@ -164,37 +164,31 @@ def _test(
         trial_rewards = []
         frames = []
         observation = env.reset()
-        for _ in range(max_steps):
-            if render:
-                env.render(mode="human")
-            else:
-                frames.append(env.render(mode="rgb_array"))
+        if isinstance(policy, str):
+            for _ in range(max_steps):
+                if render:
+                    env.render(mode="human")
+                else:
+                    frames.append(env.render(mode="rgb_array"))
 
-            if isinstance(policy, str):
                 action = reference_policy[policy]()
-            else:
-                with torch.no_grad():
-                    data = policy.to_data(observation, env.adjacency())
-                    action = (
-                        policy.policy(
-                            *policy.forward(data.state, data),
-                            deterministic=True,
-                        )[0]
-                        .detach()
-                        .cpu()
-                        .numpy()
-                    )
 
-            observation, reward, done, _ = env.step(action)
-            trial_rewards.append(reward)
-            if done:
-                break
+                observation, reward, done, _ = env.step(action)
+                trial_rewards.append(reward)
+                if done:
+                    break
 
-        # save as gif
-        if not render:
-            iio.imwrite(f"figures/test_{trial_idx}.mp4", frames, fps=30)
+            # save as gif
+            if not render:
+                final = 'success' if trial_rewards[-1] > 0.8 else 'failure'
+                filename = f'figures/test_{trial_idx}_{final}.gif'
+                iio.imwrite(filename, frames, fps=30)
+        else:
+            episode = policy.rollout(idx=trial_idx, render=True)
+            trial_rewards = [d.reward.detach().cpu().numpy() for d in episode]
 
-        trial_reward = np.mean(trial_rewards)
+        # trial_reward = np.mean(trial_rewards)
+        trial_reward = trial_rewards[-1]
         rewards.append(trial_reward)
 
     rewards = np.asarray(rewards)

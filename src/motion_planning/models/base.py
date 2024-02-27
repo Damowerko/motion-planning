@@ -12,6 +12,8 @@ from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
 from torchcps.utils import add_model_specific_args
 
+import imageio.v3 as iio
+
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.rl import ExperienceSourceDataset
 
@@ -218,7 +220,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
     def __init__(
         self,
         F: int = 128,
-        K: int = 8,
+        K: int = 2,
         n_layers_gnn: int = 1,
         n_layers_mlp: int = 2,
         lr: float = 0.0001,
@@ -289,14 +291,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
         return data, next_state, reward, done
 
     @torch.no_grad()
-    def rollout(self, render=False) -> List[BaseData]:
+    def rollout(self, idx=0, render=False) -> List[BaseData]:
         self.rollout_start()
         episode = []
+        frames = []
         observation = self.env.reset()
         data = self.to_data(observation, self.env.adjacency())
         for _ in range(self.max_steps):
             if render:
-                self.env.render()
+                frames.append(self.env.render(mode="rgb_array"))
 
             # sample action
             data.mu, data.sigma = self.actor(data.state, data)
@@ -316,6 +319,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data = next_data
             if done:
                 break
+        
+        trial_rewards = [d.reward.detach().cpu().numpy() for d in episode]
+
+        # save as gif
+        if render:
+            final = 'success' if trial_rewards[-1] > 0.8 else 'failure'
+            filename = f'figures/test_{idx}_{final}.gif'
+            iio.imwrite(filename, frames, fps=30)
+        
         return episode
 
     def reward_to_go(self, rewards) -> torch.Tensor:
