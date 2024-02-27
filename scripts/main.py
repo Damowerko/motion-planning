@@ -1,16 +1,18 @@
 import argparse
 import os
 import sys
+import typing
+from pathlib import Path
 from typing import Union
 
 import imageio.v3 as iio
-import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import WandbLogger
 from tqdm import tqdm
+from wandb.wandb_run import Run
 
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.models import (
@@ -19,42 +21,43 @@ from motion_planning.models import (
     MotionPlanningImitation,
     MotionPlanningTD3,
 )
-from motion_planning.utils import TensorboardHistogramLogger
 
 
 def make_trainer(params):
-    logger = (
-        TensorBoardLogger(
-            save_dir=f"./{params.operation}/", name="tensorboard", version=""
-        )
-        if params.log
-        else False
-    )
-    callbacks = [
+    logger = False
+    callbacks: list[pl.Callback] = [
         EarlyStopping(
-            monitor="val/metric",
+            monitor="val/reward",
+            mode="max",
             patience=params.patience,
         ),
-        (
+    ]
+
+    if params.log:
+        logger = WandbLogger(
+            project="motion-planning", save_dir="logs", config=params, log_model=True
+        )
+        logger.log_hyperparams(params)
+        run = typing.cast(Run, logger.experiment)
+        run.log_code(
+            Path(__file__).parent.parent,
+            include_fn=lambda path: (
+                path.endswith(".py")
+                and "logs" not in path
+                and ("src" in path or "scripts" in path)
+            ),
+        )
+        callbacks += [
             ModelCheckpoint(
-                monitor="val/metric",
-                dirpath=f"./{params.operation}/checkpoints/",
+                monitor="val/reward",
+                mode="max",
+                dirpath=f"logs/{params.operation}/checkpoints/{run.id}/",
                 filename="best",
                 auto_insert_metric_name=False,
-                mode="min",
                 save_last=True,
                 save_top_k=1,
             )
-            if params.log
-            else None
-        ),
-        (
-            TensorboardHistogramLogger(every_n_steps=1000)
-            if params.log and params.histograms
-            else None
-        ),
-    ]
-    callbacks = [cb for cb in callbacks if cb is not None]
+        ]
 
     print("starting training")
     trainer = pl.Trainer(
@@ -63,7 +66,7 @@ def make_trainer(params):
         enable_checkpointing=params.log,
         precision=32,
         max_epochs=params.max_epochs,
-        default_root_dir=".",
+        default_root_dir="logs/",
         check_val_every_n_epoch=1,
     )
     return trainer
@@ -150,16 +153,11 @@ def _test(
             if isinstance(policy, str):
                 action = reference_policy[policy]()
             else:
+                model = policy
                 with torch.no_grad():
-                    data = policy.to_data(observation, env.adjacency())
+                    data = model.to_data(observation, env.adjacency())
                     action = (
-                        policy.policy(
-                            *policy.forward(data.state, data),
-                            deterministic=True,
-                        )[0]
-                        .detach()
-                        .cpu()
-                        .numpy()
+                        model.actor.forward(data.state, data)[0].detach().cpu().numpy()
                     )
 
             observation, reward, done, _ = env.step(action)
@@ -184,13 +182,10 @@ def _test(
 
 
 def test(params):
-    checkpoint_path = find_checkpoint("imitation")
-    if checkpoint_path is not None:
-        model = MotionPlanningImitation.load_from_checkpoint(checkpoint_path)
+    if "imitation" in params.checkpoint_path:
+        model = MotionPlanningImitation.load_from_checkpoint(params.checkpoint_path)
     else:
-        checkpoint_path = find_checkpoint("train")
-        assert checkpoint_path is not None
-        model = MotionPlanningGPG.load_from_checkpoint(checkpoint_path)
+        model = MotionPlanningGPG.load_from_checkpoint(params.checkpoint_path)
     _test(model, n_trials=params.n_trials, render=params.render)
 
 
@@ -218,7 +213,6 @@ if __name__ == "__main__":
     operation = sys.argv[1]
 
     parser.add_argument("--no_log", action="store_false", dest="log")
-    parser.add_argument("--histograms", action="store_true")
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--test", action="store_true")
 
@@ -231,6 +225,7 @@ if __name__ == "__main__":
     if operation in ("imitation", "gpg", "td3"):
         get_model(operation).add_model_specific_args(group)
     elif operation in ("test", "baseline"):
+        group.add_argument("--checkpoint_path", type=str, required=True)
         group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
         group.add_argument(
