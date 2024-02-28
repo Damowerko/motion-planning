@@ -3,6 +3,7 @@ import os
 import sys
 import typing
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Union
 
 import imageio.v3 as iio
@@ -21,6 +22,107 @@ from motion_planning.models import (
     MotionPlanningImitation,
     MotionPlanningTD3,
 )
+
+
+def main():
+    torch.set_float32_matmul_precision("high")
+
+    parser = argparse.ArgumentParser()
+
+    # program arguments
+    parser.add_argument(
+        "operation",
+        metavar="OP",
+        type=str,
+        default="td3",
+        choices=["imitation", "gpg", "td3", "test", "baseline"],
+    )
+    operation = sys.argv[1]
+
+    parser.add_argument("--no_log", action="store_false", dest="log")
+    parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--test", action="store_true")
+
+    # trainer arguments
+    group = parser.add_argument_group("Trainer")
+    group.add_argument("--max_epochs", type=int, default=100)
+
+    # operation specific arguments arguments
+    group = parser.add_argument_group("Operation")
+    if operation in ("imitation", "gpg", "td3"):
+        get_model_cls(operation).add_model_specific_args(group)
+    elif operation in ("test", "baseline"):
+        # test specific args
+        if operation == "test":
+            group.add_argument("--checkpoint", type=str, required=True)
+        # baseline specific args
+        if operation == "baseline":
+            group.add_argument("--policy", type=str, default="c")
+        # common args
+        group.add_argument("--render", action="store_true")
+        group.add_argument("--n_trials", type=int, default=10)
+        group.add_argument(
+            "--scenario",
+            type=str,
+            default="uniform",
+            choices=["uniform", "gaussian_uniform"],
+        )
+
+    params = parser.parse_args()
+    if params.operation in ("gpg", "td3"):
+        train(params)
+    elif params.operation == "test":
+        test(params)
+    elif params.operation == "imitation":
+        imitation(params)
+    elif params.operation == "baseline":
+        _test(
+            params.policy,
+            n_trials=params.n_trials,
+            render=params.render,
+            scenario=params.scenario,
+        )
+    else:
+        raise ValueError(f"Invalid operation {params.operation}.")
+
+
+def load_model(uri: str) -> tuple[MotionPlanningActorCritic, str]:
+    """Load a model from a uri.
+
+    Args:
+        uri (str): The uri of the model to load. By default this is a path to a file. If you want to use a wandb model, use the format wandb://<user>/<project>/<run_id>.
+        cls: The class of the model to load.
+    """
+    with TemporaryDirectory() as tmpdir:
+        if uri.startswith("wandb://"):
+            import wandb
+
+            user, project, run_id = uri[len("wandb://") :].split("/")
+
+            # Download the model from wandb to temporary directory
+            api = wandb.Api()
+            artifact = api.artifact(
+                f"{user}/{project}/model-{run_id}:best", type="model"
+            )
+            artifact.download(root=tmpdir)
+            uri = f"{tmpdir}/model.ckpt"
+            # set the name and model_str
+            name = run_id
+            model_str = api.run(f"{user}/{project}/{run_id}").config["operation"]
+        else:
+            name = os.path.basename(uri).split(".")[0]
+            if "imitation" in uri:
+                model_str = "imitation"
+            elif "gpg" in uri:
+                model_str = "gpg"
+            elif "td3" in uri:
+                model_str = "td3"
+            else:
+                raise ValueError(f"Invalid model uri {uri}.")
+
+        cls = get_model_cls(model_str)
+        model = cls.load_from_checkpoint(uri)
+        return model, name
 
 
 def make_trainer(params):
@@ -106,11 +208,11 @@ def train(params):
                 "n_layers": imitation.n_layers,
             },
         }
-        model = get_model(params.operation)(**merged)
+        model = get_model_cls(params.operation)(**merged)
         model.actor = imitation.actor
     else:
         print("Did not find a pretrain checkpoint.")
-        model = get_model(params.operation)(**vars(params))
+        model = get_model_cls(params.operation)(**vars(params))
 
     # check if checkpoint exists
     ckpt_path = "./train/checkpoints/last.ckpt"
@@ -138,6 +240,8 @@ def _test(
         "d0": lambda: env.decentralized_policy(0),
         "d1": lambda: env.decentralized_policy(1),
     }
+    if isinstance(policy, MotionPlanningActorCritic):
+        policy.eval()
 
     rewards = []
     for trial_idx in tqdm(range(n_trials)):
@@ -153,7 +257,7 @@ def _test(
             if isinstance(policy, str):
                 action = reference_policy[policy]()
             else:
-                model = policy
+                model: MotionPlanningActorCritic = policy
                 with torch.no_grad():
                     data = model.to_data(observation, env.adjacency())
                     action = (
@@ -181,75 +285,20 @@ def _test(
     )
 
 
+def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
+    if model_str == "imitation":
+        return MotionPlanningImitation
+    elif model_str == "gpg":
+        return MotionPlanningGPG
+    elif model_str == "td3":
+        return MotionPlanningTD3
+    raise ValueError(f"Invalid model {model_str}.")
+
+
 def test(params):
-    if "imitation" in params.checkpoint_path:
-        model = MotionPlanningImitation.load_from_checkpoint(params.checkpoint_path)
-    else:
-        model = MotionPlanningGPG.load_from_checkpoint(params.checkpoint_path)
+    model = load_model(params.checkpoint)[0]
     _test(model, n_trials=params.n_trials, render=params.render)
 
 
-def get_model(model_str) -> MotionPlanningActorCritic:
-    return {
-        "imitation": MotionPlanningImitation,
-        "gpg": MotionPlanningGPG,
-        "td3": MotionPlanningTD3,
-    }[model_str]
-
-
 if __name__ == "__main__":
-    torch.set_float32_matmul_precision("high")
-
-    parser = argparse.ArgumentParser()
-
-    # program arguments
-    parser.add_argument(
-        "operation",
-        metavar="OP",
-        type=str,
-        default="td3",
-        choices=["imitation", "gpg", "td3", "test", "baseline"],
-    )
-    operation = sys.argv[1]
-
-    parser.add_argument("--no_log", action="store_false", dest="log")
-    parser.add_argument("--patience", type=int, default=10)
-    parser.add_argument("--test", action="store_true")
-
-    # trainer arguments
-    group = parser.add_argument_group("Trainer")
-    group.add_argument("--max_epochs", type=int, default=100)
-
-    # operation specific arguments arguments
-    group = parser.add_argument_group("Operation")
-    if operation in ("imitation", "gpg", "td3"):
-        get_model(operation).add_model_specific_args(group)
-    elif operation in ("test", "baseline"):
-        group.add_argument("--checkpoint_path", type=str, required=True)
-        group.add_argument("--render", action="store_true")
-        group.add_argument("--n_trials", type=int, default=10)
-        group.add_argument(
-            "--scenario",
-            type=str,
-            default="uniform",
-            choices=["uniform", "gaussian_uniform"],
-        )
-        if operation == "baseline":
-            group.add_argument("--policy", type=str, default="c")
-
-    params = parser.parse_args()
-    if params.operation in ("gpg", "td3"):
-        train(params)
-    elif params.operation == "test":
-        test(params)
-    elif params.operation == "imitation":
-        imitation(params)
-    elif params.operation == "baseline":
-        _test(
-            params.policy,
-            n_trials=params.n_trials,
-            render=params.render,
-            scenario=params.scenario,
-        )
-    else:
-        raise ValueError(f"Invalid operation {params.operation}.")
+    main()
