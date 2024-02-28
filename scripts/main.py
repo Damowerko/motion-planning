@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 import typing
@@ -7,6 +8,7 @@ from tempfile import TemporaryDirectory
 from typing import Union
 
 import imageio.v3 as iio
+import matplotlib.pyplot as plt
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -32,41 +34,46 @@ def main():
     # program arguments
     parser.add_argument(
         "operation",
-        metavar="OP",
         type=str,
         default="td3",
         choices=["imitation", "gpg", "td3", "test", "baseline"],
+        help="The operation to perform.",
     )
     operation = sys.argv[1]
 
-    parser.add_argument("--no_log", action="store_false", dest="log")
-    parser.add_argument("--patience", type=int, default=10)
-    parser.add_argument("--test", action="store_true")
-
-    # trainer arguments
-    group = parser.add_argument_group("Trainer")
-    group.add_argument("--max_epochs", type=int, default=100)
+    group = parser.add_argument_group("Environment")
+    group.add_argument("--n_agents", type=int, default=100)
+    group.add_argument("--max_steps", type=int, default=200)
+    group.add_argument(
+        "--scenario",
+        type=str,
+        default="uniform",
+        choices=["uniform", "gaussian_uniform"],
+    )
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
     if operation in ("imitation", "gpg", "td3"):
         get_model_cls(operation).add_model_specific_args(group)
+
+        # training arguments
+        training_group = parser.add_argument_group("Training")
+        training_group.add_argument("--no_log", action="store_false", dest="log")
+        training_group.add_argument("--test", action="store_true")
+        training_group.add_argument("--max_epochs", type=int, default=100)
+        training_group.add_argument("--patience", type=int, default=10)
     elif operation in ("test", "baseline"):
         # test specific args
         if operation == "test":
             group.add_argument("--checkpoint", type=str, required=True)
         # baseline specific args
         if operation == "baseline":
-            group.add_argument("--policy", type=str, default="c")
+            group.add_argument(
+                "--policy", type=str, default="c", choices=["c", "d0", "d1"]
+            )
         # common args
         group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
-        group.add_argument(
-            "--scenario",
-            type=str,
-            default="uniform",
-            choices=["uniform", "gaussian_uniform"],
-        )
 
     params = parser.parse_args()
     if params.operation in ("gpg", "td3"):
@@ -76,12 +83,7 @@ def main():
     elif params.operation == "imitation":
         imitation(params)
     elif params.operation == "baseline":
-        _test(
-            params.policy,
-            n_trials=params.n_trials,
-            render=params.render,
-            scenario=params.scenario,
-        )
+        baseline(params)
     else:
         raise ValueError(f"Invalid operation {params.operation}.")
 
@@ -222,67 +224,96 @@ def train(params):
         trainer.test(model)
 
 
-def _test(
-    policy: Union[MotionPlanningActorCritic, str],
-    max_steps=200,
-    n_trials=10,
-    render=False,
-    n_agents=100,
-    scenario="uniform",
-):
-    if isinstance(policy, str):
-        env = MotionPlanning(n_agents=n_agents, scenario=scenario)
-    else:
-        env = policy.env
-
-    reference_policy = {
-        "c": env.centralized_policy,
-        "d0": lambda: env.decentralized_policy(0),
-        "d1": lambda: env.decentralized_policy(1),
-    }
-    if isinstance(policy, MotionPlanningActorCritic):
-        policy.eval()
-
-    rewards = []
-    for trial_idx in tqdm(range(n_trials)):
-        trial_rewards = []
-        frames = []
-        observation = env.reset()
-        for _ in range(max_steps):
-            if render:
-                env.render(mode="human")
-            else:
-                frames.append(env.render(mode="rgb_array"))
-
-            if isinstance(policy, str):
-                action = reference_policy[policy]()
-            else:
-                model: MotionPlanningActorCritic = policy
-                with torch.no_grad():
-                    data = model.to_data(observation, env.adjacency())
-                    action = (
-                        model.actor.forward(data.state, data)[0].detach().cpu().numpy()
-                    )
-
-            observation, reward, done, _ = env.step(action)
-            trial_rewards.append(reward)
-            if done:
-                break
-
-        # save as gif
-        if not render:
-            iio.imwrite(f"figures/test_{trial_idx}.mp4", frames, fps=30)
-
-        trial_reward = np.mean(trial_rewards)
-        rewards.append(trial_reward)
-
-    rewards = np.asarray(rewards)
-    print(
-        f"""
-    MEAN: {rewards.mean():.2f}
-    STD: {rewards.std():.2f}
+def rollout(
+    env: MotionPlanning, policy_fn: typing.Callable, params: argparse.Namespace
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    )
+    Perform rollouts in the environment using a given policy.
+
+    Args:
+        env (MotionPlanning): The environment to perform rollouts in.
+        policy_fn (typing.Callable): The policy function to use for selecting actions.
+        params (argparse.Namespace): Additional parameters for the rollouts.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: A tuple containing the rewards and frames for each rollout.
+        - rewards (np.ndarray): An ndarray of shape (n_trials, max_steps) containing the rewards for each step in each rollout.
+        - frames (np.ndarray): An array of shape (n_trial, max_steps, H, W) where H and W are the heights and widths of the rendered frames.
+    """
+    rewards = []
+    frames = []
+    for _ in tqdm(range(params.n_trials)):
+        rewards_trial = []
+        frames_trial = []
+        observation = env.reset()
+        for _ in range(params.max_steps):
+            action = policy_fn(observation, env.adjacency())
+            observation, reward, _, _ = env.step(action)
+            rewards_trial.append(reward)
+            frames_trial.append(env.render(mode="rgb_array"))
+        rewards.append(rewards_trial)
+        frames.append(frames_trial)
+    return np.asarray(rewards), np.asarray(frames)
+
+
+def baseline(params):
+    env = MotionPlanning(n_agents=params.n_agents, scenario=params.scenario)
+    if params.policy == "c":
+        policy_fn = lambda o, g: env.centralized_policy()
+    elif params.policy == "d0":
+        policy_fn = lambda o, g: env.decentralized_policy(0)
+    elif params.policy == "d1":
+        policy_fn = lambda o, g: env.decentralized_policy(1)
+    else:
+        raise ValueError(f"Invalid policy {params.policy}.")
+
+    rewards, frames = rollout(env, policy_fn, params)
+    save_results(Path("figures") / "test_results" / params.policy, rewards, frames)
+
+
+def test(params):
+    env = MotionPlanning(n_agents=params.n_agents, scenario=params.scenario)
+    model, name = load_model(params.checkpoint)
+    model = model.eval()
+
+    @torch.no_grad()
+    def policy_fn(observation, graph):
+        data = model.to_data(observation, graph)
+        return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+
+    rewards, frames = rollout(env, policy_fn, params)
+    save_results(Path("figures") / "test_results" / name, rewards, frames)
+
+
+def save_results(path: Path, rewards: np.ndarray, frames: np.ndarray):
+    """
+    Args:
+        path (Path): The path to save the summary to.
+        rewards (np.ndarray): An ndarray of shape (n_trials, max_steps).
+        frames (np.ndarray): An array of shape (n_trial, max_steps, H, W).
+    """
+    path.mkdir(parents=True, exist_ok=True)
+
+    np.save(path / "rewards.npy", rewards)
+
+    # make a single plot of all reward functions
+    plt.figure()
+    plt.plot(rewards.T)
+    plt.xlabel("Step")
+    plt.ylabel("Reward")
+    plt.savefig(path / "rewards.png")
+
+    # make a single video of all trials
+    iio.imwrite(path / f"video.mp4", np.concatenate(frames, axis=0), fps=30)
+
+    # summary metrics
+    metrics = {
+        "mean_reward": np.mean(rewards),
+        "std_reward": np.std(rewards),
+    }
+    json.dump(metrics, open(path / "metrics.json", "w"))
+
+    print(metrics)
 
 
 def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
@@ -293,11 +324,6 @@ def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
     elif model_str == "td3":
         return MotionPlanningTD3
     raise ValueError(f"Invalid model {model_str}.")
-
-
-def test(params):
-    model = load_model(params.checkpoint)[0]
-    _test(model, n_trials=params.n_trials, render=params.render)
 
 
 if __name__ == "__main__":
