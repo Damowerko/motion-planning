@@ -8,7 +8,6 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-pytorch-lightning = "^2.0.5"
 numpy = "^1.21.1"
 matplotlib = "^3.8.3"
 PySide6 = "^6.2.2.1"
