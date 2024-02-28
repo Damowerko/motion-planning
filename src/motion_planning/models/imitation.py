@@ -41,7 +41,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
         # actor step
         mu, _ = self.actor.forward(data.state, data)
-        loss = F.mse_loss(torch.tanh(mu), data.expert)
+        loss = F.mse_loss(mu, data.expert)
         self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
         self.manual_backward(loss)
@@ -60,12 +60,11 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def validation_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.state, data)
-        loss = F.mse_loss(torch.tanh(yhat), data.expert)
+        loss = F.mse_loss(yhat, data.expert)
         self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
-        self.log("val/metric", -data.reward.mean(), batch_size=data.batch_size)
         return loss
 
     def test_step(self, data, batch_idx):
@@ -100,13 +99,26 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             raise ValueError(f"Unknown target policy {self.target_policy}")
 
         data.expert = torch.as_tensor(expert, dtype=self.dtype, device=self.device)  # type: ignore
-        assert isinstance(data.mu, torch.Tensor)
 
-        action = data.expert if self.use_expert else data.mu
-        next_state, reward, done, _ = self.env.step(action.detach().cpu().numpy())
+        if self.use_expert:
+            # use expert policy
+            data.action = data.expert
+        elif self.training:
+            # use actor policy
+            data.action = self.actor.policy(data.mu, data.sigma)
+        else:
+            # use greedy policy
+            data.action = data.mu
+
+        next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
         return data, next_state, reward, done
 
-    def batch_generator(self, n_episodes=1, render=False, use_buffer=True):
+    def batch_generator(
+        self, n_episodes=1, render=False, use_buffer=True, training=True
+    ):
+        # set model to appropriate mode
+        self.train(training)
+
         data = []
         for _ in range(n_episodes):
             data.extend(self.rollout(render=render))
@@ -116,10 +128,16 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         return iter(data)
 
     def train_dataloader(self):
-        return self._dataloader(n_episodes=10, render=False, use_buffer=True)
+        return self._dataloader(
+            n_episodes=10, render=False, use_buffer=True, training=True
+        )
 
     def val_dataloader(self):
-        return self._dataloader(n_episodes=1, render=self.render, use_buffer=False)
+        return self._dataloader(
+            n_episodes=1, render=self.render, use_buffer=False, training=False
+        )
 
     def test_dataloader(self):
-        return self._dataloader(n_episodes=100, render=self.render, use_buffer=False)
+        return self._dataloader(
+            n_episodes=100, render=self.render, use_buffer=False, training=False
+        )
