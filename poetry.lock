@@ -110,6 +110,29 @@ files = [
 frozenlist = ">=1.1.0"
 
 [[package]]
+name = "altair"
+version = "5.2.0"
+description = "Vega-Altair: A declarative statistical visualization library for Python."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "altair-5.2.0-py3-none-any.whl", hash = "sha256:8c4888ad11db7c39f3f17aa7f4ea985775da389d79ac30a6c22856ab238df399"},
+    {file = "altair-5.2.0.tar.gz", hash = "sha256:2ad7f0c8010ebbc46319cc30febfb8e59ccf84969a201541c207bc3a4fa6cf81"},
+]
+
+[package.dependencies]
+jinja2 = "*"
+jsonschema = ">=3.0"
+numpy = "*"
+packaging = "*"
+pandas = ">=0.25"
+toolz = "*"
+
+[package.extras]
+dev = ["anywidget", "geopandas", "hatch", "ipython", "m2r", "mypy", "pandas-stubs", "pyarrow (>=11)", "pytest", "pytest-cov", "ruff (>=0.1.3)", "types-jsonschema", "types-setuptools", "vega-datasets", "vegafusion[embed] (>=1.4.0)", "vl-convert-python (>=1.1.0)"]
+doc = ["docutils", "jinja2", "myst-parser", "numpydoc", "pillow (>=9,<10)", "pydata-sphinx-theme (>=0.14.1)", "scipy", "sphinx", "sphinx-copybutton", "sphinx-design", "sphinxext-altair"]
+
+[[package]]
 name = "anyio"
 version = "4.3.0"
 description = "High level compatibility layer for multiple asynchronous event loop implementations"
@@ -3952,6 +3975,17 @@ files = [
 ]
 
 [[package]]
+name = "toolz"
+version = "0.12.1"
+description = "List processing tools and functional utilities"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "toolz-0.12.1-py3-none-any.whl", hash = "sha256:d22731364c07d72eea0a0ad45bafb2c2937ab6fd38a3507bf55eae8744aa7d85"},
+    {file = "toolz-0.12.1.tar.gz", hash = "sha256:ecca342664893f177a13dac0e6b41cbd8ac25a358e5f215316d43e2100224f4d"},
+]
+
+[[package]]
 name = "torch"
 version = "2.1.2"
 description = "Tensors and Dynamic neural networks in Python with strong GPU acceleration"
@@ -4347,6 +4381,21 @@ socks = ["pysocks (>=1.5.6,!=1.5.7,<2.0)"]
 zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
+name = "vl-convert-python"
+version = "1.2.4"
+description = "Convert Vega-Lite chart specifications to SVG, PNG, or Vega"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "vl_convert_python-1.2.4-cp37-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f002dc030be5eb4394222eed629a4146c0b1631e45d8dd8f098e33bbf2aa9899"},
+    {file = "vl_convert_python-1.2.4-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:87a73ad095e8e8bc5d7b3e1621124432c6a1ac7378e26c9ee158e199495238d2"},
+    {file = "vl_convert_python-1.2.4-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d456dcae9a58e979daf64fda554c6a0c05140355d8baf99eda5db0683d70633c"},
+    {file = "vl_convert_python-1.2.4-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:565b425e152741ee8471a4cfd771def54257d2149cef93af0bb77a41d581687c"},
+    {file = "vl_convert_python-1.2.4-cp37-abi3-win_amd64.whl", hash = "sha256:10cc555b23f5e94b65751396e15642defb89ad6006d666ace8b10df8021f09a5"},
+    {file = "vl_convert_python-1.2.4.tar.gz", hash = "sha256:d6f2794532752a1fe142abd578846b95cceee3e3abe228764760c6ef7bc4a320"},
+]
+
+[[package]]
 name = "wandb"
 version = "0.16.3"
 description = "A CLI and library for interacting with the Weights & Biases API."
@@ -4553,4 +4602,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "f645560f13e4b36a92a80636a744fb8103e9ff11d3271f951e07beb4482f5b6f"
+content-hash = "fae75e4bbce80b67d1e36188f804dde581c696884e28fbfbfcb41b37534fb50b"
