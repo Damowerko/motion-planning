@@ -268,7 +268,9 @@ def baseline(params):
         raise ValueError(f"Invalid policy {params.policy}.")
 
     rewards, frames = rollout(env, policy_fn, params)
-    save_results(Path("figures") / "test_results" / params.policy, rewards, frames)
+    save_results(
+        params.policy, Path("figures") / "test_results" / params.policy, rewards, frames
+    )
 
 
 def test(params):
@@ -282,10 +284,10 @@ def test(params):
         return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
     rewards, frames = rollout(env, policy_fn, params)
-    save_results(Path("figures") / "test_results" / name, rewards, frames)
+    save_results(name, Path("figures") / "test_results" / name, rewards, frames)
 
 
-def save_results(path: Path, rewards: np.ndarray, frames: np.ndarray):
+def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray):
     """
     Args:
         path (Path): The path to save the summary to.
@@ -301,10 +303,11 @@ def save_results(path: Path, rewards: np.ndarray, frames: np.ndarray):
     plt.plot(rewards.T)
     plt.xlabel("Step")
     plt.ylabel("Reward")
-    plt.savefig(path / "rewards.png")
+    plt.title(f"{name}")
+    plt.savefig(path / f"rewards_{name}.png")
 
     # make a single video of all trials
-    iio.imwrite(path / f"video.mp4", np.concatenate(frames, axis=0), fps=30)
+    iio.imwrite(path / f"{name}.mp4", np.concatenate(frames, axis=0), fps=30)
 
     # summary metrics
     metrics = {
