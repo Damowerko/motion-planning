@@ -8,30 +8,29 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-torch = {version = "=2.0.0"}
-torch-geometric = {version = "^2.3.1"}
-pytorch-lightning = "^2.0.5"
 numpy = "^1.21.1"
 matplotlib = "^3.8.3"
 PySide6 = "^6.2.2.1"
 gym = "^0.26.2"
 stable-baselines3 = "^2.2.1"
 scipy = "^1.8.0"
-torch-sparse = "^0.6.18+pt20cu118"
-torch-cluster = "^1.6.3+pt20cu118"
-torch-scatter = "^2.1.2+pt20cu118"
 networkx = "^2.7.1"
 numba = ">=0.55.1"
 torchcps = {git = "https://github.com/Damowerko/torchcps"}
 imageio = {extras = ["ffmpeg"], version = "^2.34.0"}
+wandb = "^0.16.3"
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"
 jupyter = "^1.0.0"
 pytest = "^7.0.0"
-guildai = "^0.8.1"
-snakeviz = "^2.1.1"
-mypy = "^0.942"
+
+
+[tool.poetry.group.viz.dependencies]
+pandas = "^2.2.1"
+altair = "^5.2.0"
+vl-convert-python = "^1.2.4"
+seaborn = "^0.13.2"
 
 [[tool.poetry.source]]
 name = "PyPI"
@@ -39,7 +38,7 @@ priority = "supplemental"
 
 [[tool.poetry.source]]
 name = "pyg"
-url = "https://data.pyg.org/whl/torch-2.0.0+cu118.html"
+url = "https://data.pyg.org/whl/torch-2.1.0+cu121.html"
 priority = "primary"
 
 [build-system]
