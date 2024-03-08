@@ -153,7 +153,7 @@ def make_trainer(params):
             ModelCheckpoint(
                 monitor="val/reward",
                 mode="max",
-                dirpath=f"logs/{params.operation}/checkpoints/{run.id}/",
+                dirpath=f"logs/{params.operation}/{run.id}/",
                 filename="best",
                 auto_insert_metric_name=False,
                 save_last=True,
