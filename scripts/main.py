@@ -41,16 +41,6 @@ def main():
     )
     operation = sys.argv[1]
 
-    group = parser.add_argument_group("Environment")
-    group.add_argument("--n_agents", type=int, default=100)
-    group.add_argument("--max_steps", type=int, default=200)
-    group.add_argument(
-        "--scenario",
-        type=str,
-        default="uniform",
-        choices=["uniform", "gaussian_uniform"],
-    )
-
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
     if operation in ("imitation", "gpg", "td3"):
@@ -74,6 +64,14 @@ def main():
         # common args
         group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
+        group.add_argument("--n_agents", type=int, default=100)
+        group.add_argument("--max_steps", type=int, default=200)
+        group.add_argument(
+            "--scenario",
+            type=str,
+            default="uniform",
+            choices=["uniform", "gaussian_uniform"],
+        )
 
     params = parser.parse_args()
     if params.operation in ("gpg", "td3"):
