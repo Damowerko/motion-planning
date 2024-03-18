@@ -282,6 +282,7 @@ def test(params):
         return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
     rewards, frames = rollout(env, policy_fn, params)
+    name += f'-{params.n_agents}_agents'
     save_results(name, Path("figures") / "test_results" / name, rewards, frames)
 
 

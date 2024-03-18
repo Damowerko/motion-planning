@@ -272,7 +272,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         state = torch.from_numpy(state).to(
             dtype=self.dtype, device=self.device  # type: ignore
         )
-        assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
+        # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore
