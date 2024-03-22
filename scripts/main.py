@@ -36,7 +36,7 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "gpg", "td3", "test", "baseline"],
+        choices=["imitation", "gpg", "td3", "test", "baseline", "transfer"],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
@@ -52,19 +52,23 @@ def main():
         training_group.add_argument("--test", action="store_true")
         training_group.add_argument("--max_epochs", type=int, default=100)
         training_group.add_argument("--patience", type=int, default=10)
-    elif operation in ("test", "baseline"):
-        # test specific args
-        if operation == "test":
+    elif operation in ("test", "transfer", "baseline"):
+        # test and transfer specific args
+        if operation == "test" or operation == "transfer":
             group.add_argument("--checkpoint", type=str, required=True)
         # baseline specific args
         if operation == "baseline":
             group.add_argument(
                 "--policy", type=str, default="c", choices=["c", "d0", "d1"]
             )
+        # transfer specific args
+        if operation == "transfer":
+            group.add_argument("--n_agents", nargs="+", type=int, default=100)
+        else:
+            group.add_argument("--n_agents", type=int, default=100)
         # common args
         group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
-        group.add_argument("--n_agents", type=int, default=100)
         group.add_argument("--max_steps", type=int, default=200)
         group.add_argument(
             "--scenario",
@@ -82,6 +86,8 @@ def main():
         imitation(params)
     elif params.operation == "baseline":
         baseline(params)
+    elif params.operation == "transfer":
+        test_transferability(params)
     else:
         raise ValueError(f"Invalid operation {params.operation}.")
 
@@ -284,6 +290,24 @@ def test(params):
     rewards, frames = rollout(env, policy_fn, params)
     name += f'-{params.n_agents}_agents'
     save_results(name, Path("figures") / "test_results" / name, rewards, frames)
+
+
+def test_transferability(params):
+    temp = params.n_agents
+    model, name = load_model(params.checkpoint)
+    model = model.eval()
+    
+    for n_agents in params.n_agents:
+        env = MotionPlanning(n_agents=n_agents, scenario=params.scenario)
+
+        @torch.no_grad()
+        def policy_fn(observation, graph):
+            data = model.to_data(observation, graph)
+            return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+
+        rewards, frames = rollout(env, policy_fn, params)
+        filename = name + f'-{n_agents}_agents'
+        save_results(name, Path("figures") / "test_results" / filename, rewards, frames)
 
 
 def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray):
