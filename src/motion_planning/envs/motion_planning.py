@@ -84,6 +84,22 @@ class MotionPlanningRender:
                 "Unknown mode: {self.mode}. Should be one of ['human', 'rgb_array']."
             )
 
+def idist(X_A, X_B):
+    """
+    Return the imaginary distance matrix for two matrices that represent 2-dimensional systems
+    """
+    assert X_A.shape[1] == 2
+    assert X_B.shape[1] == 2
+    m_A = X_A.shape[0]
+    m_B = X_B.shape[0]
+
+    Y = np.zeros((m_A, m_B), dtype=complex)
+    for a in range(m_A):
+        for b in range(m_B):
+            vec = X_A[a] - X_B[b]
+            Y[a,b] = vec[0] + 1j * vec[1]
+    
+    return Y
 
 def argtopk(X, K, axis=-1):
     """
@@ -161,7 +177,7 @@ class MotionPlanning(GraphEnv):
         self.n_observed_targets = 3
 
         # comm graph properties
-        self.n_neighbors = 3
+        self.n_neighbors = 5
 
         self._n_nodes = self.n_agents
 
@@ -221,7 +237,7 @@ class MotionPlanning(GraphEnv):
 
     def adjacency(self):
         dist = cdist(self.position, self.position)
-        idx = argtopk(-dist, self.n_neighbors + 1, axis=1)
+        idx = argtopk(-np.abs(dist), self.n_neighbors + 1, axis=1)
         return index_to_coo(idx)
 
     def clip_action(self, action):
@@ -300,8 +316,7 @@ class MotionPlanning(GraphEnv):
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
-        action = self.clip_action(action)
-        self.velocity = action
+        self.velocity = self.clip_action(action[:,:2])
         self.position += self.velocity * self.dt
         self.t += self.dt
         return self._observation(), self._reward(), self._done(), {}
