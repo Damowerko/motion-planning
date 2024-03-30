@@ -157,8 +157,9 @@ class MotionPlanning(GraphEnv):
         # agent properties
         self.max_accel = 0.5
         self.agent_radius = 0.1
-        self.n_observed_agents = 3
-        self.n_observed_targets = 3
+        self.r_comm = 1
+        self.max_observed_agents = 5
+        self.max_observed_targets = 5
 
         # comm graph properties
         self.n_neighbors = 3
@@ -177,7 +178,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = (
-            self.state_ndim + self.n_observed_targets * 2 + self.n_observed_agents * 2
+            self.state_ndim + self.max_observed_targets * 2 + self.max_observed_agents * 3
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -270,13 +271,16 @@ class MotionPlanning(GraphEnv):
 
     def _observed_agents(self):
         dist = cdist(self.position, self.position)
-        idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
+        idx = argtopk(-dist, self.max_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx]
+        poses = self.position[idx]
+        mask = np.linalg.norm(self.position[:,np.newaxis,:] - poses, axis=2) > self.r_comm
+        poses[mask] = np.zeros_like(poses[mask])
+        return np.concatenate((poses, np.logical_not(mask)[:,:,np.newaxis].astype(float)), axis=2)
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
-        idx = argtopk(-dist, self.n_observed_targets, axis=1)
+        idx = argtopk(-dist, self.max_observed_targets, axis=1)
         return self.target_positions[idx, :]
 
     def _observation(self):
