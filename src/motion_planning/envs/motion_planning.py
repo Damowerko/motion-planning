@@ -159,7 +159,7 @@ class MotionPlanning(GraphEnv):
         self.agent_radius = 0.1
         self.r_comm = 1
         self.max_observed_agents = 5
-        self.max_observed_targets = 5
+        self.max_observed_targets = 3
 
         # comm graph properties
         self.n_neighbors = 3
