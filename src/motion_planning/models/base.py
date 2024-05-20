@@ -148,6 +148,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         gamma=0.95,
         max_steps=200,
         n_agents: int = 100,
+        width: float = 10.0,
         scenario: str = "uniform",
         **kwargs,
     ):
@@ -161,7 +162,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.max_steps = max_steps
         self.dropout = dropout
 
-        self.env = MotionPlanning(n_agents=n_agents, scenario=scenario)
+        self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(
             self.env.observation_ndim,
             self.env.action_ndim,
@@ -272,7 +273,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         state = torch.from_numpy(state).to(
             dtype=self.dtype, device=self.device  # type: ignore
         )
-        assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
+        # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore

@@ -52,12 +52,14 @@ class MotionPlanningRender:
         self.reset()
         if not isinstance(self.fig.canvas, FigureCanvasAgg):
             raise ValueError("Only agg matplotlib backend is supported.")
+        
+        markersize = 75 / self.width
 
         if self.target_scatter is None:
-            self.target_scatter = self.ax.plot(*goal_positions, "rx")[0]
+            self.target_scatter = self.ax.plot(*goal_positions, "rx", markersize=markersize)[0]
 
         if self.agent_scatter is None:
-            self.agent_scatter = self.ax.plot(*agent_positions, "bo")[0]
+            self.agent_scatter = self.ax.plot(*agent_positions, "bo", markersize=markersize)[0]
 
         self.ax.set_xlim(-self.width / 2, self.width / 2)
         self.ax.set_ylim(-self.width / 2, self.width / 2)
@@ -67,7 +69,7 @@ class MotionPlanningRender:
         nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
 
         targets = observed_targets.reshape(-1, 2)
-        self.ax.plot(*targets.T, "y^")
+        self.ax.plot(*targets.T, "y^", markersize=markersize)
 
         self.ax.set_title(f"Reward: {reward:.2f}")
 
@@ -137,7 +139,7 @@ class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
     scenarios = {"uniform", "gaussian_uniform"}
 
-    def __init__(self, n_agents=100, scenario="uniform"):
+    def __init__(self, n_agents=100, width=10, scenario="uniform"):
         self.n_agents = n_agents
         self.n_targets = n_agents
 
@@ -150,7 +152,8 @@ class MotionPlanning(GraphEnv):
         # Since space is 2D scale is inversely proportional to sqrt of the number of agents
 
         self.dt = 0.1
-        self.width = 1.0 * np.sqrt(self.n_agents)
+        # self.width = 1.0 * np.sqrt(self.n_agents)
+        self.width = width
         self.reward_cutoff = 0.2
         self.reward_sigma = 0.1
 
