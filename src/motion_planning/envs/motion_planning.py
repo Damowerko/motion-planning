@@ -157,7 +157,8 @@ class MotionPlanning(GraphEnv):
         # agent properties
         self.max_accel = 0.5
         self.agent_radius = 0.1
-        self.n_observed_agents = 3
+        self.r_obs = 2
+        self.max_observed_agents = 5
         self.n_observed_targets = 3
 
         # comm graph properties
@@ -177,7 +178,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = (
-            self.state_ndim + self.n_observed_targets * 2 + self.n_observed_agents * 2
+            self.state_ndim + self.n_observed_targets * 2 + self.max_observed_agents * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -270,9 +271,13 @@ class MotionPlanning(GraphEnv):
 
     def _observed_agents(self):
         dist = cdist(self.position, self.position)
-        idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
+        idx = argtopk(-dist, self.max_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx]
+        poses = self.position[idx]
+        mask = np.linalg.norm(self.position[:,np.newaxis,:] - poses, axis=2) > self.r_obs
+        poses[mask] = np.zeros_like(poses[mask]) # This probably does not give desired results because of extra zeros
+        # Determine a good way to resolve this issue
+        return poses
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)

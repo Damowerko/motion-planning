@@ -11,6 +11,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
 from torchcps.gnn import GCN
+from .gnndeepset import GCNDeepSet
 from torchcps.utils import add_model_specific_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
@@ -21,6 +22,7 @@ class GNNActor(nn.Module):
     def __init__(
         self,
         state_ndim: int,
+        target_obs_ndim: int,
         action_ndim: int,
         n_taps: int = 4,
         n_layers: int = 2,
@@ -33,10 +35,11 @@ class GNNActor(nn.Module):
     ):
         super().__init__()
         self.state_ndim = state_ndim
+        self.target_obs_ndim = target_obs_ndim
         self.action_ndim = action_ndim
 
-        self.gnn = GCN(
-            state_ndim,
+        self.gnn = GCNDeepSet(
+            state_ndim + target_obs_ndim + 2,
             action_ndim * 2,
             n_taps,
             n_layers,
@@ -163,7 +166,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         self.env = MotionPlanning(n_agents=n_agents, scenario=scenario)
         self.actor = GNNActor(
-            self.env.observation_ndim,
+            self.env.state_ndim,
+            self.env.n_observed_targets * 2,
             self.env.action_ndim,
             n_taps,
             n_layers,
