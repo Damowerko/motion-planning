@@ -179,8 +179,8 @@ class MotionPlanning(GraphEnv):
         )
 
         self.state_ndim = 4
-        self._observation_ndim = (
-            self.state_ndim + self.n_observed_targets * 2 + self.n_observed_agents * 2
+        self._observation_ndim = int(
+            self.state_ndim / 2 + self.n_observed_targets * 2 + self.n_observed_agents * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -275,17 +275,17 @@ class MotionPlanning(GraphEnv):
         dist = cdist(self.position, self.position)
         idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx]
+        return self.position[idx] - self.position[:,np.newaxis,:]
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :]
+        return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state, tgt, agt), axis=1)
+        obs = np.concatenate((self.state[:,:2], tgt, agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
