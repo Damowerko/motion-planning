@@ -68,7 +68,7 @@ class MotionPlanningRender:
         G.remove_edges_from(nx.selfloop_edges(G))
         nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
 
-        targets = observed_targets.reshape(-1, 2)
+        targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
         self.ax.plot(*targets.T, "y^", markersize=markersize)
 
         self.ax.set_title(f"Reward: {reward:.2f}")
