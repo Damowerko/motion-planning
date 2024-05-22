@@ -34,7 +34,7 @@ class MotionPlanningRender:
         self.agent_scatter = None
 
     def render(
-        self, goal_positions, agent_positions, reward, observed_targets, adjacency
+        self, goal_positions, agent_positions, reward, coverage, observed_targets, adjacency
     ):
         """
         Renders the environment with the given parameters.
@@ -71,7 +71,7 @@ class MotionPlanningRender:
         targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
         self.ax.plot(*targets.T, "y^", markersize=markersize)
 
-        self.ax.set_title(f"Reward: {reward:.2f}")
+        self.ax.set_title(f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%")
 
         self.agent_scatter.set_data(*agent_positions)
 
@@ -300,6 +300,10 @@ class MotionPlanning(GraphEnv):
         reward = np.exp(-((d / self.reward_sigma) ** 2))
         reward[d > self.reward_cutoff] = 0
         return reward.mean()
+    
+    def coverage(self):
+        dist = cdist(self.target_positions, self.position)
+        return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=0))
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
@@ -343,6 +347,7 @@ class MotionPlanning(GraphEnv):
             self.target_positions.T,
             self.position.T,
             self._reward(),
+            self.coverage(),
             self._observed_targets(),
             self.adjacency(),
         )
