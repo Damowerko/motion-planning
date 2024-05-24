@@ -282,7 +282,7 @@ class MotionPlanning(GraphEnv):
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state, tgt, agt), axis=1)
+        obs = np.concatenate((self.velocity, tgt, agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
