@@ -285,7 +285,7 @@ class MotionPlanning(GraphEnv):
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:,:2], tgt, agt), axis=1)
+        obs = np.concatenate((self.state[:,2:], tgt, agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
@@ -303,7 +303,7 @@ class MotionPlanning(GraphEnv):
     
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
-        return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=0))
+        return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=1))
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
