@@ -10,7 +10,7 @@ from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
-from torchcps.gnn import GCN
+from .gnn import GCN
 from torchcps.utils import add_model_specific_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
@@ -46,6 +46,7 @@ class GNNActor(nn.Module):
             mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
+            ['mean', 'std', 'max', 'min'],
         )
 
     def forward(self, state: torch.Tensor, data: BaseData):
