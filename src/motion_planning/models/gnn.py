@@ -35,22 +35,27 @@ class EGraphFilter(gnn.MessagePassing):
         self.coord_features = coord_features
         self.edge_features = edge_features
 
+        self.edge_in_norm = nn.BatchNorm1d(2 * node_features_in + 1)
+
         self.node_mlp = nn.Sequential(
             nn.Linear(node_features_in + edge_features, hidden_features),
             activation(),
             nn.Linear(hidden_features, node_features_out),
         )
 
+        final_coord_layer = nn.Linear(hidden_features, coord_features, bias=False)
+        nn.init.xavier_normal_(final_coord_layer, gain=1e-3)
         self.coord_mlp = nn.Sequential(
             nn.Linear(edge_features, hidden_features),
             activation(),
-            nn.Linear(hidden_features, coord_features),
+            final_coord_layer,
         )
 
         self.edge_mlp = nn.Sequential(
             nn.Linear(2 * node_features_in + 1, hidden_features),
             activation(),
             nn.Linear(hidden_features, edge_features),
+            activation(),
         )
 
     def forward(
@@ -61,13 +66,14 @@ class EGraphFilter(gnn.MessagePassing):
         edge_attr: OptTensor = None,
         size: Size = None,
     ) -> torch.Tensor:
-        feat = self.propagate(edge_index, size, h=h, x=x)
+        feat = self.propagate(edge_index, h=h, x=x)
         m, x_n = torch.split(feat, [self.edge_features, self.coord_features], dim=1)
-        h_n = self.node_mlp(torch.cat([h, m]))
+        h_n = self.node_mlp(torch.cat([h, m], dim=1))
         return h_n, x_n
     
     def message(self, h_i, h_j, x_i, x_j):
         m_ij = torch.cat([h_i, h_j, torch.norm(x_i - x_j, dim=1, keepdim=True)], dim=1)
+        m_ij = self.edge_in_norm(m_ij)
         m_ij = self.edge_mlp(m_ij)
         x_ij = (x_i - x_j) * self.coord_mlp(m_ij)
         return torch.cat([m_ij, x_ij], dim=1)
@@ -114,8 +120,8 @@ class ResidualBlock(nn.Module):
         if self.act is not None:
             y = self.act(y)
         y = self.dropout(y)
-        y = self.conv(y, *args, **kwargs)
-        return x + y
+        h, y = self.conv(y, *args, **kwargs)
+        return x + h, y
 
 
 class EGCN(nn.Module):
@@ -161,11 +167,9 @@ class EGCN(nn.Module):
 
     def __init__(
         self,
-        node_features_in: int,
-        node_features_out: int,
-        coord_features: int,
-        edge_features: int,
-        hidden_features: int,
+        in_channels: int,
+        out_channels: int,
+        coord_channels: int,
         n_layers: int = 2,
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
@@ -202,11 +206,13 @@ class EGCN(nn.Module):
         # ensure that dropout is a float
         dropout = float(dropout)
 
+        self.n_channels = n_channels
+
         # Readin MLP: Changes the number of features from in_channels to n_channels
         self.readin = gnn.MLP(
-            in_channels=in_channels,
+            in_channels=in_channels+coord_channels,
             hidden_channels=mlp_hidden_channels,
-            out_channels=n_channels,
+            out_channels=n_channels*2,
             num_layers=mlp_read_layers,
             dropout=dropout,
             act=activation,
@@ -230,16 +236,18 @@ class EGCN(nn.Module):
             conv: SequentialLayers = [
                 (
                     EGraphFilter(
-                        in_channels=n_channels,
-                        out_channels=n_channels,
-                        n_taps=n_taps,
+                        node_features_in=n_channels,
+                        node_features_out=n_channels,
+                        coord_features=n_channels,
+                        edge_features=n_channels,
+                        hidden_features=n_channels,
                     ),
-                    "x, edge_index, edge_attr, size -> x",
+                    "h, x, edge_index, edge_attr, size -> h, x",
                 ),
             ]
             if mlp_per_gnn_layers > 0:
                 conv += [
-                    (activation, "x -> x"),
+                    (activation, "h -> h"),
                     (
                         gnn.MLP(
                             in_channels=n_channels,
@@ -250,13 +258,13 @@ class EGCN(nn.Module):
                             act=activation,
                             plain_last=True,
                         ),
-                        "x -> x",
+                        "h -> h",
                     ),
                 ]
             self.residual_blocks += [
                 (
                     ResidualBlock(
-                        conv=gnn.Sequential("x, edge_index, edge_attr, size", conv),
+                        conv=gnn.Sequential("h, x, edge_index, edge_attr, size", conv),
                         norm=gnn.BatchNorm(n_channels),
                         act=activation,
                         dropout=dropout,
@@ -266,13 +274,15 @@ class EGCN(nn.Module):
 
     def forward(
         self,
+        h: torch.Tensor,
         x: torch.Tensor,
         edge_index: Adj,
         edge_attr: OptTensor = None,
         size: Size = None,
     ) -> torch.Tensor:
-        x = self.readin(x)
+        z = self.readin(torch.cat([h, x], dim=1))
+        h, x = torch.split(z, [self.n_channels, self.n_channels], dim=1)
         for residual_block in self.residual_blocks:
-            x = residual_block(x, edge_index, edge_attr, size)
-        x = self.readout(x)
-        return x
+            h, x = residual_block(h, x, edge_index, edge_attr, size)
+        h = self.readout(h)
+        return h

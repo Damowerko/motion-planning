@@ -10,6 +10,7 @@ from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
+from .gnn import EGCN
 from torchcps.gnn import GCN
 from torchcps.utils import add_model_specific_args
 
@@ -22,7 +23,7 @@ class GNNActor(nn.Module):
         self,
         state_ndim: int,
         action_ndim: int,
-        n_taps: int = 4,
+        coord_ndim: int,
         n_layers: int = 2,
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
@@ -34,11 +35,12 @@ class GNNActor(nn.Module):
         super().__init__()
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
+        self.coord_ndim = coord_ndim
 
-        self.gnn = GCN(
+        self.gnn = EGCN(
             state_ndim,
             action_ndim * 2,
-            n_taps,
+            coord_ndim,
             n_layers,
             n_channels,
             activation,
@@ -49,7 +51,8 @@ class GNNActor(nn.Module):
         )
 
     def forward(self, state: torch.Tensor, data: BaseData):
-        action = self.gnn.forward(state, data.edge_index, data.edge_attr)
+        coord, state = torch.split(state, [self.coord_ndim, self.state_ndim], dim=1)
+        action = self.gnn.forward(state, coord, data.edge_index, data.edge_attr)
         mu = action[:, : self.action_ndim]
         sigma = F.softplus(action[:, self.action_ndim :])
         return mu, sigma
@@ -166,7 +169,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.actor = GNNActor(
             self.env.observation_ndim,
             self.env.action_ndim,
-            n_taps,
+            int(self.env.state_ndim / 2),
             n_layers,
             n_channels,
             activation,
