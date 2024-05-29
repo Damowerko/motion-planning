@@ -44,7 +44,7 @@ class EGraphFilter(gnn.MessagePassing):
         )
 
         final_coord_layer = nn.Linear(hidden_features, coord_features, bias=False)
-        nn.init.xavier_normal_(final_coord_layer, gain=1e-3)
+        nn.init.xavier_normal_(final_coord_layer.weight, gain=1e-3)
         self.coord_mlp = nn.Sequential(
             nn.Linear(edge_features, hidden_features),
             activation(),
