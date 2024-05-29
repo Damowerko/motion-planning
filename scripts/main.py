@@ -36,7 +36,7 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "gpg", "td3", "test", "baseline"],
+        choices=["imitation", "gpg", "td3", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
@@ -52,19 +52,28 @@ def main():
         training_group.add_argument("--test", action="store_true")
         training_group.add_argument("--max_epochs", type=int, default=100)
         training_group.add_argument("--patience", type=int, default=10)
-    elif operation in ("test", "baseline"):
+    elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
         # test specific args
-        if operation == "test":
+        if operation in ("test", "transfer-agents", "transfer-area", "transfer-density"):
             group.add_argument("--checkpoint", type=str, required=True)
         # baseline specific args
         if operation == "baseline":
             group.add_argument(
                 "--policy", type=str, default="c", choices=["c", "d0", "d1"]
             )
+        # transfer specific args
+        if operation in ("transfer-area", "transfer-density"): # keep the area or density constant
+            group.add_argument("--n_agents", nargs="+", type=int, default=100)
+        else:
+            group.add_argument("--n_agents", type=int, default=100)
+        
+        if operation == "transfer-agents": # keep the number of agents constant
+            group.add_argument("--width", nargs="+", type=float, default=10.0)
+        else:
+            group.add_argument("--width", type=float, default=10.0)
         # common args
         group.add_argument("--render", action="store_true")
         group.add_argument("--n_trials", type=int, default=10)
-        group.add_argument("--n_agents", type=int, default=100)
         group.add_argument("--max_steps", type=int, default=200)
         group.add_argument(
             "--scenario",
@@ -78,6 +87,8 @@ def main():
         train(params)
     elif params.operation == "test":
         test(params)
+    elif params.operation in ("transfer-agents", "transfer-area", "transfer-density"):
+        transfer(params)
     elif params.operation == "imitation":
         imitation(params)
     elif params.operation == "baseline":
@@ -255,7 +266,7 @@ def rollout(
 
 
 def baseline(params):
-    env = MotionPlanning(n_agents=params.n_agents, scenario=params.scenario)
+    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
     if params.policy == "c":
         policy_fn = lambda o, g: env.centralized_policy()
     elif params.policy == "d0":
@@ -272,7 +283,7 @@ def baseline(params):
 
 
 def test(params):
-    env = MotionPlanning(n_agents=params.n_agents, scenario=params.scenario)
+    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
     model, name = load_model(params.checkpoint)
     model = model.eval()
 
@@ -283,6 +294,34 @@ def test(params):
 
     rewards, frames = rollout(env, policy_fn, params)
     save_results(name, Path("figures") / "test_results" / name, rewards, frames)
+
+def transfer(params):
+    model, name = load_model(params.checkpoint)
+    model = model.eval()
+    iv_type = params.width if params.operation == "transfer-agents" else params.n_agents
+    if params.operation == "transfer-area":
+        code = "r"
+    elif params.operation == "transfer-agents":
+        code = "a"
+    else:
+        code = "d"
+    
+    for iv_value in iv_type:
+        if params.operation == "transfer-area":
+            env = MotionPlanning(n_agents=iv_value, width=params.width, scenario=params.scenario)
+        elif params.operation == "transfer-agents":
+            env = MotionPlanning(n_agents=params.n_agents, width=iv_value, scenario=params.scenario)
+        else:
+            env = MotionPlanning(n_agents=iv_value, width=1.0*np.sqrt(iv_value), scenario=params.scenario)
+
+        @torch.no_grad()
+        def policy_fn(observation, graph):
+            data = model.to_data(observation, graph)
+            return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+
+        rewards, frames = rollout(env, policy_fn, params)
+        filename = name + f'-{iv_value}-{code}'
+        save_results(name, Path("figures") / "test_results" / filename, rewards, frames)
 
 
 def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray):
