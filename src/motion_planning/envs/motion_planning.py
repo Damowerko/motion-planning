@@ -140,8 +140,21 @@ class MotionPlanning(GraphEnv):
     scenarios = {"uniform", "gaussian_uniform"}
 
     def __init__(self, n_agents=100, width=10, scenario="uniform"):
-        self.n_agents = n_agents
-        self.n_targets = n_agents
+        if isinstance(n_agents, list):
+            self.n_agents_list = n_agents
+            self.n_agents = np.random.choice(self.n_agents_list)
+            self.n_targets = self.n_agents
+        else:
+            self.n_agents_list = None
+            self.n_agents = n_agents
+            self.n_targets = n_agents
+
+        if isinstance(width, list):
+            self.width_list = width
+            self.width = np.random.choice(self.width_list)
+        else:
+            self.width_list = None
+            self.width = width
 
         if scenario not in self.scenarios:
             raise ValueError(
@@ -152,8 +165,6 @@ class MotionPlanning(GraphEnv):
         # Since space is 2D scale is inversely proportional to sqrt of the number of agents
 
         self.dt = 0.1
-        # self.width = 1.0 * np.sqrt(self.n_agents)
-        self.width = width
         self.reward_cutoff = 0.2
         self.reward_sigma = 0.1
 
@@ -314,6 +325,31 @@ class MotionPlanning(GraphEnv):
         return self._observation(), self._reward(), self._done(), {}
 
     def reset(self):
+        if self.n_agents_list != None:
+            self.n_agents = np.random.choice(self.n_agents_list)
+            self.n_targets = self.n_agents
+        
+        if self.width_list != None:
+            self.width = np.random.choice(self.width_list)
+        
+        self.action_space = spaces.Box(
+            low=-1,
+            high=1,
+            shape=(
+                self.n_agents,
+                self.action_ndim,
+            ),
+        )
+
+        self.observation_space = spaces.Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(
+                self.n_agents,
+                self.observation_ndim,
+            ),
+        )
+
         self.state = np.zeros((self.n_agents, self.state_ndim))
         if self.scenario == "uniform":
             self.target_positions = rng.uniform(

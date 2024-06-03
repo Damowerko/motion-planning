@@ -149,6 +149,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         max_steps=200,
         n_agents: int = 100,
         width: float = 10.0,
+        n_agents_composite: List[int] = None,
+        width_composite: List[float] = None,
         scenario: str = "uniform",
         **kwargs,
     ):
@@ -161,6 +163,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.gamma = gamma
         self.max_steps = max_steps
         self.dropout = dropout
+
+        n_agents = n_agents_composite if n_agents_composite else n_agents
+        width = width_composite if width_composite else width
 
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(

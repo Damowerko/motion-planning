@@ -52,6 +52,9 @@ def main():
         training_group.add_argument("--test", action="store_true")
         training_group.add_argument("--max_epochs", type=int, default=100)
         training_group.add_argument("--patience", type=int, default=10)
+
+        training_group.add_argument("--n_agents_composite", nargs="+", type=int, default=None)
+        training_group.add_argument("--width_composite", nargs="+", type=float, default=None)
     elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
         # test specific args
         if operation in ("test", "transfer-agents", "transfer-area", "transfer-density"):
