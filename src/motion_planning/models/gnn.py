@@ -37,10 +37,9 @@ class EGraphFilter(gnn.MessagePassing):
 
         self.edge_in_norm = nn.BatchNorm1d(2 * node_features_in + 1)
 
-        self.node_mlp = nn.Sequential(
-            nn.Linear(node_features_in + edge_features, hidden_features),
-            activation(),
-            nn.Linear(hidden_features, node_features_out),
+        self.node_mlp = gnn.MLP(
+            [node_features_in + edge_features, hidden_features, node_features_out],
+            act=activation()
         )
 
         final_coord_layer = nn.Linear(hidden_features, coord_features, bias=False)
@@ -68,6 +67,7 @@ class EGraphFilter(gnn.MessagePassing):
     ) -> torch.Tensor:
         feat = self.propagate(edge_index, h=h, x=x)
         m, x_n = torch.split(feat, [self.edge_features, self.coord_features], dim=1)
+        x_n = x + x_n
         h_n = self.node_mlp(torch.cat([h, m], dim=1))
         return h_n, x_n
     
@@ -77,51 +77,6 @@ class EGraphFilter(gnn.MessagePassing):
         m_ij = self.edge_mlp(m_ij)
         x_ij = (x_i - x_j) * self.coord_mlp(m_ij)
         return torch.cat([m_ij, x_ij], dim=1)
-
-
-class ResidualBlock(nn.Module):
-    def __init__(
-        self,
-        conv: Callable,
-        act: Callable[[torch.Tensor], torch.Tensor] | None = None,
-        norm: Callable[[torch.Tensor], torch.Tensor] | None = None,
-        dropout: float = 0.0,
-        **kwargs,
-    ) -> None:
-        """
-        Residual block with a RES+ connection.
-            Norm -> Activation -> Dropout -> Conv -> Residual
-
-        Args:
-            conv: Convolutional layer with input arguments (x, type_vec, adj_t).
-            dropout: Dropout probability with input arguments (x).
-            act: Activation function with input arguments (x).
-            norm: Normalization function with input arguments (x, type_vec).
-        """
-        super().__init__(**kwargs)
-        self.conv = conv
-        self.norm = norm
-        self.act = act
-        self.dropout = nn.Dropout(float(dropout))
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        """
-        The first argument should be the input tensor, the remaining arguments are passed through to the `conv` module.
-        """
-
-        y = x
-        if self.norm is not None:
-            y = self.norm(y)
-        if self.act is not None:
-            y = self.act(y)
-        y = self.dropout(y)
-        h, y = self.conv(y, *args, **kwargs)
-        return x + h, y
 
 
 class EGCN(nn.Module):
@@ -150,12 +105,6 @@ class EGCN(nn.Module):
             help="Number of MLP layers to use for readin/readout.",
         )
         group.add_argument(
-            "--mlp_per_gnn_layers",
-            type=int,
-            default=0,
-            help="Number of MLP layers to use per GNN layer.",
-        )
-        group.add_argument(
             "--mlp_hidden_channels",
             type=int,
             default=256,
@@ -174,7 +123,6 @@ class EGCN(nn.Module):
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
         mlp_read_layers: int = 1,
-        mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
         **kwargs,
@@ -206,13 +154,14 @@ class EGCN(nn.Module):
         # ensure that dropout is a float
         dropout = float(dropout)
 
-        self.n_channels = n_channels
+        self.in_channels = in_channels
+        self.coord_channels = coord_channels
 
         # Readin MLP: Changes the number of features from in_channels to n_channels
         self.readin = gnn.MLP(
-            in_channels=in_channels+coord_channels,
+            in_channels=in_channels,
             hidden_channels=mlp_hidden_channels,
-            out_channels=n_channels*2,
+            out_channels=n_channels,
             num_layers=mlp_read_layers,
             dropout=dropout,
             act=activation,
@@ -231,46 +180,21 @@ class EGCN(nn.Module):
         )
 
         # GNN layers operate on n_channels features
-        self.residual_blocks = nn.ModuleList()
+        self.convs = nn.ModuleList()
         for _ in range(n_layers):
-            conv: SequentialLayers = [
+            conv = [
                 (
                     EGraphFilter(
                         node_features_in=n_channels,
                         node_features_out=n_channels,
-                        coord_features=n_channels,
+                        coord_features=coord_channels,
                         edge_features=n_channels,
                         hidden_features=n_channels,
                     ),
                     "h, x, edge_index, edge_attr, size -> h, x",
                 ),
             ]
-            if mlp_per_gnn_layers > 0:
-                conv += [
-                    (activation, "h -> h"),
-                    (
-                        gnn.MLP(
-                            in_channels=n_channels,
-                            hidden_channels=mlp_hidden_channels,
-                            out_channels=n_channels,
-                            num_layers=mlp_per_gnn_layers,
-                            dropout=dropout,
-                            act=activation,
-                            plain_last=True,
-                        ),
-                        "h -> h",
-                    ),
-                ]
-            self.residual_blocks += [
-                (
-                    ResidualBlock(
-                        conv=gnn.Sequential("h, x, edge_index, edge_attr, size", conv),
-                        norm=gnn.BatchNorm(n_channels),
-                        act=activation,
-                        dropout=dropout,
-                    )
-                )
-            ]
+            self.convs += [gnn.Sequential("h, x, edge_index, edge_attr, size", conv)]
 
     def forward(
         self,
@@ -280,9 +204,8 @@ class EGCN(nn.Module):
         edge_attr: OptTensor = None,
         size: Size = None,
     ) -> torch.Tensor:
-        z = self.readin(torch.cat([h, x], dim=1))
-        h, x = torch.split(z, [self.n_channels, self.n_channels], dim=1)
-        for residual_block in self.residual_blocks:
-            h, x = residual_block(h, x, edge_index, edge_attr, size)
+        h = self.readin(h)
+        for conv in self.convs:
+            h, x = conv(h, x, edge_index, edge_attr, size)
         h = self.readout(h)
-        return h
+        return torch.concat([h, x], dim=1)

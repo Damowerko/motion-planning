@@ -168,7 +168,7 @@ class MotionPlanning(GraphEnv):
 
         self._n_nodes = self.n_agents
 
-        self._action_ndim = 2
+        self._action_ndim = 3
         self.action_space = spaces.Box(
             low=-1,
             high=1,
@@ -180,7 +180,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = int(
-            self.state_ndim / 2 + self.n_observed_targets * 2 + self.n_observed_agents * 2
+            self.state_ndim / 4 + self.n_observed_targets * 2 + self.n_observed_agents * 2 + self.state_ndim / 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -231,20 +231,22 @@ class MotionPlanning(GraphEnv):
         """
         Clip action to a unit circle with radius self.max_accel.
         Args:
-            action: An array of shape (..., 2) representing the action for each agent.
+            action: An array of shape (..., 2) representing the action (position at next timestep) for each agent.
         """
         action = action.copy()
-        magnitude = np.linalg.norm(action, axis=-1)
+        action_vel = action - self.position
+        magnitude = np.linalg.norm(action_vel, axis=-1)
         to_clip = magnitude > self.max_accel
-        action[to_clip] = action[to_clip] / magnitude[to_clip, None] * self.max_accel
-        return action
+        action_vel[to_clip] = action_vel[to_clip] / magnitude[to_clip, None] * self.max_accel
+        return action_vel + self.position
 
     def centralized_policy(self):
         distance = cdist(self.position, self.target_positions)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
-        action = self.target_positions[col_idx] - self.position[row_idx]
+        action = self.target_positions[col_idx]
         action = self.clip_action(action)
+        action = np.concatenate((np.expand_dims(np.linalg.norm(action, axis=-1), axis=1), action), axis=-1)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
 
@@ -285,8 +287,8 @@ class MotionPlanning(GraphEnv):
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state, tgt, agt), axis=1)
-        # assert obs.shape == self.observation_space.shape  # type: ignore
+        obs = np.concatenate((np.expand_dims(np.linalg.norm(self.velocity, axis=-1), axis=1), tgt, agt, self.position), axis=1)
+        assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
     def _done(self) -> bool:
@@ -307,8 +309,9 @@ class MotionPlanning(GraphEnv):
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
+        action = action[:, 1:]
         action = self.clip_action(action)
-        self.velocity = action
+        self.velocity = action - self.position
         self.position += self.velocity * self.dt
         self.t += self.dt
         return self._observation(), self._reward(), self._done(), {}
@@ -357,14 +360,13 @@ class MotionPlanning(GraphEnv):
 
 
 if __name__ == "__main__":
-    env = MotionPlanning(scenario="gaussian_uniform")
+    env = MotionPlanning(scenario="uniform")
     n_steps = 200
-    for i in range(100):
-        env.reset()
-        for i in range(n_steps):
-            action = env.decentralized_policy(hops=0)
-            done = env.step(action)[2]
-            adj = env.adjacency()
-            env.render()
-            if done:
-                break
+    env.reset()
+    for i in range(n_steps):
+        action = env.centralized_policy()
+        done = env.step(action)[2]
+        adj = env.adjacency()
+        env.render()
+        if done:
+            break

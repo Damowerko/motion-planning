@@ -28,7 +28,6 @@ class GNNActor(nn.Module):
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
         mlp_read_layers: int = 1,
-        mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
     ):
@@ -45,16 +44,15 @@ class GNNActor(nn.Module):
             n_channels,
             activation,
             mlp_read_layers,
-            mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
         )
 
     def forward(self, state: torch.Tensor, data: BaseData):
-        coord, state = torch.split(state, [self.coord_ndim, self.state_ndim], dim=1)
+        state, coord = torch.split(state, [self.state_ndim, self.coord_ndim], dim=1)
         action = self.gnn.forward(state, coord, data.edge_index, data.edge_attr)
-        mu = action[:, : self.action_ndim]
-        sigma = F.softplus(action[:, self.action_ndim :])
+        mu = action[:, : self.action_ndim + self.coord_ndim]
+        sigma = F.softplus(action[:, self.action_ndim + self.coord_ndim :])
         return mu, sigma
 
     def policy(
@@ -167,14 +165,13 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(
-            self.env.observation_ndim,
-            self.env.action_ndim,
+            self.env.observation_ndim - int(self.env.state_ndim / 2),
+            self.env.action_ndim - int(self.env.state_ndim / 2),
             int(self.env.state_ndim / 2),
             n_layers,
             n_channels,
             activation,
             mlp_read_layers,
-            mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
         )
