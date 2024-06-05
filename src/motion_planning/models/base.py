@@ -10,13 +10,15 @@ from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
+from .gnn import ComplexGCN
 from torchcps.gnn import GCN
 from torchcps.utils import add_model_specific_args
 
-from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.envs.motion_planning import ComplexMotionPlanning
 from motion_planning.rl import ExperienceSourceDataset
 
 
+# FINISH THE COMPLEX IMPLEMENTATION OF THIS
 class GNNActor(nn.Module):
     def __init__(
         self,
@@ -35,7 +37,7 @@ class GNNActor(nn.Module):
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
 
-        self.gnn = GCN(
+        self.gnn = ComplexGCN(
             state_ndim,
             action_ndim * 2,
             n_taps,
@@ -48,8 +50,9 @@ class GNNActor(nn.Module):
             dropout,
         )
 
-    def forward(self, state: torch.Tensor, data: BaseData):
-        action = self.gnn.forward(state, data.edge_index, data.edge_attr)
+    def forward(self, equivariant_obs: torch.Tensor, invariant_obs: torch.Tensor, data: BaseData):
+        equivariant_action, invariant_action = self.gnn.forward(equivariant_obs, invariant_obs, data.edge_index, data.edge_attr)
+        action = torch.cat([equivariant_action, invariant_action], dim=1)
         mu = action[:, : self.action_ndim]
         sigma = F.softplus(action[:, self.action_ndim :])
         return mu, sigma
@@ -162,7 +165,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.max_steps = max_steps
         self.dropout = dropout
 
-        self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
+        self.env = ComplexMotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(
             self.env.observation_ndim,
             self.env.action_ndim,
@@ -188,6 +191,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
             dropout,
         )
 
+        self.to(dtype=torch.complex128)
+
     def rollout_start(self):
         """
         Called before rollout starts.
@@ -212,15 +217,16 @@ class MotionPlanningActorCritic(pl.LightningModule):
                 self.env.render()
 
             # sample action
-            data.mu, data.sigma = self.actor(data.state, data)
+            data.mu, data.sigma = self.actor(data.equivariant_obs, data.invariant_obs, data) # fix actor forward
 
             # take step
             data, next_state, reward, done = self.rollout_step(data)
 
             # add additional attributes
-            next_data = self.to_data(next_state, self.env.adjacency())
+            next_data = self.to_data(next_state[0], next_state[1], self.env.adjacency())
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.next_state = next_data.state
+            data.next_equivariant_obs = next_data.equivariant_obs
+            data.next_invariant_obs = next_data.invariant_obs
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
 
             episode.append(data)
@@ -264,13 +270,17 @@ class MotionPlanningActorCritic(pl.LightningModule):
             ),
         ]
 
-    def to_data(self, state, adjacency) -> BaseData:
+    def to_data(self, equivariant_obs, invariant_obs, adjacency) -> BaseData:
         if isinstance(adjacency, list):
             data = []
             for i, adj in enumerate(adjacency):
-                data.append(self.to_data(state[i], adj))
+                data.append(self.to_data(equivariant_obs[i], invariant_obs[i], adj))
             return Batch.from_data_list(data)
-        state = torch.from_numpy(state).to(
+        assert equivariant_obs.shape[0] == invariant_obs.shape[0] # ensure there are the same number of observations
+        equivariant_obs = torch.from_numpy(equivariant_obs).to(
+            dtype=self.dtype, device=self.device  # type: ignore
+        )
+        invariant_obs = torch.from_numpy(invariant_obs).to(
             dtype=self.dtype, device=self.device  # type: ignore
         )
         # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
@@ -278,10 +288,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore
         return Data(
-            state=state,
+            equivariant_obs=equivariant_obs,
+            invariant_obs=invariant_obs,
             edge_index=edge_index,
             edge_attr=edge_weight,
-            num_nodes=state.shape[0],
+            num_nodes=equivariant_obs.shape[0],
         )
 
     def batch_generator(self, *args, **kwargs) -> Iterator:

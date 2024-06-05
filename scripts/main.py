@@ -17,7 +17,7 @@ from pytorch_lightning.loggers import WandbLogger
 from tqdm import tqdm
 from wandb.wandb_run import Run
 
-from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.envs.motion_planning import MotionPlanning, ComplexMotionPlanning
 from motion_planning.models import (
     MotionPlanningActorCritic,
     MotionPlanningGPG,
@@ -234,13 +234,13 @@ def train(params):
 
 
 def rollout(
-    env: MotionPlanning, policy_fn: typing.Callable, params: argparse.Namespace
+    env: ComplexMotionPlanning, policy_fn: typing.Callable, params: argparse.Namespace
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Perform rollouts in the environment using a given policy.
 
     Args:
-        env (MotionPlanning): The environment to perform rollouts in.
+        env (ComplexMotionPlanning): The environment to perform rollouts in.
         policy_fn (typing.Callable): The policy function to use for selecting actions.
         params (argparse.Namespace): Additional parameters for the rollouts.
 
@@ -266,7 +266,7 @@ def rollout(
 
 
 def baseline(params):
-    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
+    env = ComplexMotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
     if params.policy == "c":
         policy_fn = lambda o, g: env.centralized_policy()
     elif params.policy == "d0":
@@ -283,7 +283,7 @@ def baseline(params):
 
 
 def test(params):
-    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
+    env = ComplexMotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
     model, name = load_model(params.checkpoint)
     model = model.eval()
 
@@ -308,11 +308,11 @@ def transfer(params):
     
     for iv_value in iv_type:
         if params.operation == "transfer-area":
-            env = MotionPlanning(n_agents=iv_value, width=params.width, scenario=params.scenario)
+            env = ComplexMotionPlanning(n_agents=iv_value, width=params.width, scenario=params.scenario)
         elif params.operation == "transfer-agents":
-            env = MotionPlanning(n_agents=params.n_agents, width=iv_value, scenario=params.scenario)
+            env = ComplexMotionPlanning(n_agents=params.n_agents, width=iv_value, scenario=params.scenario)
         else:
-            env = MotionPlanning(n_agents=iv_value, width=1.0*np.sqrt(iv_value), scenario=params.scenario)
+            env = ComplexMotionPlanning(n_agents=iv_value, width=1.0*np.sqrt(iv_value), scenario=params.scenario)
 
         @torch.no_grad()
         def policy_fn(observation, graph):

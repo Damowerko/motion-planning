@@ -40,7 +40,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         opt_actor, opt_critic = self.optimizers()
 
         # actor step
-        mu, _ = self.actor.forward(data.state, data)
+        mu, _ = self.actor.forward(data.equivariant_obs, data.invariant_obs, data)
         loss = F.mse_loss(mu, data.expert)
         self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
@@ -59,7 +59,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         # opt_critic.step()
 
     def validation_step(self, data, batch_idx):
-        yhat, _ = self.actor.forward(data.state, data)
+        yhat, _ = self.actor.forward(data.equivariant_obs, data.invariant_obs, data)
         loss = F.mse_loss(yhat, data.expert)
         self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
@@ -68,7 +68,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         return loss
 
     def test_step(self, data, batch_idx):
-        yhat, _ = self.actor.forward(data.state, data)
+        yhat, _ = self.actor.forward(data.equivariant_obs, data.invariant_obs, data)
         loss = F.mse_loss(yhat, data.expert)
         self.log("test/loss", loss, batch_size=data.batch_size)
         self.log("test/reward", data.reward.mean(), batch_size=data.batch_size)
