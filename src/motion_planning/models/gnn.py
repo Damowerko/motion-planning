@@ -21,7 +21,7 @@ class ModReLU(nn.Module):
         nn.init.zeros_(self.b)
     
     def forward(self, x: torch.Tensor):
-        return torch.nn.functional.relu(torch.abs(x) + self.b) * x / torch.abs(x)
+        return torch.nn.functional.relu((torch.abs(x) + self.b).to(dtype=torch.float32)) * x / torch.abs(x)
     
 
 # FINISH THIS IMPLEMENTATION
@@ -84,12 +84,12 @@ class ComplexGraphFilter(nn.Module):
         )
         self.equi_mlp = nn.Sequential(
             nn.Linear(g_channels, mlp_hidden_channels),
-            activation(),
+            activation,
             nn.Linear(mlp_hidden_channels, f_channels),
         )
         self.inv_mlp = nn.Sequential(
             nn.Linear(f_channels, mlp_hidden_channels),
-            activation(),
+            activation,
             nn.Linear(mlp_hidden_channels, g_channels),
         )
 
@@ -188,45 +188,65 @@ class ComplexGCN(nn.Module):
         dropout = float(dropout)
 
         # Readin MLPs: Changes the number of features from in_channels to n_channels
-        self.readin_f = gnn.MLP(
-            in_channels=f_channels_in,
-            hidden_channels=mlp_hidden_channels,
-            out_channels=n_channels,
-            num_layers=mlp_read_layers,
-            dropout=dropout,
-            act=activation,
-            plain_last=False,
+        # self.readin_f = gnn.MLP(
+        #     in_channels=f_channels_in,
+        #     hidden_channels=mlp_hidden_channels,
+        #     out_channels=n_channels,
+        #     num_layers=mlp_read_layers,
+        #     dropout=dropout,
+        #     act=activation,
+        #     plain_last=False,
+        # )
+        self.readin_f = nn.Sequential(
+            nn.Linear(f_channels_in, mlp_hidden_channels),
+            activation,
+            nn.Linear(mlp_hidden_channels, n_channels),
         )
 
-        self.readin_g = gnn.MLP(
-            in_channels=g_channels_in,
-            hidden_channels=mlp_hidden_channels,
-            out_channels=n_channels,
-            num_layers=mlp_read_layers,
-            dropout=dropout,
-            act=activation,
-            plain_last=False,
+        # self.readin_g = gnn.MLP(
+        #     in_channels=g_channels_in,
+        #     hidden_channels=mlp_hidden_channels,
+        #     out_channels=n_channels,
+        #     num_layers=mlp_read_layers,
+        #     dropout=dropout,
+        #     act=activation,
+        #     plain_last=False,
+        # )
+        self.readin_g = nn.Sequential(
+            nn.Linear(g_channels_in, mlp_hidden_channels),
+            activation,
+            nn.Linear(mlp_hidden_channels, n_channels),
         )
 
         # Readout MLP: Changes the number of features from n_channels to out_channels
-        self.readout_f = gnn.MLP(
-            in_channels=n_channels,
-            hidden_channels=mlp_hidden_channels,
-            out_channels=f_channels_out,
-            num_layers=mlp_read_layers,
-            dropout=dropout,
-            act=activation,
-            plain_last=True,
+        # self.readout_f = gnn.MLP(
+        #     in_channels=n_channels,
+        #     hidden_channels=mlp_hidden_channels,
+        #     out_channels=f_channels_out,
+        #     num_layers=mlp_read_layers,
+        #     dropout=dropout,
+        #     act=activation,
+        #     plain_last=True,
+        # )
+        self.readout_f = nn.Sequential(
+            nn.Linear(n_channels, mlp_hidden_channels),
+            activation,
+            nn.Linear(mlp_hidden_channels, f_channels_out),
         )
 
-        self.readout_g = gnn.MLP(
-            in_channels=n_channels,
-            hidden_channels=mlp_hidden_channels,
-            out_channels=g_channels_out,
-            num_layers=mlp_read_layers,
-            dropout=dropout,
-            act=activation,
-            plain_last=True,
+        # self.readout_g = gnn.MLP(
+        #     in_channels=n_channels,
+        #     hidden_channels=mlp_hidden_channels,
+        #     out_channels=g_channels_out,
+        #     num_layers=mlp_read_layers,
+        #     dropout=dropout,
+        #     act=activation,
+        #     plain_last=True,
+        # )
+        self.readout_g = nn.Sequential(
+            nn.Linear(n_channels, mlp_hidden_channels),
+            activation,
+            nn.Linear(mlp_hidden_channels, g_channels_out),
         )
 
         # GNN layers operate on n_channels features

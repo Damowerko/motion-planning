@@ -22,30 +22,34 @@ from motion_planning.rl import ExperienceSourceDataset
 class GNNActor(nn.Module):
     def __init__(
         self,
-        state_ndim: int,
-        action_ndim: int,
-        n_taps: int = 4,
+        equivariant_state_ndim: int,
+        invariant_state_ndim: int,
+        equivariant_action_ndim: int,
+        invariant_action_ndim: int,
         n_layers: int = 2,
         n_channels: int = 32,
-        activation: typing.Union[nn.Module, str] = "leaky_relu",
+        activation: typing.Union[nn.Module, str] = "mod_relu",
         mlp_read_layers: int = 1,
-        mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
     ):
         super().__init__()
-        self.state_ndim = state_ndim
-        self.action_ndim = action_ndim
+        self.equivariant_state_ndim = equivariant_state_ndim
+        self.invariant_state_ndim = invariant_state_ndim
+        self.state_ndim = equivariant_state_ndim + invariant_state_ndim
+        self.equivariant_action_ndim = equivariant_action_ndim
+        self.invariant_action_ndim = invariant_action_ndim
+        self.action_ndim = equivariant_action_ndim + invariant_action_ndim
 
         self.gnn = ComplexGCN(
-            state_ndim,
-            action_ndim * 2,
-            n_taps,
+            equivariant_state_ndim,
+            invariant_state_ndim,
+            equivariant_action_ndim * 2,
+            invariant_action_ndim * 2,
             n_layers,
             n_channels,
             activation,
             mlp_read_layers,
-            mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
         )
@@ -53,8 +57,9 @@ class GNNActor(nn.Module):
     def forward(self, equivariant_obs: torch.Tensor, invariant_obs: torch.Tensor, data: BaseData):
         equivariant_action, invariant_action = self.gnn.forward(equivariant_obs, invariant_obs, data.edge_index, data.edge_attr)
         action = torch.cat([equivariant_action, invariant_action], dim=1)
-        mu = action[:, : self.action_ndim]
-        sigma = F.softplus(action[:, self.action_ndim :])
+        mu = torch.cat([action[:,:self.equivariant_action_ndim], action[:,self.action_ndim:self.action_ndim+self.equivariant_action_ndim]], dim=1)
+        # sigma = F.softplus(action[:, self.action_ndim :])
+        sigma = torch.cat([action[:,self.equivariant_action_ndim:self.action_ndim], action[:,self.action_ndim+self.equivariant_action_ndim:]], dim=1)
         return mu, sigma
 
     def policy(
@@ -94,27 +99,25 @@ class GNNCritic(nn.Module):
         self,
         state_ndim: int,
         action_ndim: int,
-        n_taps: int = 4,
         n_layers: int = 2,
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
         mlp_read_layers: int = 1,
-        mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
     ):
         super().__init__()
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
-        self.gnn = GCN(
+        self.gnn = ComplexGCN(
+            state_ndim + action_ndim,
             state_ndim + action_ndim,
             1,
-            n_taps,
+            1,
             n_layers,
             n_channels,
             activation,
             mlp_read_layers,
-            mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
         )
@@ -140,7 +143,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         n_taps: int = 4,
         n_layers: int = 2,
         n_channels: int = 32,
-        activation: typing.Union[nn.Module, str] = "leaky_relu",
+        activation: typing.Union[nn.Module, str] = "mod_relu",
         mlp_read_layers: int = 1,
         mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
@@ -167,26 +170,24 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         self.env = ComplexMotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(
-            self.env.observation_ndim,
-            self.env.action_ndim,
-            n_taps,
+            self.env.equivariant_obs_ndim,
+            self.env.invariant_obs_ndim,
+            self.env.equivariant_act_ndim,
+            self.env.invariant_act_ndim,
             n_layers,
             n_channels,
             activation,
             mlp_read_layers,
-            mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
         )
         self.critic = GNNCritic(
             self.env.observation_ndim,
             self.env.action_ndim,
-            n_taps,
             n_layers,
             n_channels,
             activation,
             mlp_read_layers,
-            mlp_per_gnn_layers,
             mlp_hidden_channels,
             dropout,
         )
@@ -211,7 +212,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.rollout_start()
         episode = []
         observation = self.env.reset()
-        data = self.to_data(observation, self.env.adjacency())
+        data = self.to_data(observation[0], observation[1], self.env.adjacency())
         for _ in range(self.max_steps):
             if render:
                 self.env.render()

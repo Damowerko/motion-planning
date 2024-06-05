@@ -6,6 +6,12 @@ from motion_planning.models.base import *
 from motion_planning.rl import ReplayBuffer
 
 
+def complex_mse_loss(input: torch.Tensor, target: torch.Tensor):
+    input = torch.cat([input.real, input.imag], dim=1)
+    target = torch.cat([target.real, target.imag], dim=1)
+    return F.mse_loss(input, target)
+
+
 class MotionPlanningImitation(MotionPlanningActorCritic):
     @classmethod
     def add_model_specific_args(cls, group):
@@ -41,7 +47,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
         # actor step
         mu, _ = self.actor.forward(data.equivariant_obs, data.invariant_obs, data)
-        loss = F.mse_loss(mu, data.expert)
+        loss = complex_mse_loss(mu, data.expert)
         self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
         self.manual_backward(loss)
@@ -60,7 +66,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def validation_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.equivariant_obs, data.invariant_obs, data)
-        loss = F.mse_loss(yhat, data.expert)
+        loss = complex_mse_loss(yhat, data.expert)
         self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
@@ -69,7 +75,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def test_step(self, data, batch_idx):
         yhat, _ = self.actor.forward(data.equivariant_obs, data.invariant_obs, data)
-        loss = F.mse_loss(yhat, data.expert)
+        loss = complex_mse_loss(yhat, data.expert)
         self.log("test/loss", loss, batch_size=data.batch_size)
         self.log("test/reward", data.reward.mean(), batch_size=data.batch_size)
         return loss
@@ -98,6 +104,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         else:
             raise ValueError(f"Unknown target policy {self.target_policy}")
 
+        expert = np.concatenate([expert[0], expert[1]], axis=1)
         data.expert = torch.as_tensor(expert, dtype=self.dtype, device=self.device)  # type: ignore
 
         if self.use_expert:

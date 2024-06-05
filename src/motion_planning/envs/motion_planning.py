@@ -494,10 +494,11 @@ class ComplexMotionPlanning(GraphEnv):
         distance = idist(self.position, self.target_positions)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
-        action = self.target_positions[col_idx] - self.position[row_idx]
-        action = self.clip_action(action)
-        assert action.shape == self.action_space.shape  # type: ignore
-        return action
+        equivariant_action = self.target_positions[col_idx] - self.position[row_idx]
+        equivariant_action = self.clip_action(equivariant_action)
+        invariant_action = np.abs(equivariant_action)
+        assert np.concatenate([equivariant_action, invariant_action], axis=1).shape == self.action_space.shape  # type: ignore
+        return equivariant_action, invariant_action
 
     def decentralized_policy(self, hops=0):
         observed_targets = self._observed_targets()
@@ -537,9 +538,10 @@ class ComplexMotionPlanning(GraphEnv):
         # Create both invariant and equivariant observations
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.velocity, tgt, agt), axis=1)
-        assert obs.shape == self.observation_space.shape  # type: ignore
-        return obs
+        equivariant_obs = np.concatenate((tgt, agt), axis=1)
+        invariant_obs = np.abs(self.velocity)
+        assert np.concatenate([equivariant_obs, invariant_obs], axis=1).shape == self.observation_space.shape  # type: ignore
+        return equivariant_obs, invariant_obs
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width * np.sqrt(2)).all()
@@ -558,7 +560,10 @@ class ComplexMotionPlanning(GraphEnv):
         return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=1))
 
     def step(self, action):
+        if isinstance(action, tuple):
+            action = np.concatenate([action[0], action[1]], axis=1)
         assert action.shape == self.action_space.shape  # type: ignore
+        action = np.split(action, [self.equivariant_act_ndim], axis=1)[0]
         action = self.clip_action(action)
         self.velocity = action
         self.position += self.velocity * self.dt
@@ -621,7 +626,6 @@ if __name__ == "__main__":
         action = env.centralized_policy()
         _, reward, done, _ = env.step(action)
         adj = env.adjacency()
-        print(adj)
         env.render()
         if done:
             break
