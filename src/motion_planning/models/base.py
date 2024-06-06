@@ -76,9 +76,9 @@ class GNNActor(nn.Module):
         """
         if action is None:
             eps = torch.randn_like(mu)
-            action = torch.tanh(mu + sigma * eps)
+            action = mu + sigma * eps
             assert isinstance(action, torch.Tensor)
-            return torch.tanh(action)
+            return action
         log_prob_corr = torch.log(1 - action**2 + 1e-6)
         print(log_prob_corr.shape)
         assert False  # TODO: check above

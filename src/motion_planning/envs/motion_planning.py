@@ -170,8 +170,8 @@ class MotionPlanning(GraphEnv):
 
         self._action_ndim = 3
         self.action_space = spaces.Box(
-            low=-1,
-            high=1,
+            low=-self.width,
+            high=self.width,
             shape=(
                 self.n_agents,
                 self.action_ndim,
