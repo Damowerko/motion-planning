@@ -68,7 +68,7 @@ class MotionPlanningRender:
         G.remove_edges_from(nx.selfloop_edges(G))
         nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
 
-        targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
+        targets = (observed_targets + agent_positions.T[:,None,:]).reshape(-1, 2)
         self.ax.plot(*targets.T, "y^", markersize=markersize)
 
         self.ax.set_title(f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%")
@@ -137,9 +137,9 @@ def imag_to_coo(position: np.ndarray, n_neighbors: int):
 
     position = position.squeeze()
     N = position.size
-    A = position[:,np.newaxis] - position[np.newaxis,:]
+    A = position[:,None] - position[None,:]
     vals = np.partition(np.abs(A), n_neighbors+1, axis=1)[:,n_neighbors+1]
-    mask = np.abs(A) < vals[:,np.newaxis]
+    mask = np.abs(A) < vals[:,None]
     return scipy.sparse.coo_matrix(mask * A)
 
 
@@ -304,12 +304,12 @@ class MotionPlanning(GraphEnv):
         dist = cdist(self.position, self.position)
         idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx] - self.position[:,np.newaxis,:]
+        return self.position[idx] - self.position[:,None,:]
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
+        return self.target_positions[idx, :] - self.position[:,None,:]
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
@@ -527,12 +527,12 @@ class ComplexMotionPlanning(GraphEnv):
         dist = idist(self.position, self.position)
         idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx] - self.position[:,np.newaxis,:]
+        return self.position[idx] - self.position[:,None,:]
 
     def _observed_targets(self):
         dist = idist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
+        return self.target_positions[idx, :] - self.position[:,None,:]
 
     def _observation(self):
         # Create both invariant and equivariant observations

@@ -3,6 +3,7 @@ import typing
 from typing import Callable, Type, Optional
 
 import pytorch_lightning as pl
+import numpy as np
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
@@ -30,11 +31,11 @@ class ComplexBatchNorm1d(nn.Module):
 
     def __init__(
         self,
-        num_features,
-        eps=1e-3,
-        momentum=0.1,
-        affine=True,
-        track_running_stats=True,
+        num_features: int,
+        eps: float = 1e-3,
+        momentum: float = 0.1,
+        affine: bool = True,
+        track_running_stats: bool = True,
     ):
         super().__init__()
         self.num_features = num_features
@@ -43,6 +44,98 @@ class ComplexBatchNorm1d(nn.Module):
         self.affine = affine
         self.track_running_stats = track_running_stats
 
+        if self.affine:
+            self.weight = nn.Parameter(torch.Tensor(num_features, 3))
+            self.bias = nn.Parameter(torch.Tensor(num_features, 2))
+        else:
+            self.register_parameter("weight", None)
+            self.register_parameter("bias", None)
+        
+        if self.track_running_stats:
+            self.register_buffer(
+                "running_mean", torch.zeros(num_features, dtype=torch.complex128)
+            )
+            self.register_buffer("running_covar", torch.zeros(num_features, 3))
+            self.running_covar[:,0] = 1.0 / np.sqrt(2)
+            self.running_covar[:,1] = 1.0 / np.sqrt(2)
+            self.register_buffer(
+                "num_batches_tracked", torch.tensor(0, dtype=torch.long)
+            )
+        else:
+            self.register_parameter("running_mean", None)
+            self.register_parameter("running_covar", None)
+            self.register_parameter("num_batches_tracked", None)
+        
+        self.reset_parameters()
+
+    def reset_running_stats(self):
+        if self.track_running_stats:
+            self.running_mean.zero_()
+            self.running_covar.zero_()
+            self.running_covar[:,0] = 1.0 / np.sqrt(2)
+            self.running_covar[:,1] = 1.0 / np.sqrt(2)
+            self.num_batches_tracked.zero_()
+
+    def reset_parameters(self):
+        self.reset_running_stats()
+        if self.affine:
+            nn.init.constant_(self.weight[:,:2], 1.0 / np.sqrt(2))
+            nn.init.zeros_(self.weight[:,2])
+            nn.init.zeros_(self.bias)
+    
+    def forward(self, x: torch.Tensor):
+        exponential_average_factor = 0.0
+
+
+        if self.training and self.track_running_stats:
+            if self.num_batches_tracked is not None:
+                self.num_batches_tracked += 1
+                if self.momentum is None:
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+                else:
+                    exponential_average_factor = self.momentum
+        
+        if self.training or (not self.track_running_stats):
+            mean = x.mean(dim=0)
+        else:
+            mean = self.running_mean
+
+        if self.training and self.track_running_stats:
+            with torch.no_grad():
+                self.running_mean = exponential_average_factor * mean + (1 - exponential_average_factor) * self.running_mean
+        
+        x = x - mean[None, ...]
+
+        if self.training or (not self.track_running_stats):
+            n = x.numel() / x.size(1)
+            Crr = x.real.var(dim=0, unbiased=False) + self.eps
+            Cii = x.imag.var(dim=0, unbiased=False) + self.eps
+            Cri = (x.real.mul(x.imag)).mean(dim=0)
+        else:
+            Crr = self.running_covar[:,0] + self.eps
+            Cii = self.running_covar[:,1] + self.eps
+            Cri = self.running_covar[:,2]
+        
+        if self.training and self.track_running_stats:
+            with torch.no_grad():
+                self.running_covar[:,0] = exponential_average_factor * Crr * n / (n-1) + (1 - exponential_average_factor) * self.running_covar[:,0]
+                self.running_covar[:,1] = exponential_average_factor * Cii * n / (n-1) + (1 - exponential_average_factor) * self.running_covar[:,1]
+                self.running_covar[:,2] = exponential_average_factor * Cri * n / (n-1) + (1 - exponential_average_factor) * self.running_covar[:,2]
+        
+        delta = Crr * Cii - Cri * Cri
+        s = torch.sqrt(delta)
+        t = torch.sqrt(Crr + Cii + 2 * s)
+        inverse_det = 1.0 / (s * t)
+        Rrr = (Cii + s) * inverse_det
+        Rii = (Crr + s) * inverse_det
+        Rri = -Cri * inverse_det
+
+        x = (Rrr[None,:] * x.real + Rri[None,:] * x.imag).type(torch.complex128) + 1j * (Rri[None,:] * x.real + Rii[None,:] * x.imag).type(torch.complex128)
+
+        if self.affine:
+            x = (self.weight[None,:,0] * x.real + self.weight[None,:,2] * x.imag + self.bias[None,:,0]).type(torch.complex128) + 1j * (self.weight[None,:,2] * x.real + self.weight[None,:,1] * x.imag + self.bias[None,:,1]).type(torch.complex128)
+
+        return x
 
 activation_choices: typing.Dict[str, Type[nn.Module]] = {
     "tanh": nn.Tanh,
@@ -197,11 +290,11 @@ class ComplexGCN(nn.Module):
         #     act=activation,
         #     plain_last=False,
         # )
-        self.readin_f = nn.Sequential(
-            nn.Linear(f_channels_in, mlp_hidden_channels),
-            activation,
-            nn.Linear(mlp_hidden_channels, n_channels),
-        )
+        layers = [nn.Linear(f_channels_in, mlp_hidden_channels), activation]
+        for _ in range(1, mlp_read_layers-1):
+            layers += [nn.Linear(mlp_hidden_channels, mlp_hidden_channels), activation]
+        layers += [nn.Linear(mlp_hidden_channels, n_channels)]
+        self.readin_f = nn.Sequential(*layers)
 
         # self.readin_g = gnn.MLP(
         #     in_channels=g_channels_in,
@@ -212,11 +305,11 @@ class ComplexGCN(nn.Module):
         #     act=activation,
         #     plain_last=False,
         # )
-        self.readin_g = nn.Sequential(
-            nn.Linear(g_channels_in, mlp_hidden_channels),
-            activation,
-            nn.Linear(mlp_hidden_channels, n_channels),
-        )
+        layers = [nn.Linear(g_channels_in, mlp_hidden_channels), activation]
+        for _ in range(1, mlp_read_layers-1):
+            layers += [nn.Linear(mlp_hidden_channels, mlp_hidden_channels), activation]
+        layers += [nn.Linear(mlp_hidden_channels, n_channels)]
+        self.readin_g = nn.Sequential(*layers)
 
         # Readout MLP: Changes the number of features from n_channels to out_channels
         # self.readout_f = gnn.MLP(
@@ -228,11 +321,11 @@ class ComplexGCN(nn.Module):
         #     act=activation,
         #     plain_last=True,
         # )
-        self.readout_f = nn.Sequential(
-            nn.Linear(n_channels, mlp_hidden_channels),
-            activation,
-            nn.Linear(mlp_hidden_channels, f_channels_out),
-        )
+        layers = [nn.Linear(n_channels, mlp_hidden_channels), activation]
+        for _ in range(1, mlp_read_layers-1):
+            layers += [nn.Linear(mlp_hidden_channels, mlp_hidden_channels), activation]
+        layers += [nn.Linear(mlp_hidden_channels, f_channels_out)]
+        self.readout_f = nn.Sequential(*layers)
 
         # self.readout_g = gnn.MLP(
         #     in_channels=n_channels,
@@ -243,11 +336,11 @@ class ComplexGCN(nn.Module):
         #     act=activation,
         #     plain_last=True,
         # )
-        self.readout_g = nn.Sequential(
-            nn.Linear(n_channels, mlp_hidden_channels),
-            activation,
-            nn.Linear(mlp_hidden_channels, g_channels_out),
-        )
+        layers = [nn.Linear(n_channels, mlp_hidden_channels), activation]
+        for _ in range(1, mlp_read_layers-1):
+            layers += [nn.Linear(mlp_hidden_channels, mlp_hidden_channels), activation]
+        layers += [nn.Linear(mlp_hidden_channels, g_channels_out)]
+        self.readout_g = nn.Sequential(*layers)
 
         # GNN layers operate on n_channels features
         self.convs = nn.ModuleList()
