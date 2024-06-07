@@ -10,6 +10,7 @@ from gym import spaces
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
+import random
 
 rng = np.random.default_rng()
 
@@ -137,17 +138,22 @@ class GraphEnv(gym.Env, ABC):
 
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
-    scenarios = {"uniform", "gaussian_uniform"}
+    scenarios = ["uniform", "gaussian_uniform", "cage"]
 
     def __init__(self, n_agents=100, width=10, scenario="uniform"):
         self.n_agents = n_agents
         self.n_targets = n_agents
 
-        if scenario not in self.scenarios:
-            raise ValueError(
-                f"Scenario {scenario} is not a valid scenario. Possibilities {self.scenarios}."
-            )
-        self.scenario = scenario
+        if scenario == "any":
+            self.scenario = random.choice(self.scenarios)
+            self.any_scenario = True
+        else:
+            if scenario not in self.scenarios:
+                raise ValueError(
+                    f"Scenario {scenario} is not a valid scenario. Possibilities {self.scenarios}."
+                )
+            self.scenario = scenario
+            self.any_scenario = False
 
         # Since space is 2D scale is inversely proportional to sqrt of the number of agents
 
@@ -315,24 +321,39 @@ class MotionPlanning(GraphEnv):
 
     def reset(self):
         self.state = np.zeros((self.n_agents, self.state_ndim))
-        if self.scenario == "uniform":
-            self.target_positions = rng.uniform(
-                -self.width / 2, self.width / 2, (self.n_targets, 2)
-            )
-            self.position = rng.uniform(
-                -self.width / 2, self.width / 2, (self.n_agents, 2)
-            )
-        elif self.scenario == "gaussian_uniform":
-            # agents are normally distributed around the origin
-            # targets are uniformly distributed
-            self.target_positions = rng.uniform(
-                -self.width / 2, self.width / 2, (self.n_targets, 2)
-            )
-            self.position = rng.normal(size=(self.n_agents, 2))
-        else:
-            raise ValueError(
-                f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."
-            )
+
+        if self.any_scenario:
+            self.scenario = random.choice(self.scenarios)
+
+        match self.scenario:
+            case "uniform":
+                self.target_positions = rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                )
+                self.position = rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_agents, 2)
+                )
+            case "gaussian_uniform":
+                # agents are normally distributed around the origin
+                # targets are uniformly distributed
+                self.target_positions = rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                )
+                self.position = rng.normal(size=(self.n_agents, 2))
+            case "cage":
+                # agents are uniformally distributed in a small region in the center of the field
+                # targets are uniformally distributed throughout the field
+                self.target_positions = rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                )
+                self.position = rng.uniform(
+                    -self.width / 10, self.width / 10, (self.n_targets, 2)
+                )
+            case _:
+                raise ValueError(
+                    f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."
+                )
+            
 
         self.t = 0
         if self.render_ is not None:
