@@ -150,6 +150,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         n_agents: int = 100,
         width: float = 10.0,
         scenario: str = "uniform",
+        augment: bool = False,
         **kwargs,
     ):
         super().__init__()
@@ -161,6 +162,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.gamma = gamma
         self.max_steps = max_steps
         self.dropout = dropout
+        # self.augment = augment
+        self.augment = True
 
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(
@@ -194,31 +197,32 @@ class MotionPlanningActorCritic(pl.LightningModule):
         """
         return None
 
-    def rollout_step(self, data: BaseData):
+    def rollout_step(self, env: MotionPlanning, data: BaseData):
         """
         Called after rollout step.
         """
-        next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
+        next_state, reward, done, _ = env.step(data.action.detach().cpu().numpy())
         return data, next_state, reward, done
 
     @torch.no_grad()
-    def rollout(self, render=False) -> List[BaseData]:
+    def rollout(self, env: MotionPlanning, render=False) -> List[BaseData]:
         self.rollout_start()
         episode = []
-        observation = self.env.reset()
-        data = self.to_data(observation, self.env.adjacency())
+        # observation = env.reset()
+        observation = env._observation()
+        data = self.to_data(observation, env.adjacency())
         for _ in range(self.max_steps):
             if render:
-                self.env.render()
+                env.render()
 
             # sample action
             data.mu, data.sigma = self.actor(data.state, data)
 
             # take step
-            data, next_state, reward, done = self.rollout_step(data)
+            data, next_state, reward, done = self.rollout_step(env, data)
 
             # add additional attributes
-            next_data = self.to_data(next_state, self.env.adjacency())
+            next_data = self.to_data(next_state, env.adjacency())
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore

@@ -87,14 +87,15 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def rollout_step(
         self,
+        env: MotionPlanning,
         data: BaseData,
     ):
         if self.target_policy == "c":
-            expert = self.env.centralized_policy()
+            expert = env.centralized_policy()
         elif self.target_policy == "d0":
-            expert = self.env.decentralized_policy(0)
+            expert = env.decentralized_policy(0)
         elif self.target_policy == "d1":
-            expert = self.env.decentralized_policy(1)
+            expert = env.decentralized_policy(1)
         else:
             raise ValueError(f"Unknown target policy {self.target_policy}")
 
@@ -110,18 +111,24 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             # use greedy policy
             data.action = data.mu
 
-        next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
+        next_state, reward, done, _ = env.step(data.action.detach().cpu().numpy())
         return data, next_state, reward, done
 
     def batch_generator(
-        self, n_episodes=1, render=False, use_buffer=True, training=True
+        self, n_episodes=1, render=False, use_buffer=True, training=True, augment=False
     ):
         # set model to appropriate mode
         self.train(training)
 
         data = []
         for _ in range(n_episodes):
-            data.extend(self.rollout(render=render))
+            self.env.reset()
+            if augment:
+                for degree in range(0, 360, 60):
+                    env = self.env.rotate(degree)
+                    data.extend(self.rollout(env, render=render))
+            else:
+                data.extend(self.rollout(self.env, render=render))
         if use_buffer:
             self.buffer.extend(data)
             data = self.buffer.collect(shuffle=True)
@@ -129,15 +136,15 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def train_dataloader(self):
         return self._dataloader(
-            n_episodes=10, render=False, use_buffer=True, training=True
+            n_episodes=3, render=False, use_buffer=True, training=True, augment=self.augment
         )
 
     def val_dataloader(self):
         return self._dataloader(
-            n_episodes=1, render=self.render, use_buffer=False, training=False
+            n_episodes=1, render=self.render, use_buffer=False, training=False, augment=False
         )
 
     def test_dataloader(self):
         return self._dataloader(
-            n_episodes=100, render=self.render, use_buffer=False, training=False
+            n_episodes=100, render=self.render, use_buffer=False, training=False, augment=False
         )

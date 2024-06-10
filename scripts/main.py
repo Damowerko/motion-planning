@@ -52,6 +52,7 @@ def main():
         training_group.add_argument("--test", action="store_true")
         training_group.add_argument("--max_epochs", type=int, default=100)
         training_group.add_argument("--patience", type=int, default=10)
+        # training_group.add_argument("--augment", action="store_true")
     elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
         # test specific args
         if operation in ("test", "transfer-agents", "transfer-area", "transfer-density"):
@@ -251,17 +252,35 @@ def rollout(
     """
     rewards = []
     frames = []
+    augment = False
     for _ in tqdm(range(params.n_trials)):
-        rewards_trial = []
-        frames_trial = []
-        observation = env.reset()
-        for _ in range(params.max_steps):
-            action = policy_fn(observation, env.adjacency())
-            observation, reward, _, _ = env.step(action)
-            rewards_trial.append(reward)
-            frames_trial.append(env.render(mode="rgb_array"))
-        rewards.append(rewards_trial)
-        frames.append(frames_trial)
+        env.reset()
+        # if params.augment:
+        if augment:
+            for degree in tqdm(range(0, 360, 10)):
+                rotated = env.rotate(degree)
+                rewards_trial = []
+                frames_trial = []
+                observation = rotated._observation()
+                for _ in range(params.max_steps):
+                    action = policy_fn(observation, rotated.adjacency())
+                    observation, reward, _, _ = rotated.step(action)
+                    rewards_trial.append(reward)
+                    frames_trial.append(rotated.render(mode="rgb_array"))
+                rewards.append(rewards_trial)
+                frames.append(frames_trial)
+
+        else:
+            rewards_trial = []
+            frames_trial = []
+            observation = env._observation()
+            for _ in range(params.max_steps):
+                action = policy_fn(observation, env.adjacency())
+                observation, reward, _, _ = env.step(action)
+                rewards_trial.append(reward)
+                frames_trial.append(env.render(mode="rgb_array"))
+            rewards.append(rewards_trial)
+            frames.append(frames_trial)
     return np.asarray(rewards), np.asarray(frames)
 
 

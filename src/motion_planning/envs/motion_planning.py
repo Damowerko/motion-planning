@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional
+from copy import deepcopy
 
 import gym
 import matplotlib.pyplot as plt
@@ -252,19 +253,19 @@ class MotionPlanning(GraphEnv):
         observed_targets = self._observed_targets()
         observed_agents = self._observed_agents()
         if hops == 0:
-            action = observed_targets[:, 0, :] - self.position
+            action = observed_targets[:, 0, :]
         elif hops == 1:
             action = np.zeros(self.action_space.shape)  # type: ignore
             for i in range(self.n_agents):
                 agent_positions = np.concatenate(
-                    (self.position[i, None, :], observed_agents[i]), axis=0
+                    (self.position[i, None, :], observed_agents[i] + self.position[i]), axis=0
                 )
-                target_positions = observed_targets[i]
+                target_positions = observed_targets[i] + self.position[i]
                 distances = cdist(agent_positions, target_positions)
                 row_idx, col_idx = linear_sum_assignment(distances)
                 assignment = col_idx[np.nonzero(row_idx == 0)]
                 if len(assignment) > 0:
-                    action[i] = target_positions[assignment] - agent_positions[0]
+                    action[i] = target_positions[assignment] - self.position[i]
         else:
             raise NotImplementedError("Hops > 1 not implemented.")
         action = self.clip_action(action)
@@ -351,6 +352,15 @@ class MotionPlanning(GraphEnv):
             self._observed_targets(),
             self.adjacency(),
         )
+    
+    def rotate(self, degree: float):
+        rad = degree * np.pi / 180
+        rot_matrix = np.array([[np.cos(rad), -np.sin(rad)], [np.sin(rad), np.cos(rad)]])
+        env = deepcopy(self)
+        env.position = self.position @ rot_matrix.T
+        env.velocity = self.velocity @ rot_matrix.T
+        env.target_positions = self.target_positions @ rot_matrix.T
+        return env
 
     def close(self):
         pass
