@@ -138,7 +138,8 @@ class GraphEnv(gym.Env, ABC):
 
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
-    scenarios = ["uniform", "gaussian_uniform", "cage"]
+    scenarios = ["uniform", "cage", "clusters", "circle"]
+    nice_scenarios = ["uniform", "clusters", "circle"]
 
     def __init__(self, n_agents=100, width=10, scenario="uniform"):
         self.n_agents = n_agents
@@ -147,6 +148,11 @@ class MotionPlanning(GraphEnv):
         if scenario == "any":
             self.scenario = random.choice(self.scenarios)
             self.any_scenario = True
+            self.nice_scenario = False
+        elif scenario == "nice":
+            self.scenario = random.choice(self.nice_scenarios)
+            self.any_scenario = False
+            self.nice_scenario = True
         else:
             if scenario not in self.scenarios:
                 raise ValueError(
@@ -154,6 +160,7 @@ class MotionPlanning(GraphEnv):
                 )
             self.scenario = scenario
             self.any_scenario = False
+            self.nice_scenario = False
 
         # Since space is 2D scale is inversely proportional to sqrt of the number of agents
 
@@ -324,6 +331,8 @@ class MotionPlanning(GraphEnv):
 
         if self.any_scenario:
             self.scenario = random.choice(self.scenarios)
+        elif self.nice_scenario:
+            self.scenario = random.choice(self.nice_scenarios)
 
         match self.scenario:
             case "uniform":
@@ -333,22 +342,44 @@ class MotionPlanning(GraphEnv):
                 self.position = rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_agents, 2)
                 )
-            case "gaussian_uniform":
-                # agents are normally distributed around the origin
-                # targets are uniformly distributed
-                self.target_positions = rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_targets, 2)
-                )
-                self.position = rng.normal(size=(self.n_agents, 2))
             case "cage":
-                # agents are uniformally distributed in a small region in the center of the field
-                # targets are uniformally distributed throughout the field
+                # agents are uniformly distributed in a small region in the center of the field
+                # targets are uniformly distributed throughout the field
                 self.target_positions = rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_targets, 2)
                 )
                 self.position = rng.uniform(
                     -self.width / 10, self.width / 10, (self.n_targets, 2)
                 )
+            case "clusters":
+                # agents are distributed normally around 10 uniformly distributed centers
+                # targets are uniformly distributed throughout the field
+                self.target_positions = rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                )
+                cluster_size = int(self.n_agents / 10)
+                clusters = []
+                for _ in range(10):
+                    mean = rng.uniform(
+                        -self.width / 2, self.width / 2, (1, 2)
+                    )
+                    clusters += [
+                        rng.normal(mean, np.array([1, 1]), size=(cluster_size, 2))
+                    ]
+                self.position = np.concatenate(clusters, axis=0)
+            case "circle":
+                # agents are distributed uniformly around the boundary of a circle
+                # targets are distributed uniformly throughout the field
+                self.target_positions = rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                )
+                pos_radius = rng.uniform(
+                    3 * self.width / 8, self.width / 2, (self.n_agents, 1)
+                )
+                pos_angle = rng.uniform(
+                    0, 2 * np.pi, (self.n_agents, 1)
+                )
+                self.position = np.concatenate([pos_radius * np.cos(pos_angle), pos_radius * np.sin(pos_angle)], axis=1)
             case _:
                 raise ValueError(
                     f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."

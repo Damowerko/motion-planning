@@ -79,7 +79,7 @@ def main():
             "--scenario",
             type=str,
             default="uniform",
-            choices=["uniform", "gaussian_uniform", "cage"],
+            choices=["uniform", "cage", "clusters", "circle"],
         )
 
     params = parser.parse_args()
