@@ -124,9 +124,11 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         for _ in range(n_episodes):
             self.env.reset()
             if augment:
-                for degree in range(0, 360, 60):
-                    env = self.env.rotate(degree)
-                    data.extend(self.rollout(env, render=render))
+                # for degree in range(0, 360, 60):
+                #     env = self.env.rotate(degree)
+                #     data.extend(self.rollout(env, render=render))
+                env = self.env.rotate()
+                data.extend(self.rollout(env, render=render))
             else:
                 data.extend(self.rollout(self.env, render=render))
         if use_buffer:

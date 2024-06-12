@@ -353,7 +353,8 @@ class MotionPlanning(GraphEnv):
             self.adjacency(),
         )
     
-    def rotate(self, degree: float):
+    def rotate(self, degree: float | None = None):
+        degree = degree or rng.choice(36) * 10
         rad = degree * np.pi / 180
         rot_matrix = np.array([[np.cos(rad), -np.sin(rad)], [np.sin(rad), np.cos(rad)]])
         env = deepcopy(self)
