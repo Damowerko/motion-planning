@@ -238,6 +238,25 @@ class MotionPlanning(GraphEnv):
         to_clip = magnitude > self.max_accel
         action[to_clip] = action[to_clip] / magnitude[to_clip, None] * self.max_accel
         return action
+    
+    def prevent_collision(self, action):
+        """
+        A policy to prevent agent-agent collisions by stopping agents who would collide
+        """
+        action = self.clip_action(action)
+        next_position = self.position + action * self.dt
+        
+        for i in range(self.n_agents):
+            for j in range(i, self.n_agents):
+                if i != j and np.linalg.norm(next_position[i] - next_position[j]) < 2 * self.agent_radius:
+                    random_backwards = rng.uniform(-np.pi / 2, np.pi / 2)
+                    random_backwards = np.array([
+                        [np.cos(random_backwards), -np.sin(random_backwards)],
+                        [np.sin(random_backwards), np.cos(random_backwards)]
+                    ])
+                    action[i] = random_backwards @ action[i]
+                    action[j] = random_backwards @ action[j]
+        return action
 
     def centralized_policy(self):
         distance = cdist(self.position, self.target_positions)
@@ -245,6 +264,7 @@ class MotionPlanning(GraphEnv):
         assert (row_idx == np.arange(self.n_agents)).all()
         action = self.target_positions[col_idx] - self.position[row_idx]
         action = self.clip_action(action)
+        action = self.prevent_collision(action)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
 
@@ -308,6 +328,7 @@ class MotionPlanning(GraphEnv):
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
         action = self.clip_action(action)
+        action = self.prevent_collision(action)
         self.velocity = action
         self.position += self.velocity * self.dt
         self.t += self.dt
