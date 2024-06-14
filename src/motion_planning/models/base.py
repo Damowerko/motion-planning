@@ -1,6 +1,8 @@
 import typing
 from typing import Iterator, List, Optional
 
+import numpy as np
+
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -11,6 +13,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
 from torchcps.gnn import GCN
+from .gnndeepset import GCNDeepSet
 from torchcps.utils import add_model_specific_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
@@ -35,8 +38,8 @@ class GNNActor(nn.Module):
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
 
-        self.gnn = GCN(
-            state_ndim,
+        self.gnn = GCNDeepSet(
+            6, # hardcode this for now
             action_ndim * 2,
             n_taps,
             n_layers,
@@ -270,18 +273,20 @@ class MotionPlanningActorCritic(pl.LightningModule):
             for i, adj in enumerate(adjacency):
                 data.append(self.to_data(state[i], adj))
             return Batch.from_data_list(data)
-        state = torch.from_numpy(state).to(
-            dtype=self.dtype, device=self.device  # type: ignore
-        )
+        observations = []
+        for obs in state:
+            observations += [torch.from_numpy(obs).to(
+                dtype=self.dtype, device=self.device  # type: ignore
+            )]
         # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore
         return Data(
-            state=state,
+            state=observations,
             edge_index=edge_index,
             edge_attr=edge_weight,
-            num_nodes=state.shape[0],
+            num_nodes=observations[0].shape[0],
         )
 
     def batch_generator(self, *args, **kwargs) -> Iterator:
