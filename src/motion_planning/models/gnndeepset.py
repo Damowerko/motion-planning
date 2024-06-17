@@ -21,18 +21,19 @@ activation_choices: typing.Dict[str, Type[nn.Module]] = {
 SequentialLayers = list[tuple[Callable, str] | Callable]
 
 
-class DeepSet(nn.Module):
+class GraphDeepSet(gnn.MessagePassing):
     def __init__(
         self,
         in_channels_phi: int,
         in_channels_rho: int,
         out_channels: int,
+        radius: float,
         n_hidden_channels: int,
         n_layers: int,
         dropout: float,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
     ):
-        super().__init__()
+        super().__init__(aggr="sum")
         if isinstance(activation, str):
             activation = activation_choices[activation]()
 
@@ -43,32 +44,21 @@ class DeepSet(nn.Module):
 
         self.in_channels_phi = in_channels_phi
         self.in_channels_rho = in_channels_rho
+        self.radius = radius
 
-        # self.phi = gnn.MLP(in_channels=in_channels_phi,
-        #                out_channels=in_channels_rho,
-        #                hidden_channels=n_hidden_channels,
-        #                num_layers=n_layers,
-        #                dropout=dropout,
-        #                act=activation,)
+        self.phi = gnn.MLP(in_channels=in_channels_phi,
+                       out_channels=in_channels_rho,
+                       hidden_channels=n_hidden_channels,
+                       num_layers=n_layers,
+                       dropout=dropout,
+                       act=activation,)
 
-        self.phi = nn.Sequential(
-            nn.Linear(in_channels_phi, n_hidden_channels),
-            activation,
-            nn.Linear(n_hidden_channels, in_channels_rho)
-        )
-
-        # self.rho = gnn.MLP(in_channels=in_channels_rho,
-        #                out_channels=out_channels,
-        #                hidden_channels=n_hidden_channels,
-        #                num_layers = n_layers,
-        #                dropout=dropout,
-        #                act=activation,)
-        
-        self.rho = nn.Sequential(
-            nn.Linear(in_channels_rho, n_hidden_channels),
-            activation,
-            nn.Linear(n_hidden_channels, out_channels)
-        )
+        self.rho = gnn.MLP(in_channels=in_channels_rho,
+                       out_channels=out_channels,
+                       hidden_channels=n_hidden_channels,
+                       num_layers = n_layers,
+                       dropout=dropout,
+                       act=activation,)
         
         self.to('cuda:0')
         
@@ -77,18 +67,50 @@ class DeepSet(nn.Module):
         self.phi.to(device)
         self.rho.to(device)
         return super().to(device)
+    
+    def message(self, x_j):
+        return self.phi(x_j)
         
-    def forward(self, xs: torch.Tensor):
-        Xs = []
-        for x in xs:
-            X = torch.zeros((self.in_channels_rho), device=self.device)
-            num_elements = int(x.shape[0] / self.in_channels_phi)
-            for i in range(num_elements):
-                if x[i*self.in_channels_phi:(i+1)*self.in_channels_phi] == np.zeros((self.in_channels_phi)):
-                    continue
-                X += self.phi(x[i*self.in_channels_phi:(i+1)*self.in_channels_phi])
-            Xs += [self.rho(X)]
-        return torch.vstack(Xs)
+    def forward(self, x: torch.Tensor, positions: torch.Tensor):
+        edge_index = gnn.radius_graph(
+            positions,
+            self.radius,
+            max_num_neighbors=10,
+            flow="target_to_source",
+        )
+        x = self.propagate(edge_index, x=x)
+        x = self.rho(x)
+        return x
+    
+
+class GraphDeepSetTargets(GraphDeepSet):
+    def __init__(
+        self,
+        in_channels_phi: int,
+        in_channels_rho: int,
+        out_channels: int,
+        radius: float,
+        n_hidden_channels: int,
+        n_layers: int,
+        dropout: float,
+        activation: typing.Union[nn.Module, str] = "leaky_relu",
+    ):
+        super().__init__(in_channels_phi, in_channels_rho, out_channels, radius, n_hidden_channels, n_layers, dropout, activation)
+    
+    def forward(self, x: torch.Tensor, agent_positions: torch.Tensor, target_positions: torch.Tensor):
+        n_agents = agent_positions.shape[0]
+        
+        target_edges = gnn.radius_graph(
+            torch.cat([agent_positions, target_positions], dim=0),
+            self.radius,
+            max_num_neighbors=10,
+            flow="target_to_source",
+        )
+        target_edges = target_edges[target_edges[1] < n_agents]
+
+        x = self.propagate(target_edges, x=x)
+        x = self.rho(x)
+        return x
 
 
 class GCNDeepSet(nn.Module):
