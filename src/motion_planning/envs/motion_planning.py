@@ -146,25 +146,10 @@ class Swarm:
         self.velocity = velocity
     
     def observed_agents(self):
-        dist = cdist(self.position, self.position)
-        dist[dist > self.sensing_radius] = np.zeros_like(dist[dist > self.sensing_radius])
-        indices = np.argwhere(dist != 0)
-        obs = [np.array([])] * self.n_agents
-        for index in indices:
-            obs[index[0]] = np.concatenate((obs[index[0]], self.position[index[1]] - self.position[index[0]]))
-        # max_length = max([ob.size for ob in obs])
-        obs = np.vstack([np.pad(ob, (0, 30 - ob.size), 'constant') for ob in obs]) # consistent size for batch (stopgap solution)
-        return obs
+        return self.position
 
     def observed_targets(self, target_positions):
-        dist = cdist(self.position, target_positions)
-        indices = np.argwhere(dist <= self.sensing_radius)
-        obs = [np.array([])] * self.n_agents
-        for index in indices:
-            obs[index[0]] = np.concatenate((obs[index[0]], target_positions[index[1]] - self.position[index[0]]))
-        # max_length = max([ob.size for ob in obs])
-        obs = np.vstack([np.pad(ob, (0, 30 - ob.size), 'constant') for ob in obs]) # consistent size for batch (stopgap solution)
-        return obs
+        return target_positions - self.position
     
     def step(self):
         self.clip()
@@ -290,7 +275,7 @@ class MotionPlanning(GraphEnv):
         return action
 
     def _observation(self):
-        return np.concatenate([self.swarm.velocity, self.swarm.position, self.target_positions], axis=1)
+        return [np.concatenate([self.swarm.position, self.swarm.velocity], axis=-1), self.swarm.position, self.target_positions]
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.swarm.position) > self.width).any(axis=1).all(axis=0)

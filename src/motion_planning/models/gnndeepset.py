@@ -3,8 +3,10 @@ import typing
 from typing import Callable, Type
 
 import numpy as np
+import scipy
 
 import pytorch_lightning as pl
+import scipy.spatial
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
@@ -78,6 +80,7 @@ class GraphDeepSet(gnn.MessagePassing):
             max_num_neighbors=10,
             flow="target_to_source",
         )
+        print(edge_index)
         x = self.propagate(edge_index, x=x)
         x = self.rho(x)
         return x
@@ -106,7 +109,8 @@ class GraphDeepSetTargets(GraphDeepSet):
             max_num_neighbors=10,
             flow="target_to_source",
         )
-        target_edges = target_edges[target_edges[1] < n_agents]
+        mask = torch.logical_and(target_edges[0] >= n_agents, target_edges[1] < n_agents)
+        target_edges = target_edges[:, mask]
 
         x = self.propagate(target_edges, x=x)
         x = self.rho(x)
@@ -159,6 +163,7 @@ class GCNDeepSet(nn.Module):
         in_channels: int,
         out_channels: int,
         n_taps: int,
+        radius: float,
         n_layers: int = 2,
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
@@ -196,20 +201,22 @@ class GCNDeepSet(nn.Module):
         dropout = float(dropout)
 
         # Readin Deep Set: Changes the number of features from in_channels to n_channels
-        self.agent_preprocessor = DeepSet(
+        self.agent_preprocessor = GraphDeepSet(
             in_channels_phi=2,
             in_channels_rho=mlp_hidden_channels,
             out_channels=2,
+            radius=radius,
             n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
             dropout=dropout,
             activation=activation,
         )
 
-        self.target_preprocessor = DeepSet(
+        self.target_preprocessor = GraphDeepSetTargets(
             in_channels_phi=2,
             in_channels_rho=mlp_hidden_channels,
             out_channels=2,
+            radius=radius,
             n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
             dropout=dropout,
@@ -233,8 +240,8 @@ class GCNDeepSet(nn.Module):
         own_obs = state[0]
         agent_obs = state[1]
         target_obs = state[2]
-        agent_obs = self.agent_preprocessor(agent_obs)
-        target_obs = self.target_preprocessor(target_obs)
+        agent_obs = self.agent_preprocessor(agent_obs, agent_obs)
+        target_obs = self.target_preprocessor(target_obs, agent_obs, target_obs)
         state = torch.cat((own_obs, agent_obs, target_obs), axis=-1)
         action = self.gnn.forward(state, edge_index, edge_attr)
         return action

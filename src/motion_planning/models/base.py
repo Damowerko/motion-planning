@@ -25,6 +25,7 @@ class GNNActor(nn.Module):
         self,
         state_ndim: int,
         action_ndim: int,
+        radius: float,
         n_taps: int = 4,
         n_layers: int = 2,
         n_channels: int = 32,
@@ -39,9 +40,10 @@ class GNNActor(nn.Module):
         self.action_ndim = action_ndim
 
         self.gnn = GCNDeepSet(
-            6, # hardcode this for now
+            8, # hardcode this for now
             action_ndim * 2,
             n_taps,
+            radius,
             n_layers,
             n_channels,
             activation,
@@ -169,6 +171,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.actor = GNNActor(
             self.env.observation_ndim,
             self.env.action_ndim,
+            self.env.sensing_radius,
             n_taps,
             n_layers,
             n_channels,
