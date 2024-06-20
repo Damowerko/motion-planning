@@ -70,18 +70,17 @@ class GraphDeepSet(gnn.MessagePassing):
         self.rho.to(device)
         return super().to(device)
     
-    def message(self, x_j):
-        return self.phi(x_j)
+    def message(self, x_i, x_j):
+        return self.phi(x_j - x_i)
         
-    def forward(self, x: torch.Tensor, positions: torch.Tensor):
+    def forward(self, positions: torch.Tensor):
         edge_index = gnn.radius_graph(
             positions,
             self.radius,
             max_num_neighbors=10,
             flow="target_to_source",
         )
-        print(edge_index)
-        x = self.propagate(edge_index, x=x)
+        x = self.propagate(edge_index, x=positions)
         x = self.rho(x)
         return x
     
@@ -100,8 +99,9 @@ class GraphDeepSetTargets(GraphDeepSet):
     ):
         super().__init__(in_channels_phi, in_channels_rho, out_channels, radius, n_hidden_channels, n_layers, dropout, activation)
     
-    def forward(self, x: torch.Tensor, agent_positions: torch.Tensor, target_positions: torch.Tensor):
+    def forward(self, agent_positions: torch.Tensor, target_positions: torch.Tensor):
         n_agents = agent_positions.shape[0]
+        n_targets = target_positions.shape[0]
         
         target_edges = gnn.radius_graph(
             torch.cat([agent_positions, target_positions], dim=0),
@@ -112,7 +112,9 @@ class GraphDeepSetTargets(GraphDeepSet):
         mask = torch.logical_and(target_edges[0] >= n_agents, target_edges[1] < n_agents)
         target_edges = target_edges[:, mask]
 
+        x = torch.cat([agent_positions, target_positions], dim=0)
         x = self.propagate(target_edges, x=x)
+        x, _ = torch.split(x, [n_agents, n_targets], dim=0)
         x = self.rho(x)
         return x
 
@@ -204,7 +206,7 @@ class GCNDeepSet(nn.Module):
         self.agent_preprocessor = GraphDeepSet(
             in_channels_phi=2,
             in_channels_rho=mlp_hidden_channels,
-            out_channels=2,
+            out_channels=6,
             radius=radius,
             n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
@@ -215,7 +217,7 @@ class GCNDeepSet(nn.Module):
         self.target_preprocessor = GraphDeepSetTargets(
             in_channels_phi=2,
             in_channels_rho=mlp_hidden_channels,
-            out_channels=2,
+            out_channels=6,
             radius=radius,
             n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
@@ -240,8 +242,8 @@ class GCNDeepSet(nn.Module):
         own_obs = state[0]
         agent_obs = state[1]
         target_obs = state[2]
-        agent_obs = self.agent_preprocessor(agent_obs, agent_obs)
-        target_obs = self.target_preprocessor(target_obs, agent_obs, target_obs)
-        state = torch.cat((own_obs, agent_obs, target_obs), axis=-1)
+        a = self.agent_preprocessor(agent_obs)
+        t = self.target_preprocessor(agent_obs, target_obs)
+        state = torch.cat([own_obs, a, t], dim=1)
         action = self.gnn.forward(state, edge_index, edge_attr)
         return action

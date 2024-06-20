@@ -275,7 +275,7 @@ class MotionPlanning(GraphEnv):
         return action
 
     def _observation(self):
-        return [np.concatenate([self.swarm.position, self.swarm.velocity], axis=-1), self.swarm.position, self.target_positions]
+        return [self.swarm.velocity, self.swarm.position, self.target_positions]
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.swarm.position) > self.width).any(axis=1).all(axis=0)

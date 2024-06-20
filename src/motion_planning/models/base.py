@@ -40,7 +40,7 @@ class GNNActor(nn.Module):
         self.action_ndim = action_ndim
 
         self.gnn = GCNDeepSet(
-            8, # hardcode this for now
+            14, # hardcode this for now
             action_ndim * 2,
             n_taps,
             radius,
