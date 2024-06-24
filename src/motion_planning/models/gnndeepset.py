@@ -10,8 +10,7 @@ import scipy.spatial
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
-from torch_geometric.data.data import BaseData
-from torchcps.gnn import GCN
+from torchcps.gnn import GraphFilter, ResidualBlock
 from torch_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 
 activation_choices: typing.Dict[str, Type[nn.Module]] = {
@@ -78,7 +77,7 @@ class GraphDeepSet(gnn.MessagePassing):
             positions,
             self.radius,
             max_num_neighbors=10,
-            flow="target_to_source",
+            flow='target_to_source'
         )
         x = self.propagate(edge_index, x=positions)
         x = self.rho(x)
@@ -107,11 +106,10 @@ class GraphDeepSetTargets(GraphDeepSet):
             torch.cat([agent_positions, target_positions], dim=0),
             self.radius,
             max_num_neighbors=10,
-            flow="target_to_source",
+            flow='target_to_source',
         )
         mask = torch.logical_and(target_edges[0] >= n_agents, target_edges[1] < n_agents)
         target_edges = target_edges[:, mask]
-
         x = torch.cat([agent_positions, target_positions], dim=0)
         x = self.propagate(target_edges, x=x)
         x, _ = torch.split(x, [n_agents, n_targets], dim=0)
@@ -202,11 +200,13 @@ class GCNDeepSet(nn.Module):
         # ensure that dropout is a float
         dropout = float(dropout)
 
-        # Readin Deep Set: Changes the number of features from in_channels to n_channels
+        # Readin Deep Set: Changes the number of features to n_channels
+        n_channels_ds = int(n_channels / 2)
+
         self.agent_preprocessor = GraphDeepSet(
             in_channels_phi=2,
             in_channels_rho=mlp_hidden_channels,
-            out_channels=6,
+            out_channels=n_channels_ds,
             radius=radius,
             n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
@@ -217,7 +217,7 @@ class GCNDeepSet(nn.Module):
         self.target_preprocessor = GraphDeepSetTargets(
             in_channels_phi=2,
             in_channels_rho=mlp_hidden_channels,
-            out_channels=6,
+            out_channels=n_channels_ds,
             radius=radius,
             n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
@@ -225,25 +225,79 @@ class GCNDeepSet(nn.Module):
             activation=activation,
         )
 
-        self.gnn = GCN(
-            in_channels,
-            out_channels,
-            n_taps,
-            n_layers,
-            n_channels,
-            activation,
-            mlp_read_layers,
-            mlp_per_gnn_layers,
-            mlp_hidden_channels,
-            dropout,
+        self.self_preprocessor = gnn.MLP(
+            in_channels=in_channels,
+            hidden_channels=mlp_hidden_channels,
+            out_channels=n_channels,
+            num_layers=mlp_read_layers,
+            dropout=dropout,
+            act=activation,
+            plain_last=True,
         )
 
-    def forward(self, state: list, edge_index, edge_attr):
+        self.readout = gnn.MLP(
+            in_channels=n_channels*2,
+            hidden_channels=mlp_hidden_channels,
+            out_channels=out_channels,
+            num_layers=mlp_read_layers,
+            dropout=dropout,
+            act=activation,
+            plain_last=True,
+        )
+
+        # GNN layers operate on n_channels features
+        self.residual_blocks = nn.ModuleList()
+        for _ in range(n_layers):
+            conv: SequentialLayers = [
+                (
+                    GraphFilter(
+                        in_channels=n_channels*2,
+                        out_channels=n_channels*2,
+                        n_taps=n_taps,
+                    ),
+                    "x, edge_index, edge_attr, size -> x",
+                ),
+            ]
+            if mlp_per_gnn_layers > 0:
+                conv += [
+                    (activation, "x -> x"),
+                    (
+                        gnn.MLP(
+                            in_channels=n_channels*2,
+                            hidden_channels=mlp_hidden_channels,
+                            out_channels=n_channels*2,
+                            num_layers=mlp_per_gnn_layers,
+                            dropout=dropout,
+                            act=activation,
+                            plain_last=True,
+                        ),
+                        "x -> x",
+                    ),
+                ]
+            self.residual_blocks += [
+                (
+                    ResidualBlock(
+                        conv=gnn.Sequential("x, edge_index, edge_attr, size", conv),
+                        norm=gnn.BatchNorm(n_channels*2),
+                        act=activation,
+                        dropout=dropout,
+                    )
+                )
+            ]
+
+    def forward(self,
+                state: list,
+                edge_index: Adj,
+                edge_attr: OptTensor = None,
+                size: Size = None):
         own_obs = state[0]
         agent_obs = state[1]
         target_obs = state[2]
+        s = self.self_preprocessor(own_obs)
         a = self.agent_preprocessor(agent_obs)
         t = self.target_preprocessor(agent_obs, target_obs)
-        state = torch.cat([own_obs, a, t], dim=1)
-        action = self.gnn.forward(state, edge_index, edge_attr)
-        return action
+        x = torch.cat([s, a, t], dim=1)
+        for residual_block in self.residual_blocks:
+            x = residual_block(x, edge_index, edge_attr, size)
+        x = self.readout(x)
+        return x
