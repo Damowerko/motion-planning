@@ -1,5 +1,6 @@
 import typing
 from typing import Iterator, List, Optional
+from copy import deepcopy
 
 import pytorch_lightning as pl
 import torch
@@ -127,6 +128,70 @@ class GNNCritic(nn.Module):
         return scatter_mean(y, data.batch, dim=0)
 
 
+class GNNActorCritic(nn.Module):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+    
+    def __init__(
+        self,
+        observation_ndim: int,
+        action_ndim: int,
+        n_taps: int = 4,
+        n_layers: int = 2,
+        n_channels: int = 32,
+        activation: typing.Union[nn.Module, str] = "leaky_relu",
+        mlp_read_layers: int = 1,
+        mlp_per_gnn_layers: int = 0,
+        mlp_hidden_channels: int = 256,
+        dropout: float = 0.0,
+        num_critics: int = 0,
+        **kwargs,
+    ):
+        super().__init__()
+        
+        self.actor = GNNActor(
+            observation_ndim,
+            action_ndim,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+        self.critic = GNNCritic(
+            observation_ndim,
+            action_ndim,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+
+        self.critics = nn.ModuleList()
+        for _ in range(num_critics):
+            self.critics.append(deepcopy(self.critic))
+    
+    def set_num_critics(self, num_critics):
+        curr_num = len(self.critics)
+        if num_critics < curr_num:
+            raise ValueError("Does not support lowering number of critics yet")
+        
+        for _ in range(num_critics - curr_num):
+            self.critics.append(deepcopy(self.critic))
+
+    def action(self, obs: torch.Tensor, data: BaseData):
+        with torch.no_grad():
+            return self.actor(obs, data).numpy()
+
+
 class MotionPlanningActorCritic(pl.LightningModule):
     @classmethod
     def add_model_specific_args(cls, group):
@@ -163,19 +228,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.dropout = dropout
 
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
-        self.actor = GNNActor(
-            self.env.observation_ndim,
-            self.env.action_ndim,
-            n_taps,
-            n_layers,
-            n_channels,
-            activation,
-            mlp_read_layers,
-            mlp_per_gnn_layers,
-            mlp_hidden_channels,
-            dropout,
-        )
-        self.critic = GNNCritic(
+        self.ac = GNNActorCritic(
             self.env.observation_ndim,
             self.env.action_ndim,
             n_taps,
@@ -212,7 +265,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
                 self.env.render()
 
             # sample action
-            data.mu, data.sigma = self.actor(data.state, data)
+            data.mu, data.sigma = self.ac.actor(data.state, data)
 
             # take step
             data, next_state, reward, done = self.rollout_step(data)
@@ -247,21 +300,21 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
     def optimizers(self):
         opts = super().optimizers()
-        if not isinstance(opts, list) or len(opts) != 2:
+        if not isinstance(opts, list):
             raise ValueError(
-                "Expect exactly two optimizers: actor and critic. Double check that `configure_optimizers` returns two optimziers."
+                "Expected a list of optimizers: an actor and multiple critics. Double check that `configure_optimizers` returns multiple optimziers."
             )
-        opt_actor, opt_critic = opts
-        return opt_actor, opt_critic
+        return opts
 
     def configure_optimizers(self):
         return [
             torch.optim.AdamW(
-                self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            ),
+                self.ac.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            )
+        ] + [
             torch.optim.AdamW(
-                self.critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            ),
+                critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            ) for critic in self.ac.critics
         ]
 
     def to_data(self, state, adjacency) -> BaseData:

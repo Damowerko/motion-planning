@@ -40,24 +40,20 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.policy_delay = policy_delay
 
         self.buffer = ReplayBuffer[Data](buffer_size)
-        self.actor_swa = torch.optim.swa_utils.AveragedModel(self.actor)
-        self.critics = nn.ModuleList([self.critic, deepcopy(self.critic)])
-        self.critics_swa = nn.ModuleList(
-            [torch.optim.swa_utils.AveragedModel(critic) for critic in self.critics]
-        )
         self.automatic_optimization = False
+        self.ac.set_num_critics(2)
 
-    def configure_optimizers(self):
-        return (
-            torch.optim.AdamW(
-                self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            ),
-            torch.optim.AdamW(
-                chain(self.critics[0].parameters(), self.critics[1].parameters()),
-                lr=self.lr,
-                weight_decay=self.weight_decay,
-            ),
-        )
+    # def configure_optimizers(self):
+    #     return (
+    #         torch.optim.AdamW(
+    #             self.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
+    #         ),
+    #         torch.optim.AdamW(
+    #             chain(self.critics[0].parameters(), self.critics[1].parameters()),
+    #             lr=self.lr,
+    #             weight_decay=self.weight_decay,
+    #         ),
+    #     )
 
     def policy(
         self, mu: torch.Tensor, noise: float, noise_clip: Optional[float] = None

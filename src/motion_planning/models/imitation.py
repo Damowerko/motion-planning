@@ -35,12 +35,13 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.expert_probability = expert_probability
         self.expert_probability_decay = expert_probability_decay
         self.automatic_optimization = False
+        self.ac.set_num_critics(1)
 
     def training_step(self, data, batch_idx):
         opt_actor, opt_critic = self.optimizers()
 
         # actor step
-        mu, _ = self.actor.forward(data.state, data)
+        mu, _ = self.ac.actor.forward(data.state, data)
         loss = F.mse_loss(mu, data.expert)
         self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
@@ -48,10 +49,10 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         opt_actor.step()
 
         # critic step
-        # q = self.critic.forward(data.state, data.action, data)
+        # q = self.ac.critic[0].forward(data.state, data.action, data)
         # with torch.no_grad():
-        #     muprime, _ = self.actor.forward(data.next_state, data)
-        #     qprime = self.critic(data.next_state, muprime, data)
+        #     muprime, _ = self.ac.actor.forward(data.next_state, data)
+        #     qprime = self.ac.critic[0](data.next_state, muprime, data)
         # loss = self.critic_loss(q, qprime, data.reward[:, None], data.done[:, None])
         # self.log("train/critic_loss", loss, prog_bar=True, batch_size=data.batch_size)
         # opt_critic.zero_grad()
@@ -59,7 +60,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         # opt_critic.step()
 
     def validation_step(self, data, batch_idx):
-        yhat, _ = self.actor.forward(data.state, data)
+        yhat, _ = self.ac.actor.forward(data.state, data)
         loss = F.mse_loss(yhat, data.expert)
         self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
@@ -68,7 +69,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         return loss
 
     def test_step(self, data, batch_idx):
-        yhat, _ = self.actor.forward(data.state, data)
+        yhat, _ = self.ac.actor.forward(data.state, data)
         loss = F.mse_loss(yhat, data.expert)
         self.log("test/loss", loss, batch_size=data.batch_size)
         self.log("test/reward", data.reward.mean(), batch_size=data.batch_size)
@@ -105,7 +106,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             data.action = data.expert
         elif self.training:
             # use actor policy
-            data.action = self.actor.policy(data.mu, data.sigma)
+            data.action = self.ac.actor.policy(data.mu, data.sigma)
         else:
             # use greedy policy
             data.action = data.mu
