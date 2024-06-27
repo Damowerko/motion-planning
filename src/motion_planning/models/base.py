@@ -211,6 +211,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         weight_decay: float = 0.0,
         batch_size: int = 32,
         gamma=0.95,
+        polyak=0.5,
         max_steps=200,
         n_agents: int = 100,
         width: float = 10.0,
@@ -224,6 +225,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.weight_decay = weight_decay
         self.batch_size = batch_size
         self.gamma = gamma
+        self.polyak = polyak
         self.max_steps = max_steps
         self.dropout = dropout
 
@@ -310,11 +312,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
         return [
             torch.optim.AdamW(
                 self.ac.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            )
-        ] + [
+            ),
             torch.optim.AdamW(
-                critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
-            ) for critic in self.ac.critics
+                self.ac.critics[0].parameters(), lr=self.lr, weight_decay=self.weight_decay
+            )
         ]
 
     def to_data(self, state, adjacency) -> BaseData:
