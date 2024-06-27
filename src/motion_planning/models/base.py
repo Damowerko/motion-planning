@@ -125,7 +125,8 @@ class GNNCritic(nn.Module):
     ) -> torch.Tensor:
         x = torch.cat([state, action], dim=-1)
         y = self.gnn.forward(x, data.edge_index, data.edge_attr)
-        return scatter_mean(y, data.batch, dim=0)
+        y = scatter_mean(y, data.batch, dim=0)
+        return y.squeeze(-1)
 
 
 class GNNActorCritic(nn.Module):
@@ -145,7 +146,6 @@ class GNNActorCritic(nn.Module):
         mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
-        num_critics: int = 0,
         **kwargs,
     ):
         super().__init__()
@@ -174,22 +174,13 @@ class GNNActorCritic(nn.Module):
             mlp_hidden_channels,
             dropout,
         )
-
-        self.critics = nn.ModuleList()
-        for _ in range(num_critics):
-            self.critics.append(deepcopy(self.critic))
     
-    def set_num_critics(self, num_critics):
-        curr_num = len(self.critics)
-        if num_critics < curr_num:
-            raise ValueError("Does not support lowering number of critics yet")
-        
-        for _ in range(num_critics - curr_num):
-            self.critics.append(deepcopy(self.critic))
+    def policy(self, mu: torch.Tensor, sigma: torch.Tensor, action: Optional[torch.Tensor] = None):
+        return self.actor.policy(mu, sigma, action)
 
     def action(self, obs: torch.Tensor, data: BaseData):
         with torch.no_grad():
-            return self.actor(obs, data).numpy()
+            return self.actor(obs, data)[0].cpu().numpy()
 
 
 class MotionPlanningActorCritic(pl.LightningModule):
@@ -253,6 +244,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         """
         Called after rollout step.
         """
+        data.action = self.ac.policy(data.mu, data.sigma)
         next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
         return data, next_state, reward, done
 
@@ -314,7 +306,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
                 self.ac.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
             ),
             torch.optim.AdamW(
-                self.ac.critics[0].parameters(), lr=self.lr, weight_decay=self.weight_decay
+                self.ac.critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
             )
         ]
 

@@ -35,7 +35,6 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.expert_probability = expert_probability
         self.expert_probability_decay = expert_probability_decay
         self.automatic_optimization = False
-        self.ac.set_num_critics(1)
 
     def training_step(self, data, batch_idx):
         opt_actor, opt_critic = self.optimizers()
@@ -49,10 +48,10 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         opt_actor.step()
 
         # critic step
-        # q = self.ac.critic[0].forward(data.state, data.action, data)
+        # q = self.ac.critic.forward(data.state, data.action, data)
         # with torch.no_grad():
         #     muprime, _ = self.ac.actor.forward(data.next_state, data)
-        #     qprime = self.ac.critic[0](data.next_state, muprime, data)
+        #     qprime = self.ac.critic(data.next_state, muprime, data)
         # loss = self.critic_loss(q, qprime, data.reward[:, None], data.done[:, None])
         # self.log("train/critic_loss", loss, prog_bar=True, batch_size=data.batch_size)
         # opt_critic.zero_grad()
@@ -106,7 +105,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             data.action = data.expert
         elif self.training:
             # use actor policy
-            data.action = self.ac.actor.policy(data.mu, data.sigma)
+            data.action = self.ac.policy(data.mu, data.sigma)
         else:
             # use greedy policy
             data.action = data.mu

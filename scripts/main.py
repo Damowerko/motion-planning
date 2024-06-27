@@ -20,9 +20,8 @@ from wandb.wandb_run import Run
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.models import (
     MotionPlanningActorCritic,
-    MotionPlanningGPG,
     MotionPlanningImitation,
-    MotionPlanningTD3,
+    MotionPlanningDDPG,
 )
 
 
@@ -36,14 +35,14 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "gpg", "td3", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
+        choices=["imitation", "ddpg", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
-    if operation in ("imitation", "gpg", "td3"):
+    if operation in ("imitation", "ddpg"):
         get_model_cls(operation).add_model_specific_args(group)
 
         # training arguments
@@ -83,7 +82,7 @@ def main():
         )
 
     params = parser.parse_args()
-    if params.operation in ("gpg", "td3"):
+    if params.operation in ("ddpg"):
         train(params)
     elif params.operation == "test":
         test(params)
@@ -359,10 +358,8 @@ def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray)
 def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
     if model_str == "imitation":
         return MotionPlanningImitation
-    elif model_str == "gpg":
-        return MotionPlanningGPG
-    elif model_str == "td3":
-        return MotionPlanningTD3
+    elif model_str == "ddpg":
+        return MotionPlanningDDPG
     raise ValueError(f"Invalid model {model_str}.")
 
 
