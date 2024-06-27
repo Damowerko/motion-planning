@@ -10,6 +10,7 @@ import scipy.spatial
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
+from torch_geometric.nn.conv import GATv2Conv
 from torchcps.gnn import GraphFilter, ResidualBlock
 from torch_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 
@@ -22,14 +23,13 @@ activation_choices: typing.Dict[str, Type[nn.Module]] = {
 SequentialLayers = list[tuple[Callable, str] | Callable]
 
 
-class GraphDeepSet(gnn.MessagePassing):
+class GraphAttentionFilter(gnn.MessagePassing):
     def __init__(
         self,
-        in_channels_phi: int,
-        in_channels_rho: int,
+        in_channels: int,
         out_channels: int,
+        heads: int,
         radius: float,
-        n_hidden_channels: int,
         n_layers: int,
         dropout: float,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
@@ -43,34 +43,14 @@ class GraphDeepSet(gnn.MessagePassing):
 
         dropout = float(dropout)
 
-        self.in_channels_phi = in_channels_phi
-        self.in_channels_rho = in_channels_rho
         self.radius = radius
 
-        self.phi = gnn.MLP(in_channels=in_channels_phi,
-                       out_channels=in_channels_rho,
-                       hidden_channels=n_hidden_channels,
-                       num_layers=n_layers,
-                       dropout=dropout,
-                       act=activation,)
-
-        self.rho = gnn.MLP(in_channels=in_channels_rho,
-                       out_channels=out_channels,
-                       hidden_channels=n_hidden_channels,
-                       num_layers = n_layers,
-                       dropout=dropout,
-                       act=activation,)
-        
-        self.to('cuda:0')
-        
-    def to(self, device):
-        self.device = device
-        self.phi.to(device)
-        self.rho.to(device)
-        return super().to(device)
-    
-    def message(self, x_i, x_j):
-        return self.phi(x_j - x_i)
+        self.conv = GATv2Conv(
+            in_channels,
+            out_channels,
+            heads,
+            dropout=dropout
+        )
         
     def forward(self, positions: torch.Tensor):
         edge_index = gnn.radius_graph(
@@ -79,24 +59,22 @@ class GraphDeepSet(gnn.MessagePassing):
             max_num_neighbors=10,
             flow='target_to_source'
         )
-        x = self.propagate(edge_index, x=positions)
-        x = self.rho(x)
+        x = self.conv(positions, edge_index)
         return x
     
 
-class GraphDeepSetTargets(GraphDeepSet):
+class GraphAttentionFilterTargets(GraphAttentionFilter):
     def __init__(
         self,
-        in_channels_phi: int,
-        in_channels_rho: int,
+        in_channels: int,
         out_channels: int,
+        heads: int,
         radius: float,
-        n_hidden_channels: int,
         n_layers: int,
         dropout: float,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
     ):
-        super().__init__(in_channels_phi, in_channels_rho, out_channels, radius, n_hidden_channels, n_layers, dropout, activation)
+        super().__init__(in_channels, out_channels, heads, radius, n_layers, dropout, activation)
     
     def forward(self, agent_positions: torch.Tensor, target_positions: torch.Tensor):
         n_agents = agent_positions.shape[0]
@@ -111,9 +89,8 @@ class GraphDeepSetTargets(GraphDeepSet):
         mask = torch.logical_and(target_edges[0] >= n_agents, target_edges[1] < n_agents)
         target_edges = target_edges[:, mask]
         x = torch.cat([agent_positions, target_positions], dim=0)
-        x = self.propagate(target_edges, x=x)
+        x = self.conv(x, target_edges)
         x, _ = torch.split(x, [n_agents, n_targets], dim=0)
-        x = self.rho(x)
         return x
 
 
@@ -203,23 +180,21 @@ class GCNDeepSet(nn.Module):
         # Readin Deep Set: Changes the number of features to n_channels
         n_channels_ds = int(n_channels / 2)
 
-        self.agent_preprocessor = GraphDeepSet(
-            in_channels_phi=2,
-            in_channels_rho=mlp_hidden_channels,
+        self.agent_preprocessor = GraphAttentionFilter(
+            in_channels=2,
             out_channels=n_channels_ds,
+            heads=1,
             radius=radius,
-            n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
             dropout=dropout,
             activation=activation,
         )
 
-        self.target_preprocessor = GraphDeepSetTargets(
-            in_channels_phi=2,
-            in_channels_rho=mlp_hidden_channels,
+        self.target_preprocessor = GraphAttentionFilterTargets(
+            in_channels=2,
             out_channels=n_channels_ds,
+            heads=1,
             radius=radius,
-            n_hidden_channels=mlp_hidden_channels,
             n_layers=mlp_read_layers,
             dropout=dropout,
             activation=activation,
