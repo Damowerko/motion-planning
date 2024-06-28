@@ -13,7 +13,8 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
 
     def __init__(
         self,
-        buffer_size: int = 100000,
+        buffer_size: int = 100_000,
+        start_steps: int = 2_000,
         render: bool = False,
         **kwargs,
     ):
@@ -28,6 +29,7 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
         self.save_hyperparameters()
         self.render = render > 0
         self.buffer = ReplayBuffer[BaseData](buffer_size)
+        self.start_steps = start_steps
         self.automatic_optimization = False
         self.ac_target = deepcopy(self.ac)
     
@@ -52,19 +54,32 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
         return -q.mean()
 
     def training_step(self, data, batch_idx):
+        while len(self.buffer) < self.start_steps:
+            self.buffer.extend(self.rollout(render=self.render))
+
         opt_actor, opt_critic = self.optimizers()
 
+        # Update the critic function
         loss_q = self.critic_loss(data.state, data.action, data.reward, data.next_state, data.done, data)
         self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
         opt_critic.zero_grad()
         self.manual_backward(loss_q)
         opt_critic.step()
 
+        # Freeze the critic network
+        for p in self.ac.critic.parameters():
+            p.requires_grad = False
+
+        # Update the actor function
         loss_pi = self.actor_loss(data.state, data)
         self.log("train/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
         self.manual_backward(loss_pi)
-        opt_critic.step()
+        opt_actor.step()
+
+        # Unfreeze the critic network
+        for p in self.ac.critic.parameters():
+            p.requires_grad = True
 
         with torch.no_grad():
             for p, p_target in zip(self.ac.parameters(), self.ac_target.parameters()):

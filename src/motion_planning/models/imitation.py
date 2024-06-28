@@ -13,7 +13,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def __init__(
         self,
-        buffer_size: int = 100000,
+        buffer_size: int = 100_000,
         target_policy: str = "c",
         expert_probability: float = 0.5,
         expert_probability_decay: float = 0.99,
