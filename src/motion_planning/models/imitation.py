@@ -41,38 +41,56 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
         # actor step
         mu, _ = self.ac.actor.forward(data.state, data)
-        loss = F.mse_loss(mu, data.expert)
-        self.log("train/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
+        loss_pi = F.mse_loss(mu, data.expert)
+        self.log("train/mu_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
-        self.manual_backward(loss)
+        self.manual_backward(loss_pi)
         opt_actor.step()
 
         # critic step
-        # q = self.ac.critic.forward(data.state, data.action, data)
-        # with torch.no_grad():
-        #     muprime, _ = self.ac.actor.forward(data.next_state, data)
-        #     qprime = self.ac.critic(data.next_state, muprime, data)
-        # loss = self.critic_loss(q, qprime, data.reward[:, None], data.done[:, None])
-        # self.log("train/critic_loss", loss, prog_bar=True, batch_size=data.batch_size)
-        # opt_critic.zero_grad()
-        # self.manual_backward(loss)
-        # opt_critic.step()
+        q = self.ac.critic.forward(data.centralized_state, data.action, data)
+        with torch.no_grad():
+            next_action, _ = self.ac.actor.forward(data.next_state, data)
+            qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
+        loss_q = self.critic_loss(q, qprime, data.reward, data.done)
+        self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+        opt_critic.zero_grad()
+        self.manual_backward(loss_q)
+        opt_critic.step()
 
     def validation_step(self, data, batch_idx):
-        yhat, _ = self.ac.actor.forward(data.state, data)
-        loss = F.mse_loss(yhat, data.expert)
-        self.log("val/loss", loss, prog_bar=True, batch_size=data.batch_size)
+        mu, _ = self.ac.actor.forward(data.state, data)
+        loss_pi = F.mse_loss(mu, data.expert)
+        self.log("val/mu_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
-        return loss
+
+        q = self.ac.critic.forward(data.centralized_state, data.action, data)
+        with torch.no_grad():
+            next_action, _ = self.ac.actor.forward(data.next_state, data)
+            qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
+        loss_q = self.critic_loss(q, qprime, data.reward, data.done)
+        self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+
+        return loss_pi, loss_q
 
     def test_step(self, data, batch_idx):
-        yhat, _ = self.ac.actor.forward(data.state, data)
-        loss = F.mse_loss(yhat, data.expert)
-        self.log("test/loss", loss, batch_size=data.batch_size)
-        self.log("test/reward", data.reward.mean(), batch_size=data.batch_size)
-        return loss
+        mu, _ = self.ac.actor.forward(data.state, data)
+        loss_pi = F.mse_loss(mu, data.expert)
+        self.log("test/mu_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
+        self.log(
+            "test/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
+        )
+
+        q = self.ac.critic.forward(data.centralized_state, data.action, data)
+        with torch.no_grad():
+            next_action, _ = self.ac.actor.forward(data.next_state, data)
+            qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
+        loss_q = self.critic_loss(q, qprime, data.reward, data.done)
+        self.log("test/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+
+        return loss_pi, loss_q
 
     def rollout_start(self):
         # decide if expert will be used for rollout
@@ -110,8 +128,8 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             # use greedy policy
             data.action = data.mu
 
-        next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
-        return data, next_state, reward, done
+        next_state, centralized_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
+        return data, next_state, centralized_state, reward, done
 
     def batch_generator(
         self, n_episodes=1, render=False, use_buffer=True, training=True

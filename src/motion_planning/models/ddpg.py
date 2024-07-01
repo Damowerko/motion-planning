@@ -33,13 +33,13 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
         self.automatic_optimization = False
         self.ac_target = deepcopy(self.ac)
     
-    def critic_loss(self, state, action, reward, next_state, done, data):
-        q = self.ac.critic(state, action, data)
+    def critic_loss(self, centralized_state, action, reward, next_state, next_centralized_state, done, data):
+        q = self.ac.critic(centralized_state, action, data)
         
         with torch.no_grad():
             next_mu, next_sigma = self.ac_target.actor(next_state, data)
             next_action = self.ac.policy(next_mu, next_sigma)
-            q_target = self.ac_target.critic(next_state, next_action, data)
+            q_target = self.ac_target.critic(next_centralized_state, next_action, data)
 
             bellman = reward + self.gamma * ~done * q_target
         
@@ -47,10 +47,10 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
 
         return loss
     
-    def actor_loss(self, state, data):
+    def actor_loss(self, state, centralized_state, data):
         mu, sigma = self.ac.actor(state, data)
         action = self.ac.policy(mu, sigma)
-        q = self.ac.critic(state, action, data)
+        q = self.ac.critic(centralized_state, action, data)
         return -q.mean()
 
     def training_step(self, data, batch_idx):
@@ -60,7 +60,7 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
         opt_actor, opt_critic = self.optimizers()
 
         # Update the critic function
-        loss_q = self.critic_loss(data.state, data.action, data.reward, data.next_state, data.done, data)
+        loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
         self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
         opt_critic.zero_grad()
         self.manual_backward(loss_q)
@@ -71,7 +71,7 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
             p.requires_grad = False
 
         # Update the actor function
-        loss_pi = self.actor_loss(data.state, data)
+        loss_pi = self.actor_loss(data.state, data.centralized_state, data)
         self.log("train/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
         opt_actor.zero_grad()
         self.manual_backward(loss_pi)
@@ -87,8 +87,8 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
                 p_target.data.add_((1 - self.polyak) * p.data)
 
     def validation_step(self, data, batch_idx):
-        loss_q = self.critic_loss(data.state, data.action, data.reward, data.next_state, data.done, data)
-        loss_pi = self.actor_loss(data.state, data)
+        loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
+        loss_pi = self.actor_loss(data.state, data.centralized_state, data)
 
         self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
         self.log("val/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
@@ -99,8 +99,8 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
         return loss_q, loss_pi
 
     def test_step(self, data, batch_idx):
-        loss_q = self.critic_loss(data.state, data.action, data.reward, data.next_state, data.done, data)
-        loss_pi = self.actor_loss(data.state, data)
+        loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
+        loss_pi = self.actor_loss(data.state, data.centralized_state, data)
 
         self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
         self.log("val/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
@@ -124,8 +124,8 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
             # use greedy policy
             data.action = data.mu
 
-        next_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
-        return data, next_state, reward, done
+        next_state, centralized_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
+        return data, next_state, centralized_state, reward, done
 
     def batch_generator(
         self, n_episodes=1, render=False, use_buffer=True, training=True

@@ -288,6 +288,9 @@ class MotionPlanning(GraphEnv):
         obs = np.concatenate((self.state[:,2:], tgt, agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
+    
+    def _centralized_state(self):
+        return np.concatenate((self.position, self.target_positions), axis=0)
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)
@@ -311,7 +314,7 @@ class MotionPlanning(GraphEnv):
         self.velocity = action
         self.position += self.velocity * self.dt
         self.t += self.dt
-        return self._observation(), self._reward(), self._done(), {}
+        return self._observation(), self._centralized_state(), self._reward(), self._done(), {}
 
     def reset(self):
         self.state = np.zeros((self.n_agents, self.state_ndim))
@@ -337,7 +340,8 @@ class MotionPlanning(GraphEnv):
         self.t = 0
         if self.render_ is not None:
             self.render_.reset()
-        return self._observation()
+        action = np.zeros(self.action_space.shape)
+        return self._observation(), self._centralized_state()
 
     def render(self, mode="human"):
         if self.render_ is None or self.render_.mode != mode:

@@ -51,6 +51,10 @@ def main():
         training_group.add_argument("--test", action="store_true")
         training_group.add_argument("--max_epochs", type=int, default=100)
         training_group.add_argument("--patience", type=int, default=10)
+
+        # reinforcement learning specific args
+        if operation == "ddpg":
+            training_group.add_argument("--checkpoint", type=str)
     elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
         # test specific args
         if operation in ("test", "transfer-agents", "transfer-area", "transfer-density"):
@@ -206,20 +210,12 @@ def imitation(params):
 
 def train(params):
     trainer = make_trainer(params)
-    imitation_checkpoint = find_checkpoint("imitation")
-    if imitation_checkpoint is not None:
+    if params.checkpoint:
         print("Resuming from pretraining.")
-        imitation = MotionPlanningImitation.load_from_checkpoint(imitation_checkpoint)
-        merged = {
-            **vars(params),
-            **{
-                "F": imitation.F,
-                "K": imitation.K,
-                "n_layers": imitation.n_layers,
-            },
-        }
-        model = get_model_cls(params.operation)(**merged)
-        model.actor = imitation.actor
+        imitation, _ = load_model(params.checkpoint)
+        model = get_model_cls(params.operation)(**vars(params))
+        model.ac.actor = imitation.ac.actor
+        model.ac.critic = imitation.ac.critic
     else:
         print("Did not find a pretrain checkpoint.")
         model = get_model_cls(params.operation)(**vars(params))
