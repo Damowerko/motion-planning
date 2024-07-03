@@ -1,5 +1,6 @@
 import typing
 from typing import Iterator, List, Optional
+from copy import deepcopy
 
 import pytorch_lightning as pl
 import torch
@@ -162,6 +163,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.max_steps = max_steps
         self.dropout = dropout
 
+        self.starting_positions = []
+
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.actor = GNNActor(
             self.env.observation_ndim,
@@ -206,6 +209,37 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.rollout_start()
         episode = []
         observation = self.env.reset()
+        self.starting_positions.append(deepcopy(self.env))
+        data = self.to_data(observation, self.env.adjacency())
+        for _ in range(self.max_steps):
+            if render:
+                self.env.render()
+
+            # sample action
+            data.mu, data.sigma = self.actor(data.state, data)
+
+            # take step
+            data, next_state, reward, done = self.rollout_step(data)
+
+            # add additional attributes
+            next_data = self.to_data(next_state, self.env.adjacency())
+            data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
+            data.next_state = next_data.state
+            data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
+
+            episode.append(data)
+            data = next_data
+            if done:
+                break
+        return episode
+
+    @torch.no_grad()
+    def rollout_from_start(self, env: MotionPlanning, render=False) -> List[BaseData]:
+        self.rollout_start()
+        episode = []
+        self.env.position = env.position
+        self.env.target_positions = env.target_positions
+        observation = self.env._observation()
         data = self.to_data(observation, self.env.adjacency())
         for _ in range(self.max_steps):
             if render:

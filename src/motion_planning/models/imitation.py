@@ -114,14 +114,22 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         return data, next_state, reward, done
 
     def batch_generator(
-        self, n_episodes=1, render=False, use_buffer=True, training=True
+        self, n_episodes=1, render=False, use_buffer=True, training=True, validation=False
     ):
         # set model to appropriate mode
         self.train(training)
 
         data = []
-        for _ in range(n_episodes):
-            data.extend(self.rollout(render=render))
+        if validation:
+            if len(self.starting_positions) == 0:
+                data.extend(self.rollout(render=render))
+            else:
+                for start in self.starting_positions:
+                    data.extend(self.rollout_from_start(start, render=render))
+        else:
+            self.starting_positions = []
+            for _ in range(n_episodes):
+                data.extend(self.rollout(render=render))
         if use_buffer:
             self.buffer.extend(data)
             data = self.buffer.collect(shuffle=True)
@@ -129,15 +137,15 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def train_dataloader(self):
         return self._dataloader(
-            n_episodes=10, render=False, use_buffer=True, training=True
+            n_episodes=10, render=False, use_buffer=True, training=True, validation=False
         )
 
     def val_dataloader(self):
         return self._dataloader(
-            n_episodes=1, render=self.render, use_buffer=False, training=False
+            n_episodes=0, render=self.render, use_buffer=False, training=False, validation=True
         )
 
     def test_dataloader(self):
         return self._dataloader(
-            n_episodes=100, render=self.render, use_buffer=False, training=False
+            n_episodes=100, render=self.render, use_buffer=False, training=False, validation=False
         )
