@@ -6,6 +6,7 @@ import typing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Union
+from copy import deepcopy
 
 import imageio.v3 as iio
 import matplotlib.pyplot as plt
@@ -22,6 +23,7 @@ from motion_planning.models import (
     MotionPlanningActorCritic,
     MotionPlanningImitation,
     MotionPlanningDDPG,
+    MotionPlanningTD3,
 )
 
 
@@ -35,14 +37,14 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "ddpg", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
+        choices=["imitation", "ddpg", "td3", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
-    if operation in ("imitation", "ddpg"):
+    if operation in ("imitation", "ddpg", "td3"):
         get_model_cls(operation).add_model_specific_args(group)
 
         # training arguments
@@ -53,7 +55,7 @@ def main():
         training_group.add_argument("--patience", type=int, default=10)
 
         # reinforcement learning specific args
-        if operation == "ddpg":
+        if operation in ("ddpg", "td3"):
             training_group.add_argument("--checkpoint", type=str)
     elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
         # test specific args
@@ -86,7 +88,7 @@ def main():
         )
 
     params = parser.parse_args()
-    if params.operation in ("ddpg"):
+    if params.operation in ("ddpg", "td3"):
         train(params)
     elif params.operation == "test":
         test(params)
@@ -216,6 +218,7 @@ def train(params):
         model = get_model_cls(params.operation)(**vars(params))
         model.ac.actor = imitation.ac.actor
         model.ac.critic = imitation.ac.critic
+        model.ac_target = deepcopy(model.ac)
     else:
         print("Did not find a pretrain checkpoint.")
         model = get_model_cls(params.operation)(**vars(params))
@@ -356,6 +359,8 @@ def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
         return MotionPlanningImitation
     elif model_str == "ddpg":
         return MotionPlanningDDPG
+    elif model_str == "td3":
+        return MotionPlanningTD3
     raise ValueError(f"Invalid model {model_str}.")
 
 

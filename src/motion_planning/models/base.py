@@ -166,11 +166,12 @@ class GNNActorCritic(nn.Module):
             state_ndim,
             action_ndim,
             n_agents,
-            n_layers,
-            n_channels,
+            n_layers * 2,
+            n_channels * 2,
             activation,
             dropout,
         )
+        self.critic2 = None # Only used for TD3
     
     def policy(self, mu: torch.Tensor, sigma: torch.Tensor, action: Optional[torch.Tensor] = None):
         return self.actor.policy(mu, sigma, action)
@@ -195,7 +196,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         mlp_per_gnn_layers: int = 0,
         mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
-        lr: float = 0.0001,
+        actor_lr: float = 0.0001,
+        critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
         gamma=0.95,
@@ -209,7 +211,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore="kwargs")
 
-        self.lr = lr
+        self.actor_lr = actor_lr
+        self.critic_lr = critic_lr
         self.weight_decay = weight_decay
         self.batch_size = batch_size
         self.gamma = gamma
@@ -303,10 +306,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
     def configure_optimizers(self):
         return [
             torch.optim.AdamW(
-                self.ac.actor.parameters(), lr=self.lr, weight_decay=self.weight_decay
+                self.ac.actor.parameters(), lr=self.actor_lr, weight_decay=self.weight_decay
             ),
             torch.optim.AdamW(
-                self.ac.critic.parameters(), lr=self.lr, weight_decay=self.weight_decay
+                self.ac.critic.parameters(), lr=self.critic_lr, weight_decay=self.weight_decay
             )
         ]
 
