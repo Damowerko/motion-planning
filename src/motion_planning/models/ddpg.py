@@ -1,4 +1,5 @@
 import random
+from copy import deepcopy
 
 import numpy as np
 
@@ -102,10 +103,10 @@ class MotionPlanningDDPG(MotionPlanningActorCritic):
         loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
         loss_pi = self.actor_loss(data.state, data.centralized_state, data)
 
-        self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
-        self.log("val/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
+        self.log("test/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+        self.log("test/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
         self.log(
-            "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
+            "test/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
 
         return loss_q, loss_pi

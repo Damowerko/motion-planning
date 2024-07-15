@@ -212,14 +212,16 @@ def imitation(params):
 
 def train(params):
     trainer = make_trainer(params)
+
     if params.checkpoint:
+        params.pretrain = True
         print("Resuming from pretraining.")
         imitation, _ = load_model(params.checkpoint)
         model = get_model_cls(params.operation)(**vars(params))
         model.ac.actor = imitation.ac.actor
-        model.ac.critic = imitation.ac.critic
         model.ac_target = deepcopy(model.ac)
     else:
+        params.pretrain = False
         print("Did not find a pretrain checkpoint.")
         model = get_model_cls(params.operation)(**vars(params))
 
@@ -232,7 +234,7 @@ def train(params):
 
 
 def rollout(
-    env: MotionPlanning, policy_fn: typing.Callable, params: argparse.Namespace
+    env: MotionPlanning, policy_fn: typing.Callable, params: argparse.Namespace, baseline: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Perform rollouts in the environment using a given policy.
@@ -252,10 +254,10 @@ def rollout(
     for _ in tqdm(range(params.n_trials)):
         rewards_trial = []
         frames_trial = []
-        observation = env.reset()
+        observation, centralized_state = env.reset()
         for _ in range(params.max_steps):
-            action = policy_fn(observation, env.adjacency())
-            observation, reward, _, _ = env.step(action)
+            action = policy_fn(observation, centralized_state, env.adjacency()) if not baseline else policy_fn(observation, env.adjacency())
+            observation, _, reward, _, _ = env.step(action)
             rewards_trial.append(reward)
             frames_trial.append(env.render(mode="rgb_array"))
         rewards.append(rewards_trial)
@@ -274,7 +276,7 @@ def baseline(params):
     else:
         raise ValueError(f"Invalid policy {params.policy}.")
 
-    rewards, frames = rollout(env, policy_fn, params)
+    rewards, frames = rollout(env, policy_fn, params, baseline=True)
     save_results(
         params.policy, Path("figures") / "test_results" / params.policy, rewards, frames
     )
@@ -286,9 +288,9 @@ def test(params):
     model = model.eval()
 
     @torch.no_grad()
-    def policy_fn(observation, graph):
-        data = model.to_data(observation, graph)
-        return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+    def policy_fn(observation, centralized_state, graph):
+        data = model.to_data(observation, centralized_state, graph)
+        return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
     rewards, frames = rollout(env, policy_fn, params)
     save_results(name, Path("figures") / "test_results" / name, rewards, frames)

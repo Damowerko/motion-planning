@@ -1,4 +1,5 @@
 from itertools import chain
+from copy import deepcopy
 
 import numpy as np
 
@@ -15,9 +16,10 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self,
         buffer_size: int = 100_000,
         start_steps: int = 2_000,
-        noise: float = 0.2,
-        noise_clip: float = 0.5,
+        noise: float = 0.0,
+        noise_clip: float = 0.1,
         policy_delay: int = 2,
+        pretrain: bool = False,
         render: bool = False,
         **kwargs,
     ):
@@ -41,55 +43,106 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.ac.critic2 = deepcopy(self.ac.critic)
         self.ac_target = deepcopy(self.ac)
 
+        if pretrain:
+            self.frozen_epochs = 50
+            self.warmup_epochs = 20
+        else:
+            self.frozen_epochs = 0
+            self.warmup_epochs = 0
+
     def configure_optimizers(self):
         return (
             torch.optim.AdamW(
                 self.ac.actor.parameters(), lr=self.actor_lr, weight_decay=self.weight_decay
             ),
             torch.optim.AdamW(
-                chain(self.ac.critic.parameters(), self.ac.critic2.parameters()),
+                self.ac.critic.parameters(),
+                lr=self.critic_lr,
+                weight_decay=self.weight_decay,
+            ),
+            torch.optim.AdamW(
+                self.ac.critic2.parameters(),
                 lr=self.critic_lr,
                 weight_decay=self.weight_decay,
             ),
         )
     
-    def critic_loss(self, centralized_state, action, reward, next_state, next_centralized_state, done, data):
-        q1 = self.ac.critic(centralized_state, action, data)
-        q2 = self.ac.critic2(centralized_state, action, data)
+    def update_optimizers(self):
+        opt_actor, opt_critic1, opt_critic2 = self.optimizers()
+        if self.current_epoch < self.frozen_epochs:
+            for g in opt_actor.param_groups:
+                g['lr'] = 0
+            for g in opt_critic1.param_groups:
+                g['lr'] = 2 * self.critic_lr
+            for g in opt_critic2.param_groups:
+                g['lr'] = 2 * self.critic_lr
+        elif self.current_epoch < self.frozen_epochs + self.warmup_epochs:
+            warmed_rate = (self.current_epoch - self.frozen_epochs) / self.warmup_epochs
+            for g in opt_actor.param_groups:
+                g['lr'] = warmed_rate * self.actor_lr
+            for g in opt_critic1.param_groups:
+                g['lr'] = (2 - warmed_rate) * self.critic_lr
+            for g in opt_critic2.param_groups:
+                g['lr'] = (2 - warmed_rate) * self.critic_lr
+        else:
+            for g in opt_actor.param_groups:
+                g['lr'] = self.actor_lr
+            for g in opt_critic1.param_groups:
+                g['lr'] = self.critic_lr
+            for g in opt_critic2.param_groups:
+                g['lr'] = self.critic_lr
+        
+    
+    def critic_loss(self, state, centralized_state, action, reward, next_state, next_centralized_state, done, data):
+        # q1 = self.ac.critic(centralized_state, action, data)
+        # q2 = self.ac.critic2(centralized_state, action, data)
+        q1 = self.ac.critic(state, action, data)
+        q2 = self.ac.critic2(state, action, data)
         
         with torch.no_grad():
             next_mu, _ = self.ac_target.actor(next_state, data)
             eps = torch.randn_like(next_mu) * self.noise
             next_action = next_mu + torch.clip(eps, -self.noise_clip, self.noise_clip)
-            q1_target = self.ac_target.critic(next_centralized_state, next_action, data)
-            q2_target = self.ac_target.critic2(next_centralized_state, next_action, data)
+            next_action = self.clip_action(next_action)
+            # q1_target = self.ac_target.critic(next_centralized_state, next_action, data)
+            # q2_target = self.ac_target.critic2(next_centralized_state, next_action, data)
+            q1_target = self.ac_target.critic(next_state, next_action, data)
+            q2_target = self.ac_target.critic2(next_state, next_action, data)
 
             bellman = reward + self.gamma * ~done * torch.min(q1_target, q2_target)
         
+        self.log("vals/q1", q1.mean(), batch_size=data.batch_size)
+        self.log("vals/q2", q2.mean(), batch_size=data.batch_size)
+        self.log("vals/reward", reward.mean(), batch_size=data.batch_size)
+        self.log("vals/bellman", bellman.mean(), batch_size=data.batch_size)
+
         loss1 = F.mse_loss(q1, bellman)
         loss2 = F.mse_loss(q2, bellman)
-        loss = loss1 + loss2
 
-        return loss
+        return loss1, loss2
     
     def actor_loss(self, state, centralized_state, data):
-        mu, sigma = self.ac.actor(state, data)
-        action = self.ac.policy(mu, sigma)
-        q = self.ac.critic(centralized_state, action, data)
+        action, _ = self.ac.actor(state, data)
+        self.log("vals/action_magnitude", torch.norm(action, dim=-1).mean(), prog_bar=True, batch_size=data.batch_size)
+        action = self.clip_action(action)
+        # q = self.ac.critic(centralized_state, action, data)
+        q = self.ac.critic(state, action, data)
         return -q.mean()
 
     def training_step(self, data, batch_idx):
-        while len(self.buffer) < self.start_steps:
-            self.buffer.extend(self.rollout(render=self.render))
-
-        opt_actor, opt_critic = self.optimizers()
+        self.update_optimizers()
+        opt_actor, opt_critic1, opt_critic2 = self.optimizers()
 
         # Update the critic function
-        loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
-        self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
-        opt_critic.zero_grad()
-        self.manual_backward(loss_q)
-        opt_critic.step()
+        loss_q1, loss_q2 = self.critic_loss(data.state, data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
+        self.log("train/critic1_loss", loss_q1, prog_bar=True, batch_size=data.batch_size)
+        self.log("train/critic2_loss", loss_q2, prog_bar=True, batch_size=data.batch_size)
+        opt_critic1.zero_grad()
+        self.manual_backward(loss_q1)
+        opt_critic1.step()
+        opt_critic2.zero_grad()
+        self.manual_backward(loss_q2)
+        opt_critic2.step()
 
         self.delay_count += 1
 
@@ -109,37 +162,38 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             for p in self.ac.critic.parameters():
                 p.requires_grad = True
 
+        # Perform polyak averaging to update the target actor-critic
         with torch.no_grad():
             for p, p_target in zip(self.ac.parameters(), self.ac_target.parameters()):
                 p_target.data.mul_(self.polyak)
                 p_target.data.add_((1 - self.polyak) * p.data)
 
     def validation_step(self, data, batch_idx):
-        loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
+        loss_q = self.critic_loss(data.state, data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
         loss_pi = self.actor_loss(data.state, data.centralized_state, data)
 
-        self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+        self.log("val/critic1_loss", loss_q[0], prog_bar=True, batch_size=data.batch_size)
+        self.log("val/critic2_loss", loss_q[1], prog_bar=True, batch_size=data.batch_size)
         self.log("val/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
+        print(data.reward)
 
         return loss_q, loss_pi
 
     def test_step(self, data, batch_idx):
-        loss_q = self.critic_loss(data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
+        loss_q = self.critic_loss(data.state, data.centralized_state, data.action, data.reward, data.next_state, data.next_centralized_state, data.done, data)
         loss_pi = self.actor_loss(data.state, data.centralized_state, data)
 
-        self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
-        self.log("val/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
+        self.log("test/critic1_loss", loss_q[0], batch_size=data.batch_size)
+        self.log("test/critic2_loss", loss_q[1], batch_size=data.batch_size)
+        self.log("test/actor_loss", loss_pi, batch_size=data.batch_size)
         self.log(
-            "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
+            "test/reward", data.reward.mean(), batch_size=data.batch_size
         )
 
         return loss_q, loss_pi
-
-    def rollout_start(self):
-        pass
 
     def rollout_step(
         self,
@@ -147,13 +201,44 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     ):
         if self.training:
             # use actor policy
-            data.action = self.ac.actor.policy(data.mu, data.sigma)
+            eps = torch.randn_like(data.mu) * self.noise
+            data.action = data.mu + torch.clip(eps, -self.noise_clip, self.noise_clip)
+            data.action = self.clip_action(data.action)
         else:
             # use greedy policy
             data.action = data.mu
 
         next_state, centralized_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
         return data, next_state, centralized_state, reward, done
+    
+    # @torch.no_grad()
+    # def rollout(self, render=False) -> List[BaseData]:
+    #     self.rollout_start()
+    #     episode = []
+    #     observation, centralized_state = self.env.reset()
+    #     data = self.to_data(observation, centralized_state, self.env.adjacency())
+    #     for step in range(self.max_steps):
+    #         if render:
+    #             self.env.render()
+
+    #         # sample action
+    #         data.mu, data.sigma = self.ac.actor(data.state, data)
+
+    #         # take step
+    #         data, next_state, centralized_state, reward, done = self.rollout_step(data)
+
+    #         # add additional attributes
+    #         next_data = self.to_data(next_state, centralized_state, self.env.adjacency())
+    #         data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
+    #         data.next_state = next_data.state
+    #         data.next_centralized_state = next_data.centralized_state
+    #         data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
+
+    #         episode.append(data)
+    #         data = next_data
+    #         if done or (len(episode) >= 20 and episode[-1].reward <= episode[-20].reward):
+    #             break
+    #     return episode
 
     def batch_generator(
         self, n_episodes=1, render=False, use_buffer=True, training=True
@@ -167,6 +252,9 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         if use_buffer:
             self.buffer.extend(data)
             data = self.buffer.collect(shuffle=True)
+            if training:
+                while len(self.buffer) < self.start_steps:
+                    self.buffer.extend(self.rollout(render=self.render))
         return iter(data)
 
     def train_dataloader(self):

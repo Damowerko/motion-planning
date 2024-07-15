@@ -1,7 +1,7 @@
 import typing
 from typing import Iterator, List, Optional
-from copy import deepcopy
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -91,39 +91,73 @@ class GNNActor(nn.Module):
 class GNNCritic(nn.Module):
     def __init__(
         self,
+        # state_ndim: int,
+        # action_ndim: int,
+        # n_agents: int,
+        # n_layers: int = 2,
+        # n_channels: int = 32,
+        # activation: typing.Union[nn.Module, str] = "leaky_relu",
+        # dropout: float = 0.0,
         state_ndim: int,
         action_ndim: int,
-        n_agents: int,
+        n_taps: int = 4,
         n_layers: int = 2,
         n_channels: int = 32,
         activation: typing.Union[nn.Module, str] = "leaky_relu",
+        mlp_read_layers: int = 1,
+        mlp_per_gnn_layers: int = 0,
+        mlp_hidden_channels: int = 256,
         dropout: float = 0.0,
     ):
         super().__init__()
-        self.n_agents = n_agents
+        # self.n_agents = n_agents
+        # self.state_ndim = state_ndim
+        # self.action_ndim = action_ndim
+        # self.in_channels = n_agents * state_ndim + n_agents * action_ndim
+        # self.mlp = gnn.MLP(
+        #     in_channels=self.in_channels,
+        #     hidden_channels=n_channels,
+        #     out_channels=1,
+        #     num_layers=n_layers,
+        #     dropout=dropout,
+        #     act=activation,
+        # )
         self.state_ndim = state_ndim
         self.action_ndim = action_ndim
-        self.in_channels = n_agents * state_ndim + n_agents * action_ndim
-        self.mlp = gnn.MLP(
-            in_channels=self.in_channels,
-            hidden_channels=n_channels,
-            out_channels=1,
-            num_layers=n_layers,
-            dropout=dropout,
-            act=activation,
+        self.gnn = GCN(
+            state_ndim + action_ndim,
+            1,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
         )
+
+    # def forward(
+    #     self,
+    #     centralized_state: torch.Tensor,
+    #     action: torch.Tensor,
+    #     data: BaseData,
+    # ) -> torch.Tensor:
+    #     centralized_state = centralized_state.reshape(data.batch_size, self.n_agents * self.state_ndim)
+    #     action = action.reshape(data.batch_size, self.n_agents * self.action_ndim)
+    #     x = torch.cat((centralized_state, action), dim=1)
+    #     y = self.mlp.forward(x)
+    #     return y.squeeze(-1)
 
     def forward(
         self,
-        centralized_state: torch.Tensor,
+        state: torch.Tensor,
         action: torch.Tensor,
         data: BaseData,
     ) -> torch.Tensor:
-        centralized_state = centralized_state.reshape(data.batch_size, self.n_agents * self.state_ndim)
-        action = action.reshape(data.batch_size, self.n_agents * self.action_ndim)
-        x = torch.cat((centralized_state, action), dim=1)
-        y = self.mlp.forward(x)
-        # y = scatter_mean(y, data.batch, dim=0)
+        x = torch.cat([state, action], dim=-1)
+        y = self.gnn.forward(x, data.edge_index, data.edge_attr)
+        y = scatter_mean(y, data.batch, dim=0)
         return y.squeeze(-1)
 
 
@@ -135,9 +169,9 @@ class GNNActorCritic(nn.Module):
     def __init__(
         self,
         observation_ndim: int,
-        state_ndim: int,
+        # state_ndim: int,
         action_ndim: int,
-        n_agents: int,
+        # n_agents: int,
         n_taps: int = 4,
         n_layers: int = 2,
         n_channels: int = 32,
@@ -162,13 +196,25 @@ class GNNActorCritic(nn.Module):
             mlp_hidden_channels,
             dropout,
         )
+        # self.critic = GNNCritic(
+        #     state_ndim,
+        #     action_ndim,
+        #     n_agents,
+        #     n_layers * 2,
+        #     n_channels * 2,
+        #     activation,
+        #     dropout,
+        # )
         self.critic = GNNCritic(
-            state_ndim,
+            observation_ndim,
             action_ndim,
-            n_agents,
-            n_layers * 2,
-            n_channels * 2,
+            n_taps,
+            n_layers,
+            n_channels,
             activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
             dropout,
         )
         self.critic2 = None # Only used for TD3
@@ -200,8 +246,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
-        gamma=0.95,
-        polyak=0.5,
+        gamma=0.99,
+        polyak=0.995,
         max_steps=200,
         n_agents: int = 100,
         width: float = 10.0,
@@ -223,9 +269,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.ac = GNNActorCritic(
             self.env.observation_ndim,
-            self.env.action_ndim * 2, # Agent and target positions
+            # self.env.action_ndim * 2, # Agent and target positions
             self.env.action_ndim,
-            n_agents,
+            # n_agents,
             n_taps,
             n_layers,
             n_channels,
@@ -235,6 +281,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
             mlp_hidden_channels,
             dropout,
         )
+    
+    def clip_action(self, action):
+        magnitude = torch.norm(action, dim=-1)
+        magnitude = torch.clip(magnitude, 0, self.env.max_accel)
+        tmp = action[:, 0] + 1j * action[:, 1] # Assumes two dimensions
+        angles = torch.angle(tmp)
+        action_x = (magnitude * torch.cos(angles))[:, None]
+        action_y = (magnitude * torch.sin(angles))[:, None]
+        return torch.cat([action_x, action_y], dim=1)
 
     def rollout_start(self):
         """

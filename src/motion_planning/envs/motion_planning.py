@@ -154,8 +154,8 @@ class MotionPlanning(GraphEnv):
         self.dt = 0.1
         # self.width = 1.0 * np.sqrt(self.n_agents)
         self.width = width
-        self.reward_cutoff = 0.2
-        self.reward_sigma = 0.1
+        self.reward_cutoff = 1
+        self.reward_sigma = 0.5
 
         # agent properties
         self.max_accel = 0.5
@@ -290,7 +290,7 @@ class MotionPlanning(GraphEnv):
         return obs
     
     def _centralized_state(self):
-        return np.concatenate((self.position, self.target_positions), axis=0)
+        return np.concatenate((self.position, self.target_positions), axis=1)
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)

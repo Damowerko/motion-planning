@@ -48,49 +48,35 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         opt_actor.step()
 
         # critic step
-        q = self.ac.critic.forward(data.centralized_state, data.action, data)
-        with torch.no_grad():
-            next_action, _ = self.ac.actor.forward(data.next_state, data)
-            qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
-        loss_q = self.critic_loss(q, qprime, data.reward, data.done)
-        self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
-        opt_critic.zero_grad()
-        self.manual_backward(loss_q)
-        opt_critic.step()
+        # q = self.ac.critic.forward(data.centralized_state, data.action, data)
+        # with torch.no_grad():
+        #     next_action, _ = self.ac.actor.forward(data.next_state, data)
+        #     qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
+        # loss_q = self.critic_loss(q, qprime, data.reward, data.done)
+        # self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+        # opt_critic.zero_grad()
+        # self.manual_backward(loss_q)
+        # opt_critic.step()
 
     def validation_step(self, data, batch_idx):
         mu, _ = self.ac.actor.forward(data.state, data)
-        loss_pi = F.mse_loss(mu, data.expert)
-        self.log("val/mu_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
+        loss = F.mse_loss(mu, data.expert)
+        self.log("val/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
 
-        q = self.ac.critic.forward(data.centralized_state, data.action, data)
-        with torch.no_grad():
-            next_action, _ = self.ac.actor.forward(data.next_state, data)
-            qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
-        loss_q = self.critic_loss(q, qprime, data.reward, data.done)
-        self.log("val/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
-
-        return loss_pi, loss_q
+        return loss
 
     def test_step(self, data, batch_idx):
         mu, _ = self.ac.actor.forward(data.state, data)
-        loss_pi = F.mse_loss(mu, data.expert)
-        self.log("test/mu_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
+        loss = F.mse_loss(mu, data.expert)
+        self.log("test/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "test/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
 
-        q = self.ac.critic.forward(data.centralized_state, data.action, data)
-        with torch.no_grad():
-            next_action, _ = self.ac.actor.forward(data.next_state, data)
-            qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
-        loss_q = self.critic_loss(q, qprime, data.reward, data.done)
-        self.log("test/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
-
-        return loss_pi, loss_q
+        return loss
 
     def rollout_start(self):
         # decide if expert will be used for rollout
