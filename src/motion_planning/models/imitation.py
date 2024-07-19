@@ -125,7 +125,8 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
         data = []
         for _ in range(n_episodes):
-            data.extend(self.rollout(render=render))
+            episode, frames = self.rollout(render=render)
+            data.extend(episode)
         if use_buffer:
             self.buffer.extend(data)
             data = self.buffer.collect(shuffle=True)

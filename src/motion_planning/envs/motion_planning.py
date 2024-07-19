@@ -301,12 +301,13 @@ class MotionPlanning(GraphEnv):
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
         reward = np.exp(-((d / self.reward_sigma) ** 2))
+        # reward = 4 - np.square(d / self.reward_sigma)
         reward[d > self.reward_cutoff] = 0
         return reward.mean()
     
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
-        return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=1))
+        return np.mean(np.any(dist < 0.2*np.ones_like(dist), axis=1))
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore

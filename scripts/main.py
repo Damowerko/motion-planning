@@ -118,7 +118,7 @@ def load_model(uri: str) -> tuple[MotionPlanningActorCritic, str]:
             # Download the model from wandb to temporary directory
             api = wandb.Api()
             artifact = api.artifact(
-                f"{user}/{project}/model-{run_id}:best", type="model"
+                f"{user}/{project}/model-{run_id}:latest", type="model"
             )
             artifact.download(root=tmpdir)
             uri = f"{tmpdir}/model.ckpt"

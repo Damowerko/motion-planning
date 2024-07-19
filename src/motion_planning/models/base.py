@@ -6,17 +6,26 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions.normal import Normal
 import torch_geometric.nn as gnn
 from torch_geometric.data import Batch, Data
 from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
-from torchcps.gnn import GCN
+from .gnn import GCN
 from torchcps.utils import add_model_specific_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.rl import ExperienceSourceDataset
+
+
+def discounted_to_go(principal: torch.Tensor, discount: float) -> torch.Tensor:
+    n = len(principal)
+    rtgs = torch.zeros_like(principal)
+    for i in reversed(range(n)):
+        rtgs[i] = principal[i] + discount * (rtgs[i + 1] if i + 1 < n else 0)
+    return rtgs
 
 
 class GNNActor(nn.Module):
@@ -55,6 +64,13 @@ class GNNActor(nn.Module):
         mu = action[:, : self.action_ndim]
         sigma = F.softplus(action[:, self.action_ndim :])
         return mu, sigma
+    
+    def distribution(self, state: torch.Tensor, data: BaseData) -> Normal:
+        mu, sigma = self.forward(state, data)
+        return Normal(mu, sigma)
+    
+    def log_prob(self, pi: Normal, action: torch.Tensor) -> torch.Tensor:
+        return pi.log_prob(action)
 
     def policy(
         self,
@@ -121,9 +137,10 @@ class GNNCritic(nn.Module):
         #     num_layers=n_layers,
         #     dropout=dropout,
         #     act=activation,
+        #     norm=None,
         # )
-        self.state_ndim = state_ndim
-        self.action_ndim = action_ndim
+        # self.state_ndim = state_ndim
+        # self.action_ndim = action_ndim
         self.gnn = GCN(
             state_ndim + action_ndim,
             1,
@@ -221,10 +238,19 @@ class GNNActorCritic(nn.Module):
     
     def policy(self, mu: torch.Tensor, sigma: torch.Tensor, action: Optional[torch.Tensor] = None):
         return self.actor.policy(mu, sigma, action)
-
-    def action(self, obs: torch.Tensor, data: BaseData):
+    
+    def step(self, state: torch.Tensor, data: BaseData):
         with torch.no_grad():
-            return self.actor(obs, data)[0].cpu().numpy()
+            pi = self.actor.distribution(state, data)
+            action = pi.sample()
+            logp = self.actor.log_prob(pi, action)
+            value = self.critic(state, action)
+        
+        return action.cpu().numpy(), logp.cpu().numpy(), value.cpu().numpy()
+
+    def action(self, state: torch.Tensor, data: BaseData):
+        with torch.no_grad():
+            return self.actor(state, data)[0].cpu().numpy()
 
 
 class MotionPlanningActorCritic(pl.LightningModule):
@@ -246,7 +272,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
-        gamma=0.99,
+        gamma=0.95,
         polyak=0.995,
         max_steps=200,
         n_agents: int = 100,
@@ -311,9 +337,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
         episode = []
         observation, centralized_state = self.env.reset()
         data = self.to_data(observation, centralized_state, self.env.adjacency())
+        frames = []
         for _ in range(self.max_steps):
             if render:
-                self.env.render()
+                frames.append(self.env.render(mode="rgb_array"))
 
             # sample action
             data.mu, data.sigma = self.ac.actor(data.state, data)
@@ -332,14 +359,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data = next_data
             if done:
                 break
-        return episode
 
-    def reward_to_go(self, rewards) -> torch.Tensor:
-        n = len(rewards)
-        rtgs = torch.zeros_like(rewards)
-        for i in reversed(range(n)):
-            rtgs[i] = rewards[i] + (rtgs[i + 1] if i + 1 < n else 0)
-        return rtgs
+        return episode, frames
 
     def critic_loss(
         self,
