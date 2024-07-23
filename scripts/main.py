@@ -24,6 +24,7 @@ from motion_planning.models import (
     MotionPlanningImitation,
     MotionPlanningDDPG,
     MotionPlanningTD3,
+    MotionPlanningPPO,
 )
 
 
@@ -37,14 +38,14 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "ddpg", "td3", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
+        choices=["imitation", "ddpg", "td3", "ppo", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
-    if operation in ("imitation", "ddpg", "td3"):
+    if operation in ("imitation", "ddpg", "td3", "ppo"):
         get_model_cls(operation).add_model_specific_args(group)
 
         # training arguments
@@ -55,7 +56,7 @@ def main():
         training_group.add_argument("--patience", type=int, default=10)
 
         # reinforcement learning specific args
-        if operation in ("ddpg", "td3"):
+        if operation in ("ddpg", "td3", "ppo"):
             training_group.add_argument("--checkpoint", type=str)
     elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
         # test specific args
@@ -88,7 +89,7 @@ def main():
         )
 
     params = parser.parse_args()
-    if params.operation in ("ddpg", "td3"):
+    if params.operation in ("ddpg", "td3", "ppo"):
         train(params)
     elif params.operation == "test":
         test(params)
@@ -363,6 +364,8 @@ def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
         return MotionPlanningDDPG
     elif model_str == "td3":
         return MotionPlanningTD3
+    elif model_str == "ppo":
+        return MotionPlanningPPO
     raise ValueError(f"Invalid model {model_str}.")
 
 
