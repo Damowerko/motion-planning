@@ -180,7 +180,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = int(
-            self.state_ndim / 2 + self.n_observed_targets * 4 + self.n_observed_agents * 2
+            self.state_ndim / 2 + self.n_observed_targets * 4 + self.n_observed_agents * 2 + 1
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -286,7 +286,8 @@ class MotionPlanning(GraphEnv):
     def _observation(self):
         tgt = [i.reshape(self.n_agents, -1) for i in self._observed_targets()]
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:,2:], tgt[0], tgt[1], agt), axis=1)
+        t = np.tile(self.t, self.n_agents)[:,None]
+        obs = np.concatenate((self.state[:,2:], tgt[0], tgt[1], agt, t), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
@@ -358,7 +359,7 @@ class MotionPlanning(GraphEnv):
             self.position.T,
             self._reward(),
             self.coverage(),
-            self._observed_targets()[0],
+            self._observed_targets(),
             self.adjacency(),
         )
 
