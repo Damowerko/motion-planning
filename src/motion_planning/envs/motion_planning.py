@@ -180,7 +180,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = int(
-            self.state_ndim / 2 + self.n_observed_targets * 2 + self.n_observed_agents * 2
+            self.state_ndim / 2 + self.n_observed_targets * 4 + self.n_observed_agents * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -240,10 +240,11 @@ class MotionPlanning(GraphEnv):
         return action
 
     def centralized_policy(self):
-        distance = cdist(self.position, self.target_positions)
+        final_target_pos = self.target_positions + self.target_velocities * (200 * self.dt - self.t)
+        distance = cdist(self.position, final_target_pos)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
-        action = self.target_positions[col_idx] - self.position[row_idx]
+        action = final_target_pos[col_idx] - self.position[row_idx]
         action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
@@ -280,12 +281,12 @@ class MotionPlanning(GraphEnv):
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
+        return self.target_positions[idx, :] - self.position[:,np.newaxis,:], self.target_velocities[idx, :]
 
     def _observation(self):
-        tgt = self._observed_targets().reshape(self.n_agents, -1)
+        tgt = [i.reshape(self.n_agents, -1) for i in self._observed_targets()]
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:,2:], tgt, agt), axis=1)
+        obs = np.concatenate((self.state[:,2:], tgt[0], tgt[1], agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
@@ -294,7 +295,8 @@ class MotionPlanning(GraphEnv):
         return too_far_gone
 
     def _reward(self):
-        dist = cdist(self.target_positions, self.position)
+        final_target_pos = self.target_positions + self.target_velocities * (200 * self.dt - self.t)
+        dist = cdist(final_target_pos, self.position)
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
         reward = np.exp(-((d / self.reward_sigma) ** 2))
@@ -310,6 +312,7 @@ class MotionPlanning(GraphEnv):
         action = self.clip_action(action)
         self.velocity = action
         self.position += self.velocity * self.dt
+        self.target_positions += self.target_velocities * self.dt
         self.t += self.dt
         return self._observation(), self._reward(), self._done(), {}
 
@@ -318,6 +321,9 @@ class MotionPlanning(GraphEnv):
         if self.scenario == "uniform":
             self.target_positions = rng.uniform(
                 -self.width / 2, self.width / 2, (self.n_targets, 2)
+            )
+            self.target_velocities = rng.uniform(
+                -0.2, 0.2, (self.n_targets, 2)
             )
             self.position = rng.uniform(
                 -self.width / 2, self.width / 2, (self.n_agents, 2)
@@ -328,6 +334,10 @@ class MotionPlanning(GraphEnv):
             self.target_positions = rng.uniform(
                 -self.width / 2, self.width / 2, (self.n_targets, 2)
             )
+            self.target_velocities = rng.uniform(
+                -1, 1, (self.n_targets, 2)
+            )
+            self.target_velocities = self.clip_action(self.target_velocities)
             self.position = rng.normal(size=(self.n_agents, 2))
         else:
             raise ValueError(
@@ -348,7 +358,7 @@ class MotionPlanning(GraphEnv):
             self.position.T,
             self._reward(),
             self.coverage(),
-            self._observed_targets(),
+            self._observed_targets()[0],
             self.adjacency(),
         )
 
