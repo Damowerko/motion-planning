@@ -125,7 +125,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             q1_target = self.ac_target.critic(next_state, next_action, data)
             q2_target = self.ac_target.critic2(next_state, next_action, data)
 
-            bellman = reward + self.gamma * ~done * torch.min(q1_target, q2_target)
+            # bellman = reward + self.gamma * ~done * torch.min(q1_target, q2_target)
+            bellman = reward + self.gamma * torch.min(q1_target, q2_target)
         
         self.log("vals/q1", q1.mean(), batch_size=data.batch_size)
         self.log("vals/q2", q2.mean(), batch_size=data.batch_size)
@@ -265,7 +266,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
             episode.append(data)
             data = next_data
-            if done or (len(episode) >= self.early_stopping and episode[-1].reward <= episode[-self.early_stopping].reward):
+            if done or (len(episode) >= self.early_stopping and episode[-1].reward.mean() <= episode[-self.early_stopping].reward.mean()):
                 break
         return episode, frames
 

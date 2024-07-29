@@ -259,8 +259,8 @@ def rollout(
         rewards_trial = []
         frames_trial = []
         observation, centralized_state = env.reset()
-        for _ in range(params.max_steps):
-            action = policy_fn(observation, centralized_state, env.adjacency()) if not baseline else policy_fn(observation, env.adjacency())
+        for step in range(params.max_steps):
+            action = policy_fn(observation, centralized_state, step + 1, env.adjacency()) if not baseline else policy_fn(observation, env.adjacency())
             observation, _, reward, _, _ = env.step(action)
             rewards_trial.append(reward)
             frames_trial.append(env.render(mode="rgb_array"))
@@ -292,8 +292,8 @@ def test(params):
     model = model.eval()
 
     @torch.no_grad()
-    def policy_fn(observation, centralized_state, graph):
-        data = model.to_data(observation, centralized_state, graph)
+    def policy_fn(observation, centralized_state, step, graph):
+        data = model.to_data(observation, centralized_state, step, graph)
         return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
     rewards, frames = rollout(env, policy_fn, params)
@@ -354,7 +354,7 @@ def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray)
 
     # make a single plot of all reward functions
     plt.figure()
-    plt.plot(rewards.T)
+    plt.plot(rewards.mean(axis=0).T)
     plt.xlabel("Step")
     plt.ylabel("Reward")
     plt.title(f"{name}")

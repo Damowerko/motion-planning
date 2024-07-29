@@ -173,7 +173,7 @@ class GNNCritic(nn.Module):
     ) -> torch.Tensor:
         x = torch.cat([state, action], dim=-1)
         y = self.gnn.forward(x, data.edge_index, data.edge_attr)
-        y = scatter_mean(y, data.batch, dim=0)
+        # y = scatter_mean(y, data.batch, dim=0)
         return y.squeeze(-1)
     
 

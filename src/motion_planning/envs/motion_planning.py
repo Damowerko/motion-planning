@@ -71,6 +71,7 @@ class MotionPlanningRender:
         targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
         self.ax.plot(*targets.T, "y^", markersize=markersize)
 
+        reward = reward.mean()
         self.ax.set_title(f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%")
 
         self.agent_scatter.set_data(*agent_positions)
@@ -307,8 +308,8 @@ class MotionPlanning(GraphEnv):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
-        # reward = np.exp(-((d / self.reward_sigma) ** 2))
-        reward = 4 - np.square(d / self.reward_sigma) + 3 * self.coverage()
+        reward = np.exp(-((d / self.reward_sigma) ** 2)) + self.coverage()
+        # reward = 4 - np.square(d / self.reward_sigma) + 3 * self.coverage()
         return reward
     
     def coverage(self):
