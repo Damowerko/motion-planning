@@ -375,7 +375,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.ac = GNNActorCritic(
-            self.env.observation_ndim,
+            self.env.observation_ndim + 1, # Data is augmented with time
             # self.env.action_ndim * 2, # Agent and target positions
             self.env.action_ndim,
             # n_agents,

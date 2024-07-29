@@ -297,13 +297,19 @@ class MotionPlanning(GraphEnv):
         return too_far_gone
 
     def _reward(self):
-        dist = cdist(self.target_positions, self.position)
+        # dist = cdist(self.target_positions, self.position)
+        # idx = argtopk(-dist, 1, axis=1).squeeze()
+        # d = dist[np.arange(len(idx)), idx]
+        # reward = np.exp(-((d / self.reward_sigma) ** 2))
+        # # reward = 4 - np.square(d / self.reward_sigma) + self.coverage()
+        # # reward[d > self.reward_cutoff] = 0
+        # return reward.mean()
+        dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
-        reward = np.exp(-((d / self.reward_sigma) ** 2))
-        # reward = 4 - np.square(d / self.reward_sigma) + self.coverage()
-        # reward[d > self.reward_cutoff] = 0
-        return reward.mean()
+        # reward = np.exp(-((d / self.reward_sigma) ** 2))
+        reward = 4 - np.square(d / self.reward_sigma) + 3 * self.coverage()
+        return reward
     
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
