@@ -351,7 +351,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
         batch_size: int = 32,
-        gamma=0.95,
+        gamma=0.99,
         lam=0.9,
         polyak=0.995,
         max_steps=200,
@@ -417,9 +417,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.rollout_start()
         episode = []
         observation, centralized_state = self.env.reset()
-        data = self.to_data(observation, centralized_state, self.env.adjacency())
+        data = self.to_data(observation, centralized_state, 0, self.env.adjacency())
         frames = []
-        for _ in range(self.max_steps):
+        for step in range(self.max_steps):
             if render:
                 frames.append(self.env.render(mode="rgb_array"))
 
@@ -430,7 +430,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data, next_state, centralized_state, reward, done = self.rollout_step(data)
 
             # add additional attributes
-            next_data = self.to_data(next_state, centralized_state, self.env.adjacency())
+            next_data = self.to_data(next_state, centralized_state, step + 1, self.env.adjacency())
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
             data.next_centralized_state = next_data.centralized_state
@@ -470,12 +470,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
             )
         ]
 
-    def to_data(self, state, centralized_state, adjacency) -> BaseData:
+    def to_data(self, state, centralized_state, step, adjacency) -> BaseData:
         if isinstance(adjacency, list):
             data = []
             for i, adj in enumerate(adjacency):
                 data.append(self.to_data(state[i], centralized_state[i], adj))
             return Batch.from_data_list(data)
+        step = step / self.max_steps
+        step = np.tile(step, state.shape[0])[:, None]
+        state = np.concatenate([state, step], axis=1)
         state = torch.from_numpy(state).to(
             dtype=self.dtype, device=self.device  # type: ignore
         )

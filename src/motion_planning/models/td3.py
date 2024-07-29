@@ -30,9 +30,9 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self,
         buffer_size: int = 100_000,
         start_steps: int = 2_000,
-        noise: float = 0.5,
-        noise_clip: float = 1.0,
-        early_stopping: int = 15,
+        noise: float = 0.05,
+        noise_clip: float = 0.1,
+        early_stopping: int = 50,
         policy_delay: int = 2,
         pretrain: bool = False,
         render: bool = False,
@@ -244,9 +244,9 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.rollout_start()
         episode = []
         observation, centralized_state = self.env.reset()
-        data = self.to_data(observation, centralized_state, self.env.adjacency())
+        data = self.to_data(observation, centralized_state, 0, self.env.adjacency())
         frames = []
-        for _ in range(self.max_steps):
+        for step in range(self.max_steps):
             if render:
                 frames.append(self.env.render(mode="rgb_array"))
 
@@ -257,7 +257,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             data, next_state, centralized_state, reward, done = self.rollout_step(data)
 
             # add additional attributes
-            next_data = self.to_data(next_state, centralized_state, self.env.adjacency())
+            next_data = self.to_data(next_state, centralized_state, step + 1, self.env.adjacency())
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
             data.next_centralized_state = next_data.centralized_state
@@ -293,7 +293,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
     def train_dataloader(self):
         return self._dataloader(
-            n_episodes=10, render=False, use_buffer=True, training=True
+            n_episodes=50, render=False, use_buffer=True, training=True
         )
 
     def val_dataloader(self):

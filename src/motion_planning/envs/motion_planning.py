@@ -137,7 +137,7 @@ class GraphEnv(gym.Env, ABC):
 
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
-    scenarios = {"uniform", "gaussian_uniform"}
+    scenarios = {"uniform", "gaussian_uniform", "q-scenario"}
 
     def __init__(self, n_agents=100, width=10, scenario="uniform"):
         self.n_agents = n_agents
@@ -154,8 +154,8 @@ class MotionPlanning(GraphEnv):
         self.dt = 0.1
         # self.width = 1.0 * np.sqrt(self.n_agents)
         self.width = width
-        self.reward_cutoff = 1
-        self.reward_sigma = 0.5
+        self.reward_cutoff = 0.2
+        self.reward_sigma = 0.1
 
         # agent properties
         self.max_accel = 0.5
@@ -301,13 +301,13 @@ class MotionPlanning(GraphEnv):
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
         reward = np.exp(-((d / self.reward_sigma) ** 2))
-        # reward = 4 - np.square(d / self.reward_sigma)
-        reward[d > self.reward_cutoff] = 0
+        # reward = 4 - np.square(d / self.reward_sigma) + self.coverage()
+        # reward[d > self.reward_cutoff] = 0
         return reward.mean()
     
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
-        return np.mean(np.any(dist < 0.2*np.ones_like(dist), axis=1))
+        return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=1))
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
@@ -333,6 +333,13 @@ class MotionPlanning(GraphEnv):
                 -self.width / 2, self.width / 2, (self.n_targets, 2)
             )
             self.position = rng.normal(size=(self.n_agents, 2))
+        elif self.scenario == "q-scenario":
+            self.target_positions = rng.uniform(
+                -self.width / 2, self.width / 2, (self.n_targets, 2)
+            )
+            self.position = self.target_positions + rng.uniform(
+                -0, 0, (self.n_agents, 2)
+            )
         else:
             raise ValueError(
                 f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."

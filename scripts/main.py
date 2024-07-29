@@ -38,7 +38,7 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "ddpg", "td3", "ppo", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density"],
+        choices=["imitation", "ddpg", "td3", "ppo", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density", "test-q"],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
@@ -58,9 +58,9 @@ def main():
         # reinforcement learning specific args
         if operation in ("ddpg", "td3", "ppo"):
             training_group.add_argument("--checkpoint", type=str)
-    elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density"):
+    elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density", "test-q"):
         # test specific args
-        if operation in ("test", "transfer-agents", "transfer-area", "transfer-density"):
+        if operation in ("test", "transfer-agents", "transfer-area", "transfer-density", "test-q"):
             group.add_argument("--checkpoint", type=str, required=True)
         # baseline specific args
         if operation == "baseline":
@@ -93,6 +93,8 @@ def main():
         train(params)
     elif params.operation == "test":
         test(params)
+    elif params.operation == "test-q":
+        test_q(params)
     elif params.operation in ("transfer-agents", "transfer-area", "transfer-density"):
         transfer(params)
     elif params.operation == "imitation":
@@ -103,7 +105,7 @@ def main():
         raise ValueError(f"Invalid operation {params.operation}.")
 
 
-def load_model(uri: str) -> tuple[MotionPlanningActorCritic, str]:
+def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, str]:
     """Load a model from a uri.
 
     Args:
@@ -115,11 +117,12 @@ def load_model(uri: str) -> tuple[MotionPlanningActorCritic, str]:
             import wandb
 
             user, project, run_id = uri[len("wandb://") :].split("/")
+            suffix = "best" if best else "latest"
 
             # Download the model from wandb to temporary directory
             api = wandb.Api()
             artifact = api.artifact(
-                f"{user}/{project}/model-{run_id}:latest", type="model"
+                f"{user}/{project}/model-{run_id}:{suffix}", type="model"
             )
             artifact.download(root=tmpdir)
             uri = f"{tmpdir}/model.ckpt"
@@ -295,6 +298,19 @@ def test(params):
 
     rewards, frames = rollout(env, policy_fn, params)
     save_results(name, Path("figures") / "test_results" / name, rewards, frames)
+
+
+def test_q(params):
+    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario="q-scenario")
+    model, name = load_model(params.checkpoint)
+    model = model.eval()
+
+    null_action = torch.zeros(env.n_agents, 2).to(device="cuda")
+
+    observation, centralized_state = env.reset()
+    data = model.to_data(observation, centralized_state, env.adjacency())
+    print(model.ac.critic.forward(data.state, null_action, data).mean().detach().cpu().numpy())
+
 
 def transfer(params):
     model, name = load_model(params.checkpoint)
