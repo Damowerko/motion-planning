@@ -163,6 +163,10 @@ class MotionPlanning(GraphEnv):
         self.n_observed_agents = 3
         self.n_observed_targets = 3
 
+        self.grid_size = 0.15
+        self.grid_width = 8
+        self.num_grids = (2 * self.grid_width) ** 2
+
         # comm graph properties
         self.n_neighbors = 3
 
@@ -180,7 +184,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = int(
-            self.state_ndim / 2 + self.n_observed_targets * 2 + self.n_observed_agents * 2
+            self.state_ndim / 2 + 2 * self.num_grids
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -270,17 +274,31 @@ class MotionPlanning(GraphEnv):
         action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
         return action
+    
+    def get_sensor_map(self, positions):
+        dist = self.position[:,None,:] - positions[None,:,:]
+        idx = (dist // self.grid_size + self.grid_width).astype(int)
+        mapping = np.zeros((self.n_agents, 2 * self.grid_width, 2 * self.grid_width))
+        for i in range(idx.shape[0]):
+            agent = mapping[i]
+            for j in range(idx.shape[1]):
+                if np.logical_and(idx[i,j] >= 0, idx[i,j] < 2 * self.grid_width).all():
+                    agent[idx[i,j,0], idx[i,j,1]] += 1
+        
+        return mapping
 
     def _observed_agents(self):
-        dist = cdist(self.position, self.position)
-        idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
-        idx = idx[:, 1:]  # remove self
-        return self.position[idx] - self.position[:,np.newaxis,:]
+        # dist = cdist(self.position, self.position)
+        # idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
+        # idx = idx[:, 1:]  # remove self
+        # return self.position[idx] - self.position[:,np.newaxis,:]
+        return self.get_sensor_map(self.position)
 
     def _observed_targets(self):
-        dist = cdist(self.position, self.target_positions)
-        idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
+        # dist = cdist(self.position, self.target_positions)
+        # idx = argtopk(-dist, self.n_observed_targets, axis=1)
+        # return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
+        return self.get_sensor_map(self.target_positions)
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
