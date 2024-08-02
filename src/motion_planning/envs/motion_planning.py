@@ -298,19 +298,34 @@ class MotionPlanning(GraphEnv):
         return too_far_gone
 
     def _reward(self):
-        # dist = cdist(self.target_positions, self.position)
-        # idx = argtopk(-dist, 1, axis=1).squeeze()
-        # d = dist[np.arange(len(idx)), idx]
-        # reward = np.exp(-((d / self.reward_sigma) ** 2))
-        # # reward = 4 - np.square(d / self.reward_sigma) + self.coverage()
-        # # reward[d > self.reward_cutoff] = 0
-        # return reward.mean()
+        dist = cdist(self.target_positions, self.position)
+        idx = argtopk(-dist, 1, axis=1).squeeze()
+        d = dist[np.arange(len(idx)), idx]
+        reward = np.exp(-((d / self.reward_sigma) ** 2))
+        m_reward = reward.mean()
+
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
-        reward = np.exp(-((d / self.reward_sigma) ** 2)) + self.coverage()
-        # reward = 4 - np.square(d / self.reward_sigma) + 3 * self.coverage()
+        reward = np.exp(-((d / self.reward_sigma) ** 2)) + 3 * m_reward
+
+        # dist = cdist(self.position, self.position)
+        # idx = argtopk(-dist, 1, axis=1).squeeze()
+        # d = dist[np.arange(len(idx)), idx]
+        # reward = reward - 0.5 * np.exp(-((4 * d / self.reward_sigma) ** 2))
         return reward
+
+        # dist = cdist(self.target_positions, self.position)
+        # idx = argtopk(-dist, 1, axis=1).squeeze()
+        # d = dist[np.arange(len(idx)), idx]
+        # reward = 4 - np.square(d / self.reward_sigma)
+        # m_reward = reward.mean()
+
+        # dist = cdist(self.position, self.target_positions)
+        # idx = argtopk(-dist, 1, axis=1).squeeze()
+        # d = dist[np.arange(len(idx)), idx]
+        # reward = np.exp(-((d / self.reward_sigma) ** 2)) + m_reward
+        # return reward
     
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
