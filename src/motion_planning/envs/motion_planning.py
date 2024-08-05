@@ -11,6 +11,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
+import torch
+
 rng = np.random.default_rng()
 
 
@@ -163,7 +165,7 @@ class MotionPlanning(GraphEnv):
         self.n_observed_agents = 3
         self.n_observed_targets = 3
 
-        self.grid_size = 0.15
+        self.grid_size = 0.1
         self.grid_width = 8
         self.num_grids = (2 * self.grid_width) ** 2
 
@@ -278,12 +280,13 @@ class MotionPlanning(GraphEnv):
     def get_sensor_map(self, positions):
         dist = self.position[:,None,:] - positions[None,:,:]
         idx = (dist // self.grid_size + self.grid_width).astype(int)
+        agent_idx = np.tile(np.arange(self.n_agents)[:,None], self.n_agents)
+        idx = np.reshape(np.concatenate((agent_idx[:,:,None], idx), axis=2), (self.n_agents ** 2, 3))
+        mask = np.logical_and(idx >= 0, idx < 2 * self.grid_width)
+        mask = np.logical_and(mask[:,1], mask[:,2])
         mapping = np.zeros((self.n_agents, 2 * self.grid_width, 2 * self.grid_width))
-        for i in range(idx.shape[0]):
-            agent = mapping[i]
-            for j in range(idx.shape[1]):
-                if np.logical_and(idx[i,j] >= 0, idx[i,j] < 2 * self.grid_width).all():
-                    agent[idx[i,j,0], idx[i,j,1]] += 1
+        for c in idx[mask]:
+            mapping[c[0], c[1], c[2]] += 1
         
         return mapping
 
