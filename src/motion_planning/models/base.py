@@ -10,7 +10,7 @@ from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
-from torchcps.gnn import GCN
+from .gnn import GCN
 from torchcps.utils import add_model_specific_args
 
 from motion_planning.envs.motion_planning import MotionPlanning

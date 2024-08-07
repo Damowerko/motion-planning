@@ -11,8 +11,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
-import torch
-
 rng = np.random.default_rng()
 
 
@@ -70,8 +68,8 @@ class MotionPlanningRender:
         G.remove_edges_from(nx.selfloop_edges(G))
         nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
 
-        targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
-        self.ax.plot(*targets.T, "y^", markersize=markersize)
+        # targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
+        # self.ax.plot(*targets.T, "y^", markersize=markersize)
 
         self.ax.set_title(f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%")
 
@@ -165,8 +163,8 @@ class MotionPlanning(GraphEnv):
         self.n_observed_agents = 3
         self.n_observed_targets = 3
 
-        self.grid_size = 0.1
-        self.grid_width = 8
+        self.grid_size = 0.15
+        self.grid_width = 10
         self.num_grids = (2 * self.grid_width) ** 2
 
         # comm graph properties
@@ -285,8 +283,10 @@ class MotionPlanning(GraphEnv):
         mask = np.logical_and(idx >= 0, idx < 2 * self.grid_width)
         mask = np.logical_and(mask[:,1], mask[:,2])
         mapping = np.zeros((self.n_agents, 2 * self.grid_width, 2 * self.grid_width))
+
         for c in idx[mask]:
             mapping[c[0], c[1], c[2]] += 1
+        mapping[:, 8, 8] -= 1 # Ignore self
         
         return mapping
 
