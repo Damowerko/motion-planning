@@ -310,3 +310,100 @@ class GCN(nn.Module):
             x = residual_block(x, edge_index, edge_attr, size)
         x = self.readout(x)
         return x
+
+
+class GCNWithMapping(nn.Module):
+    @staticmethod
+    def add_args(parser: argparse.ArgumentParser):
+        group = parser.add_argument_group(GCNWithMapping.__name__)
+        group.add_argument(
+            "--n_channels",
+            type=int,
+            default=32,
+            help="Number of hidden features on each layer. Set to -1 for lazy initialization.",
+        )
+        group.add_argument(
+            "--n_layers", type=int, default=2, help="Number of GNN layers."
+        )
+        group.add_argument(
+            "--activation",
+            type=str,
+            default="leaky_relu",
+            choices=list(activation_choices),
+        )
+        group.add_argument(
+            "--mlp_read_layers",
+            type=int,
+            default=1,
+            help="Number of MLP layers to use for readin/readout.",
+        )
+        group.add_argument(
+            "--mlp_per_gnn_layers",
+            type=int,
+            default=0,
+            help="Number of MLP layers to use per GNN layer.",
+        )
+        group.add_argument(
+            "--mlp_hidden_channels",
+            type=int,
+            default=256,
+            help="Number of hidden features to use in the MLP layers.",
+        )
+        group.add_argument(
+            "--dropout", type=float, default=0.0, help="Dropout probability."
+        )
+
+    def __init__(
+        self,
+        in_channels: int,
+        image_width: int,
+        out_channels: int,
+        n_taps: int,
+        n_layers: int = 2,
+        n_channels: int = 32,
+        activation: typing.Union[nn.Module, str] = "leaky_relu",
+        mlp_read_layers: int = 1,
+        mlp_per_gnn_layers: int = 0,
+        mlp_hidden_channels: int = 256,
+        dropout: float = 0.0,
+        **kwargs,
+    ):
+        super().__init__()
+        if isinstance(activation, str):
+            activation = activation_choices[activation]()
+
+        self.img_readin = nn.Sequential(
+            nn.Conv2d(2, n_channels, image_width),
+            activation,
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(n_channels, n_channels, image_width),
+            activation,
+            nn.MaxPool2d(2, 2),
+        )
+
+        self.gnn = GCN(
+            in_channels + n_channels * (image_width ** 2),
+            out_channels,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+    
+    def forward(
+        self,
+        x: torch.Tensor,
+        img: torch.Tensor,
+        edge_index: Adj,
+        edge_attr: OptTensor = None,
+        size: Size = None,
+    ):
+        img = self.img_readin(img)
+        img = torch.flatten(img, 1)
+        x = torch.cat([x, img], dim=1)
+        x = self.gnn(x, edge_index, edge_attr, size)
+        return x

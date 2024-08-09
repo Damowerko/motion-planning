@@ -139,7 +139,7 @@ class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
     scenarios = {"uniform", "gaussian_uniform"}
 
-    def __init__(self, n_agents=100, width=10, scenario="uniform"):
+    def __init__(self, n_agents=100, width=10, grid_size=0.1, grid_width=8, scenario="uniform"):
         self.n_agents = n_agents
         self.n_targets = n_agents
 
@@ -163,9 +163,9 @@ class MotionPlanning(GraphEnv):
         self.n_observed_agents = 3
         self.n_observed_targets = 3
 
-        self.grid_size = 0.15
-        self.grid_width = 10
-        self.num_grids = (2 * self.grid_width) ** 2
+        self.grid_size = grid_size
+        self.grid_width = grid_width
+        self.num_grids = (2 * self.grid_width + 1) ** 2
 
         # comm graph properties
         self.n_neighbors = 3
@@ -184,7 +184,7 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = int(
-            self.state_ndim / 2 + 2 * self.num_grids
+            self.state_ndim / 2 + 2 * self.num_grids + 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -277,36 +277,33 @@ class MotionPlanning(GraphEnv):
     
     def get_sensor_map(self, positions):
         dist = self.position[:,None,:] - positions[None,:,:]
-        idx = (dist // self.grid_size + self.grid_width).astype(int)
+        idx = ((dist + self.grid_size / 2) // self.grid_size + self.grid_width).astype(int)
         agent_idx = np.tile(np.arange(self.n_agents)[:,None], self.n_agents)
         idx = np.reshape(np.concatenate((agent_idx[:,:,None], idx), axis=2), (self.n_agents ** 2, 3))
-        mask = np.logical_and(idx >= 0, idx < 2 * self.grid_width)
+        mask = np.logical_and(idx >= 0, idx < 2 * self.grid_width + 1)
         mask = np.logical_and(mask[:,1], mask[:,2])
-        mapping = np.zeros((self.n_agents, 2 * self.grid_width, 2 * self.grid_width))
+        mapping = np.zeros((self.n_agents, 2 * self.grid_width + 1, 2 * self.grid_width + 1))
 
         for c in idx[mask]:
             mapping[c[0], c[1], c[2]] += 1
-        mapping[:, 8, 8] -= 1 # Ignore self
+        mapping[:, self.grid_width, self.grid_width] -= 1 # Ignore self
         
         return mapping
 
     def _observed_agents(self):
-        # dist = cdist(self.position, self.position)
-        # idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
-        # idx = idx[:, 1:]  # remove self
-        # return self.position[idx] - self.position[:,np.newaxis,:]
         return self.get_sensor_map(self.position)
 
     def _observed_targets(self):
-        # dist = cdist(self.position, self.target_positions)
-        # idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        # return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
-        return self.get_sensor_map(self.target_positions)
+        dist = cdist(self.position, self.target_positions)
+        idx = argtopk(-dist, 1, axis=1)
+        return self.get_sensor_map(self.target_positions), self.target_positions[idx, :] - self.position[:,np.newaxis,:]
 
     def _observation(self):
-        tgt = self._observed_targets().reshape(self.n_agents, -1)
+        tgt, dir = self._observed_targets()
+        tgt = tgt.reshape(self.n_agents, -1)
+        dir = dir.reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:,2:], tgt, agt), axis=1)
+        obs = np.concatenate((self.state[:,2:], tgt, agt, dir), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
