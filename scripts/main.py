@@ -354,7 +354,7 @@ def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray)
 
     # make a single plot of all reward functions
     plt.figure()
-    plt.plot(rewards.mean(axis=0).T)
+    plt.plot(rewards.mean(axis=2).T)
     plt.xlabel("Step")
     plt.ylabel("Reward")
     plt.title(f"{name}")

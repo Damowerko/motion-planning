@@ -298,34 +298,24 @@ class MotionPlanning(GraphEnv):
         return too_far_gone
 
     def _reward(self):
-        dist = cdist(self.target_positions, self.position)
+        distance = cdist(self.position, self.target_positions)
+        row_idx, col_idx = linear_sum_assignment(distance)
+        assert (row_idx == np.arange(self.n_agents)).all()
+        d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
+        reward = np.exp(-(d / self.reward_sigma) ** 2)
+
+        dist = cdist(self.position, self.position)
         idx = argtopk(-dist, 1, axis=1).squeeze()
         d = dist[np.arange(len(idx)), idx]
-        reward = np.exp(-((d / self.reward_sigma) ** 2))
-        m_reward = reward.mean()
-
-        dist = cdist(self.position, self.target_positions)
-        idx = argtopk(-dist, 1, axis=1).squeeze()
-        d = dist[np.arange(len(idx)), idx]
-        reward = np.exp(-((d / self.reward_sigma) ** 2)) + 3 * m_reward
-
-        # dist = cdist(self.position, self.position)
-        # idx = argtopk(-dist, 1, axis=1).squeeze()
-        # d = dist[np.arange(len(idx)), idx]
-        # reward = reward - 0.5 * np.exp(-((4 * d / self.reward_sigma) ** 2))
-        return reward
+        reward = reward - 0.25 * np.exp(-(d / self.reward_sigma) ** 2)
 
         # dist = cdist(self.target_positions, self.position)
         # idx = argtopk(-dist, 1, axis=1).squeeze()
         # d = dist[np.arange(len(idx)), idx]
-        # reward = 4 - np.square(d / self.reward_sigma)
-        # m_reward = reward.mean()
+        # reward = np.exp(-((d / self.reward_sigma) ** 2))
+        # reward[d > self.reward_cutoff] = 0
 
-        # dist = cdist(self.position, self.target_positions)
-        # idx = argtopk(-dist, 1, axis=1).squeeze()
-        # d = dist[np.arange(len(idx)), idx]
-        # reward = np.exp(-((d / self.reward_sigma) ** 2)) + m_reward
-        # return reward
+        return reward
     
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
