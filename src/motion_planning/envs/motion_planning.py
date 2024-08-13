@@ -286,7 +286,6 @@ class MotionPlanning(GraphEnv):
 
         for c in idx[mask]:
             mapping[c[0], c[1], c[2]] += 1
-        mapping[:, self.grid_width, self.grid_width] -= 1 # Ignore self
         
         return mapping
 
@@ -306,6 +305,11 @@ class MotionPlanning(GraphEnv):
         obs = np.concatenate((self.state[:,2:], tgt, agt, dir), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
+    
+    def image(self):
+        agent_map = self.get_sensor_map(self.position)[:,None]
+        target_map = self.get_sensor_map(self.target_positions)[:,None]
+        return np.concatenate([self.get_sensor_map(self.position)[:,None], self.get_sensor_map(self.target_positions)[:,None]], axis=1)
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)
