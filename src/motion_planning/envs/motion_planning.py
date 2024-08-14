@@ -304,17 +304,12 @@ class MotionPlanning(GraphEnv):
         d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
         reward = np.exp(-(d / self.reward_sigma) ** 2)
 
-        # dist = cdist(self.position, self.position)
-        # idx = argtopk(-dist, 1, axis=1).squeeze()
-        # d = dist[np.arange(len(idx)), idx]
-        # reward = reward - 0.25 * np.exp(-(d / self.reward_sigma) ** 2)
-
         # TODO: Punish nearby agents if there are any unseen/uncovered targets near them
         dist = cdist(self.target_positions, self.position)
-        uncovered = self.target_positions[np.any(dist > 0.1*np.ones_like(dist), axis=1)]
+        uncovered = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
         dist = cdist(self.position, uncovered)
         mask = (dist < 2).sum(axis=1)
-        reward = reward - 0.2 * mask
+        reward = reward - 0.05 * mask
 
         # dist = cdist(self.target_positions, self.position)
         # idx = argtopk(-dist, 1, axis=1).squeeze()
