@@ -302,14 +302,29 @@ class MotionPlanning(GraphEnv):
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
         d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
-        reward = np.exp(-(d / self.reward_sigma) ** 2)
+        reward = 2 * np.exp(-(d / self.reward_sigma) ** 2)
 
-        # TODO: Punish nearby agents if there are any unseen/uncovered targets near them
-        dist = cdist(self.target_positions, self.position)
-        uncovered = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
-        dist = cdist(self.position, uncovered)
-        mask = (dist < 2).sum(axis=1)
-        reward = reward - 0.05 * mask
+        # dist = cdist(self.target_positions, self.position)
+        # uncovered_targets = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
+        # dist = cdist(self.position, uncovered_targets)
+        # mask = (dist < 2).sum(axis=1)
+        # reward = reward - 0.05 * mask
+
+        # dist = cdist(self.target_positions, self.position)
+        # idx = argtopk(-dist, 1, axis=1).squeeze()
+        # d = dist[np.arange(len(idx)), idx]
+        # reward = reward - 0.1 * d.max()
+
+        # dist = cdist(self.position, self.position)
+        # collided = np.any(dist < 0.3*np.ones_like(dist), axis=1)
+        # reward = reward - 1.5 * collided
+
+        # dist = cdist(self.position, self.position)
+        # collided = np.any(dist < 0.1*np.ones_like(dist), axis=1)
+        # dist = cdist(self.position, self.target_positions)
+        # covering = np.any(dist < 0.1*np.ones_like(dist), axis=1)
+        # covering_same = np.logical_and(collided, covering)
+        # reward = reward - 2 * covering_same
 
         # dist = cdist(self.target_positions, self.position)
         # idx = argtopk(-dist, 1, axis=1).squeeze()

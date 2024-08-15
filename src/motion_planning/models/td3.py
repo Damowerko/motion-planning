@@ -294,7 +294,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
     def train_dataloader(self):
         return self._dataloader(
-            n_episodes=50, render=False, use_buffer=True, training=True
+            n_episodes=10, render=False, use_buffer=True, training=True
         )
 
     def val_dataloader(self):
