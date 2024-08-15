@@ -298,11 +298,13 @@ class MotionPlanning(GraphEnv):
         return too_far_gone
 
     def _reward(self):
+        reward = np.zeros(self.n_agents)
+
         distance = cdist(self.position, self.target_positions)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
         d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
-        reward = 2 * np.exp(-(d / self.reward_sigma) ** 2)
+        reward = np.exp(-(d / self.reward_sigma) ** 2)
 
         # dist = cdist(self.target_positions, self.position)
         # uncovered_targets = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
@@ -319,12 +321,16 @@ class MotionPlanning(GraphEnv):
         # collided = np.any(dist < 0.3*np.ones_like(dist), axis=1)
         # reward = reward - 1.5 * collided
 
-        # dist = cdist(self.position, self.position)
-        # collided = np.any(dist < 0.1*np.ones_like(dist), axis=1)
-        # dist = cdist(self.position, self.target_positions)
-        # covering = np.any(dist < 0.1*np.ones_like(dist), axis=1)
-        # covering_same = np.logical_and(collided, covering)
-        # reward = reward - 2 * covering_same
+        dist = cdist(self.position, self.position)
+        collided = np.any(dist < 0.1*np.ones_like(dist), axis=1)
+        dist = cdist(self.position, self.target_positions)
+        covering = np.any(dist < 0.1*np.ones_like(dist), axis=1)
+        covering_same = np.logical_and(collided, covering)
+        reward = reward - covering_same
+
+        best_action = self.centralized_policy()
+        action_similarity = best_action[:,0] * self.velocity[:,0] + best_action[:,1] * self.velocity[:,1]
+        reward = reward + action_similarity
 
         # dist = cdist(self.target_positions, self.position)
         # idx = argtopk(-dist, 1, axis=1).squeeze()
