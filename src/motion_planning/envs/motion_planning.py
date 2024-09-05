@@ -34,7 +34,13 @@ class MotionPlanningRender:
         self.agent_scatter = None
 
     def render(
-        self, goal_positions, agent_positions, reward, coverage, observed_targets, adjacency
+        self,
+        goal_positions,
+        agent_positions,
+        reward,
+        coverage,
+        observed_targets,
+        adjacency,
     ):
         """
         Renders the environment with the given parameters.
@@ -52,14 +58,18 @@ class MotionPlanningRender:
         self.reset()
         if not isinstance(self.fig.canvas, FigureCanvasAgg):
             raise ValueError("Only agg matplotlib backend is supported.")
-        
+
         markersize = 75 / self.width
 
         if self.target_scatter is None:
-            self.target_scatter = self.ax.plot(*goal_positions, "rx", markersize=markersize)[0]
+            self.target_scatter = self.ax.plot(
+                *goal_positions, "rx", markersize=markersize
+            )[0]
 
         if self.agent_scatter is None:
-            self.agent_scatter = self.ax.plot(*agent_positions, "bo", markersize=markersize)[0]
+            self.agent_scatter = self.ax.plot(
+                *agent_positions, "bo", markersize=markersize
+            )[0]
 
         self.ax.set_xlim(-self.width / 2, self.width / 2)
         self.ax.set_ylim(-self.width / 2, self.width / 2)
@@ -68,7 +78,9 @@ class MotionPlanningRender:
         G.remove_edges_from(nx.selfloop_edges(G))
         nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
 
-        targets = (observed_targets + agent_positions.T[:,np.newaxis,:]).reshape(-1, 2)
+        targets = (observed_targets + agent_positions.T[:, np.newaxis, :]).reshape(
+            -1, 2
+        )
         self.ax.plot(*targets.T, "y^", markersize=markersize)
 
         reward = reward.mean()
@@ -181,7 +193,9 @@ class MotionPlanning(GraphEnv):
 
         self.state_ndim = 4
         self._observation_ndim = int(
-            self.state_ndim / 2 + self.n_observed_targets * 2 + self.n_observed_agents * 2
+            self.state_ndim / 2
+            + self.n_observed_targets * 2
+            + self.n_observed_agents * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -276,20 +290,20 @@ class MotionPlanning(GraphEnv):
         dist = cdist(self.position, self.position)
         idx = argtopk(-dist, self.n_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx] - self.position[:,np.newaxis,:]
+        return self.position[idx] - self.position[:, np.newaxis, :]
 
     def _observed_targets(self):
         dist = cdist(self.position, self.target_positions)
         idx = argtopk(-dist, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :] - self.position[:,np.newaxis,:]
+        return self.target_positions[idx, :] - self.position[:, np.newaxis, :]
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:,2:], tgt, agt), axis=1)
+        obs = np.concatenate((self.state[:, 2:], tgt, agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
-    
+
     def _centralized_state(self):
         return np.concatenate((self.position, self.target_positions), axis=1)
 
@@ -303,8 +317,10 @@ class MotionPlanning(GraphEnv):
         distance = cdist(self.position, self.target_positions)
         row_idx, col_idx = linear_sum_assignment(distance)
         assert (row_idx == np.arange(self.n_agents)).all()
-        d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
-        reward = reward + np.exp(-(d / self.reward_sigma) ** 2)
+        d = np.linalg.norm(
+            self.target_positions[col_idx] - self.position[row_idx], axis=1
+        )
+        reward = reward + np.exp(-((d / self.reward_sigma) ** 2))
 
         # dist = cdist(self.target_positions, self.position)
         # uncovered_targets = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
@@ -318,7 +334,7 @@ class MotionPlanning(GraphEnv):
         # reward = reward - 0.1 * d.max()
 
         dist = cdist(self.position, self.position)
-        collided = np.any(dist < 0.2*np.ones_like(dist), axis=1)
+        collided = np.any(dist < 0.2 * np.ones_like(dist), axis=1)
         reward = reward - 0.3 * collided
 
         # dist = cdist(self.position, self.position)
@@ -329,7 +345,10 @@ class MotionPlanning(GraphEnv):
         # reward = reward - covering_same
 
         best_action = self.centralized_policy()
-        action_similarity = best_action[:,0] * self.velocity[:,0] + best_action[:,1] * self.velocity[:,1]
+        action_similarity = (
+            best_action[:, 0] * self.velocity[:, 0]
+            + best_action[:, 1] * self.velocity[:, 1]
+        )
         reward = reward + action_similarity
 
         # seen_targets = self._observed_targets().reshape(-1, 2)
@@ -345,10 +364,10 @@ class MotionPlanning(GraphEnv):
         # reward[d > self.reward_cutoff] = 0
 
         return reward
-    
+
     def coverage(self):
         dist = cdist(self.target_positions, self.position)
-        return np.mean(np.any(dist < 0.1*np.ones_like(dist), axis=1))
+        return np.mean(np.any(dist < 0.1 * np.ones_like(dist), axis=1))
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
@@ -356,7 +375,13 @@ class MotionPlanning(GraphEnv):
         self.velocity = action
         self.position += self.velocity * self.dt
         self.t += self.dt
-        return self._observation(), self._centralized_state(), self._reward(), self._done(), {}
+        return (
+            self._observation(),
+            self._centralized_state(),
+            self._reward(),
+            self._done(),
+            {},
+        )
 
     def reset(self):
         self.state = np.zeros((self.n_agents, self.state_ndim))
