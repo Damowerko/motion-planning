@@ -3,15 +3,16 @@ import json
 import os
 import sys
 import typing
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Union
-from copy import deepcopy
 
 import imageio.v3 as iio
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
+import seaborn as sns
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
@@ -21,10 +22,10 @@ from wandb.wandb_run import Run
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.models import (
     MotionPlanningActorCritic,
-    MotionPlanningImitation,
     MotionPlanningDDPG,
-    MotionPlanningTD3,
+    MotionPlanningImitation,
     MotionPlanningPPO,
+    MotionPlanningTD3,
 )
 
 
@@ -38,7 +39,18 @@ def main():
         "operation",
         type=str,
         default="td3",
-        choices=["imitation", "ddpg", "td3", "ppo", "test", "baseline", "transfer-agents", "transfer-area", "transfer-density", "test-q"],
+        choices=[
+            "imitation",
+            "ddpg",
+            "td3",
+            "ppo",
+            "test",
+            "baseline",
+            "transfer-agents",
+            "transfer-area",
+            "transfer-density",
+            "test-q",
+        ],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
@@ -58,9 +70,22 @@ def main():
         # reinforcement learning specific args
         if operation in ("ddpg", "td3", "ppo"):
             training_group.add_argument("--checkpoint", type=str)
-    elif operation in ("test", "baseline", "transfer-agents", "transfer-area", "transfer-density", "test-q"):
+    elif operation in (
+        "test",
+        "baseline",
+        "transfer-agents",
+        "transfer-area",
+        "transfer-density",
+        "test-q",
+    ):
         # test specific args
-        if operation in ("test", "transfer-agents", "transfer-area", "transfer-density", "test-q"):
+        if operation in (
+            "test",
+            "transfer-agents",
+            "transfer-area",
+            "transfer-density",
+            "test-q",
+        ):
             group.add_argument("--checkpoint", type=str, required=True)
         # baseline specific args
         if operation == "baseline":
@@ -68,12 +93,15 @@ def main():
                 "--policy", type=str, default="c", choices=["c", "d0", "d1"]
             )
         # transfer specific args
-        if operation in ("transfer-area", "transfer-density"): # keep the area or density constant
+        if operation in (
+            "transfer-area",
+            "transfer-density",
+        ):  # keep the area or density constant
             group.add_argument("--n_agents", nargs="+", type=int, default=100)
         else:
             group.add_argument("--n_agents", type=int, default=100)
-        
-        if operation == "transfer-agents": # keep the number of agents constant
+
+        if operation == "transfer-agents":  # keep the number of agents constant
             group.add_argument("--width", nargs="+", type=float, default=10.0)
         else:
             group.add_argument("--width", type=float, default=10.0)
@@ -86,6 +114,18 @@ def main():
             type=str,
             default="uniform",
             choices=["uniform", "gaussian_uniform"],
+        )
+        group.add_argument(
+            "--agent_radius",
+            type=float,
+            default=0.1,
+            help="The radius of the agents. Used to measure collisions",
+        )
+        group.add_argument(
+            "--agent_margin",
+            type=float,
+            default=0.0,
+            help="Additional margin to consider when initializing for collision avoidance.",
         )
 
     params = parser.parse_args()
@@ -238,8 +278,11 @@ def train(params):
 
 
 def rollout(
-    env: MotionPlanning, policy_fn: typing.Callable, params: argparse.Namespace, baseline: bool = False,
-) -> tuple[np.ndarray, np.ndarray]:
+    env: MotionPlanning,
+    policy_fn: typing.Callable,
+    params: argparse.Namespace,
+    baseline: bool = False,
+) -> tuple[pd.DataFrame, np.ndarray]:
     """
     Perform rollouts in the environment using a given policy.
 
@@ -250,27 +293,45 @@ def rollout(
 
     Returns:
         tuple[np.ndarray, np.ndarray]: A tuple containing the rewards and frames for each rollout.
-        - rewards (np.ndarray): An ndarray of shape (n_trials, max_steps) containing the rewards for each step in each rollout.
+        - rewards (pd.DataFrame): A Pandas dataframe with columns=['trial', 'step', 'reward', 'coverage', 'collisions', 'near_collisions'].
         - frames (np.ndarray): An array of shape (n_trial, max_steps, H, W) where H and W are the heights and widths of the rendered frames.
     """
-    rewards = []
+    data = []
     frames = []
-    for _ in tqdm(range(params.n_trials)):
-        rewards_trial = []
+    for trial in tqdm(range(params.n_trials)):
         frames_trial = []
         observation, centralized_state = env.reset()
         for step in range(params.max_steps):
-            action = policy_fn(observation, centralized_state, step + 1, env.adjacency()) if not baseline else policy_fn(observation, env.adjacency())
+            action = (
+                policy_fn(observation, centralized_state, step + 1, env.adjacency())
+                if not baseline
+                else policy_fn(observation, env.adjacency())
+            )
             observation, _, reward, _, _ = env.step(action)
-            rewards_trial.append(reward)
+            data.append(
+                dict(
+                    trial=trial,
+                    step=step,
+                    reward=reward.mean(),
+                    coverage=env.coverage(),
+                    collisions=env.n_collisions(r=params.agent_radius),
+                    near_collisions=env.n_collisions(
+                        r=params.agent_radius + params.agent_margin
+                    ),
+                )
+            )
             frames_trial.append(env.render(mode="rgb_array"))
-        rewards.append(rewards_trial)
         frames.append(frames_trial)
-    return np.asarray(rewards), np.asarray(frames)
+    return pd.DataFrame(data), np.asarray(frames)
 
 
 def baseline(params):
-    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
+    env = MotionPlanning(
+        n_agents=params.n_agents,
+        width=params.width,
+        scenario=params.scenario,
+        agent_radius=params.agent_radius + params.agent_margin,
+    )
     if params.policy == "c":
         policy_fn = lambda o, g: env.centralized_policy()
     elif params.policy == "d0":
@@ -280,14 +341,19 @@ def baseline(params):
     else:
         raise ValueError(f"Invalid policy {params.policy}.")
 
-    rewards, frames = rollout(env, policy_fn, params, baseline=True)
+    data, frames = rollout(env, policy_fn, params, baseline=True)
     save_results(
-        params.policy, Path("figures") / "test_results" / params.policy, rewards, frames
+        params.policy, Path("figures") / "test_results" / params.policy, data, frames
     )
 
 
 def test(params):
-    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario=params.scenario)
+    env = MotionPlanning(
+        n_agents=params.n_agents,
+        width=params.width,
+        scenario=params.scenario,
+        agent_radius=params.agent_radius + params.agent_margin,
+    )
     model, name = load_model(params.checkpoint)
     model = model.eval()
 
@@ -296,12 +362,17 @@ def test(params):
         data = model.to_data(observation, centralized_state, step, graph)
         return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
-    rewards, frames = rollout(env, policy_fn, params)
-    save_results(name, Path("figures") / "test_results" / name, rewards, frames)
+    data, frames = rollout(env, policy_fn, params)
+    save_results(name, Path("figures") / "test_results" / name, data, frames)
 
 
 def test_q(params):
-    env = MotionPlanning(n_agents=params.n_agents, width=params.width, scenario="q-scenario")
+    env = MotionPlanning(
+        n_agents=params.n_agents,
+        width=params.width,
+        scenario="q-scenario",
+        agent_radius=params.agent_radius,
+    )
     model, name = load_model(params.checkpoint)
     model = model.eval()
 
@@ -309,7 +380,13 @@ def test_q(params):
 
     observation, centralized_state = env.reset()
     data = model.to_data(observation, centralized_state, env.adjacency())
-    print(model.ac.critic.forward(data.state, null_action, data).mean().detach().cpu().numpy())
+    print(
+        model.ac.critic.forward(data.state, null_action, data)
+        .mean()
+        .detach()
+        .cpu()
+        .numpy()
+    )
 
 
 def transfer(params):
@@ -322,55 +399,76 @@ def transfer(params):
         code = "a"
     else:
         code = "d"
-    
+
     for iv_value in iv_type:
         if params.operation == "transfer-area":
-            env = MotionPlanning(n_agents=iv_value, width=params.width, scenario=params.scenario)
+            env = MotionPlanning(
+                n_agents=iv_value,
+                width=params.width,
+                scenario=params.scenario,
+                agent_radius=params.agent_radius,
+            )
         elif params.operation == "transfer-agents":
-            env = MotionPlanning(n_agents=params.n_agents, width=iv_value, scenario=params.scenario)
+            env = MotionPlanning(
+                n_agents=params.n_agents,
+                width=iv_value,
+                scenario=params.scenario,
+                agent_radius=params.agent_radius,
+            )
         else:
-            env = MotionPlanning(n_agents=iv_value, width=1.0*np.sqrt(iv_value), scenario=params.scenario)
+            env = MotionPlanning(
+                n_agents=iv_value,
+                width=1.0 * np.sqrt(iv_value),
+                scenario=params.scenario,
+                agent_radius=params.agent_radius,
+            )
 
         @torch.no_grad()
         def policy_fn(observation, graph):
             data = model.to_data(observation, graph)
             return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
-        rewards, frames = rollout(env, policy_fn, params)
-        filename = name + f'-{iv_value}-{code}'
-        save_results(name, Path("figures") / "test_results" / filename, rewards, frames)
+        data, frames = rollout(env, policy_fn, params)
+        filename = name + f"-{iv_value}-{code}"
+        save_results(name, Path("figures") / "test_results" / filename, data, frames)
 
 
-def save_results(name: str, path: Path, rewards: np.ndarray, frames: np.ndarray):
+def save_results(name: str, path: Path, data: pd.DataFrame, frames: np.ndarray):
     """
     Args:
         path (Path): The path to save the summary to.
-        rewards (np.ndarray): An ndarray of shape (n_trials, max_steps).
+        data (pd.DataFrame): Dataframe containing numerical info of performance at each step.
         frames (np.ndarray): An array of shape (n_trial, max_steps, H, W).
     """
     path.mkdir(parents=True, exist_ok=True)
 
-    np.save(path / "rewards.npy", rewards)
+    data.to_parquet(path / "data.parquet")
 
-    # make a single plot of all reward functions
-    plt.figure()
-    plt.plot(rewards.mean(axis=2).T)
-    plt.xlabel("Step")
-    plt.ylabel("Reward")
-    plt.title(f"{name}")
-    plt.savefig(path / f"rewards_{name}.png")
+    print(data)
 
-    # make a single video of all trials
-    iio.imwrite(path / f"{name}.mp4", np.concatenate(frames, axis=0), fps=30)
+    # make a single plot of basic metrics
+    metric_names = ["reward", "coverage", "collisions", "near_collisions"]
+    for metric_name in metric_names:
+        sns.relplot(data=data, x="step", y=metric_name, hue="trial", kind="line")
+        plt.xlabel("Step")
+        plt.ylabel(f"{metric_name.replace('_', ' ').capitalize()}")
+        plt.savefig(path / f"{metric_name}_{name}.png")
 
     # summary metrics
     metrics = {
-        "mean_reward": np.mean(rewards),
-        "std_reward": np.std(rewards),
+        "Reward Mean": data["reward"].mean(),
+        "Reward Std": data["reward"].std(),
+        "Coverage Mean": data["coverage"].mean(),
+        "Coverage Std": data["coverage"].std(),
+        # Sum over step but mean over trials
+        "Collisions Mean": data.groupby("trial")["collisions"].sum().mean(),
+        "Near Collisions Mean": data.groupby("trial")["near_collisions"].sum().mean(),
     }
-    json.dump(metrics, open(path / "metrics.json", "w"))
+    with open(path / "metrics.json", "w") as f:
+        json.dump(metrics, f)
 
-    print(metrics)
+    # make a single video of all trials
+    iio.imwrite(path / f"{name}.mp4", np.concatenate(frames, axis=0), fps=30)
 
 
 def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
