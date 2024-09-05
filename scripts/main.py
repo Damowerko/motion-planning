@@ -18,6 +18,8 @@ from pytorch_lightning.loggers import WandbLogger
 from tqdm import tqdm
 from wandb.wandb_run import Run
 
+from scipy.spatial.distance import cdist
+
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.models import (
     MotionPlanningActorCritic,
@@ -255,17 +257,25 @@ def rollout(
     """
     rewards = []
     frames = []
+    collisions = 0
     for _ in tqdm(range(params.n_trials)):
         rewards_trial = []
         frames_trial = []
         observation, centralized_state = env.reset()
+        curr_collision = np.zeros(env.n_agents)
         for step in range(params.max_steps):
             action = policy_fn(observation, centralized_state, step + 1, env.adjacency()) if not baseline else policy_fn(observation, env.adjacency())
             observation, _, reward, _, _ = env.step(action)
+            dist = cdist(env.position, env.position)
+            dist[np.arange(env.n_agents), np.arange(env.n_agents)] = np.inf
+            collided = np.any(dist < 0.1*np.ones_like(dist), axis=1)
+            curr_collision = np.logical_or(curr_collision, collided)
             rewards_trial.append(reward)
             frames_trial.append(env.render(mode="rgb_array"))
         rewards.append(rewards_trial)
         frames.append(frames_trial)
+        collisions += curr_collision.sum()
+    print(f'Average Collisions: {collisions / params.n_trials}')
     return np.asarray(rewards), np.asarray(frames)
 
 
@@ -332,9 +342,9 @@ def transfer(params):
             env = MotionPlanning(n_agents=iv_value, width=1.0*np.sqrt(iv_value), scenario=params.scenario)
 
         @torch.no_grad()
-        def policy_fn(observation, graph):
-            data = model.to_data(observation, graph)
-            return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+        def policy_fn(observation, centralized_state, step, graph):
+            data = model.to_data(observation, centralized_state, step, graph)
+            return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
         rewards, frames = rollout(env, policy_fn, params)
         filename = name + f'-{iv_value}-{code}'

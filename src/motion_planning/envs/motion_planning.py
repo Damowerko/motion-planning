@@ -253,14 +253,14 @@ class MotionPlanning(GraphEnv):
         observed_targets = self._observed_targets()
         observed_agents = self._observed_agents()
         if hops == 0:
-            action = observed_targets[:, 0, :] - self.position
+            action = observed_targets[:, 0, :]
         elif hops == 1:
             action = np.zeros(self.action_space.shape)  # type: ignore
             for i in range(self.n_agents):
                 agent_positions = np.concatenate(
-                    (self.position[i, None, :], observed_agents[i]), axis=0
+                    (self.position[i, None, :], observed_agents[i] + self.position[i, None, :]), axis=0
                 )
-                target_positions = observed_targets[i]
+                target_positions = observed_targets[i] + agent_positions[0]
                 distances = cdist(agent_positions, target_positions)
                 row_idx, col_idx = linear_sum_assignment(distances)
                 assignment = col_idx[np.nonzero(row_idx == 0)]
@@ -298,13 +298,13 @@ class MotionPlanning(GraphEnv):
         return too_far_gone
 
     def _reward(self):
-        reward = np.zeros(self.n_agents)
+        # reward = np.zeros(self.n_agents)
 
-        distance = cdist(self.position, self.target_positions)
-        row_idx, col_idx = linear_sum_assignment(distance)
-        assert (row_idx == np.arange(self.n_agents)).all()
-        d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
-        reward = reward + np.exp(-(d / self.reward_sigma) ** 2)
+        # distance = cdist(self.position, self.target_positions)
+        # row_idx, col_idx = linear_sum_assignment(distance)
+        # assert (row_idx == np.arange(self.n_agents)).all()
+        # d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
+        # reward = reward + 5 * np.exp(-(d / self.reward_sigma) ** 2)
 
         # dist = cdist(self.target_positions, self.position)
         # uncovered_targets = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
@@ -317,9 +317,10 @@ class MotionPlanning(GraphEnv):
         # d = dist[np.arange(len(idx)), idx]
         # reward = reward - 0.1 * d.max()
 
-        dist = cdist(self.position, self.position)
-        collided = np.any(dist < 0.2*np.ones_like(dist), axis=1)
-        reward = reward - 0.3 * collided
+        # dist = cdist(self.position, self.position)
+        # dist[np.arange(self.n_agents), np.arange(self.n_agents)] = np.inf
+        # collided = np.any(dist < 0.2*np.ones_like(dist), axis=1)
+        # reward = reward - 10 * collided
 
         # dist = cdist(self.position, self.position)
         # collided = np.any(dist < 0.1*np.ones_like(dist), axis=1)
@@ -328,9 +329,9 @@ class MotionPlanning(GraphEnv):
         # covering_same = np.logical_and(collided, covering)
         # reward = reward - covering_same
 
-        best_action = self.centralized_policy()
-        action_similarity = best_action[:,0] * self.velocity[:,0] + best_action[:,1] * self.velocity[:,1]
-        reward = reward + action_similarity
+        # best_action = self.centralized_policy()
+        # action_similarity = best_action[:,0] * self.velocity[:,0] + best_action[:,1] * self.velocity[:,1]
+        # reward = reward + action_similarity
 
         # seen_targets = self._observed_targets().reshape(-1, 2)
         # unseen_targets = np.array(list(filter(lambda x: x not in seen_targets, self.target_positions)))
@@ -338,11 +339,8 @@ class MotionPlanning(GraphEnv):
         # mask = (dist < 2).sum(axis=1)
         # reward = reward - 0.1 * mask
 
-        # dist = cdist(self.target_positions, self.position)
-        # idx = argtopk(-dist, 1, axis=1).squeeze()
-        # d = dist[np.arange(len(idx)), idx]
-        # reward = np.exp(-((d / self.reward_sigma) ** 2))
-        # reward[d > self.reward_cutoff] = 0
+        dist = cdist(self.target_positions, self.position)
+        reward = np.any(dist < 0.1*np.ones_like(dist), axis=1)
 
         return reward
     
