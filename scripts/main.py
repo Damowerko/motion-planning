@@ -16,6 +16,7 @@ import seaborn as sns
 import torch
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
+from scipy.spatial.distance import cdist
 from tqdm import tqdm
 from wandb.wandb_run import Run
 
@@ -301,6 +302,7 @@ def rollout(
     for trial in tqdm(range(params.n_trials)):
         frames_trial = []
         observation, centralized_state = env.reset()
+        curr_collision = np.zeros(env.n_agents)
         for step in range(params.max_steps):
             action = (
                 policy_fn(observation, centralized_state, step + 1, env.adjacency())
@@ -424,9 +426,9 @@ def transfer(params):
             )
 
         @torch.no_grad()
-        def policy_fn(observation, graph):
-            data = model.to_data(observation, graph)
-            return model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+        def policy_fn(observation, centralized_state, step, graph):
+            data = model.to_data(observation, centralized_state, step, graph)
+            return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
         data, frames = rollout(env, policy_fn, params)
         filename = name + f"-{iv_value}-{code}"
