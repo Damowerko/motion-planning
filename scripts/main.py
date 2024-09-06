@@ -91,7 +91,7 @@ def main():
         # baseline specific args
         if operation == "baseline":
             group.add_argument(
-                "--policy", type=str, default="c", choices=["c", "d0", "d1"]
+                "--policy", type=str, default="c", choices=["c", "d0", "d1", "capt"]
             )
         # transfer specific args
         if operation in (
@@ -340,6 +340,8 @@ def baseline(params):
         policy_fn = lambda o, g: env.decentralized_policy(0)
     elif params.policy == "d1":
         policy_fn = lambda o, g: env.decentralized_policy(1)
+    elif params.policy == "capt":
+        policy_fn = lambda o, g: env.capt_policy()
     else:
         raise ValueError(f"Invalid policy {params.policy}.")
 

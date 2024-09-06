@@ -313,6 +313,24 @@ class MotionPlanning(GraphEnv):
         assert action.shape == self.action_space.shape  # type: ignore
         return action
 
+    def capt_policy(self):
+        # compute the linear sum assignment on distance squared
+        row_idx, col_idx = linear_sum_assignment(self.dist_pt**2)
+        # find the distance for each target
+        distances = np.linalg.norm(
+            self.target_positions[col_idx] - self.position[row_idx], axis=1
+        )
+        # find the maximum distance between agents and targets
+        time_to_target = distances.max() / self.max_vel
+        # since we are in discrete time, set dt as the minimum time to target
+        time_to_target = max(time_to_target, self.dt)
+        # find the velocity to reach the target in time_to_target
+        action_raw = (
+            self.target_positions[col_idx] - self.position[row_idx]
+        ) / time_to_target
+        action = self.clip_action(action_raw)
+        return action
+
     def _observed_agents(self):
         idx = argtopk(-self.dist_pp, self.n_observed_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
