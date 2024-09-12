@@ -67,6 +67,7 @@ def main():
         training_group.add_argument("--test", action="store_true")
         training_group.add_argument("--max_epochs", type=int, default=100)
         training_group.add_argument("--patience", type=int, default=10)
+        training_group.add_argument("--notes", type=str, default="")
 
         # reinforcement learning specific args
         if operation in ("ddpg", "td3", "ppo"):
@@ -198,7 +199,11 @@ def make_trainer(params):
 
     if params.log:
         logger = WandbLogger(
-            project="motion-planning", save_dir="logs", config=params, log_model=True
+            project="motion-planning",
+            save_dir="logs",
+            config=params,
+            log_model=True,
+            notes=params.notes,
         )
         logger.log_hyperparams(params)
         run = typing.cast(Run, logger.experiment)
