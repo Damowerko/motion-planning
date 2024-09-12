@@ -6,18 +6,19 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions.normal import Normal
 import torch_geometric.nn as gnn
+from torch.distributions.normal import Normal
 from torch_geometric.data import Batch, Data
 from torch_geometric.data.data import BaseData
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torch_scatter import scatter_mean
-from .gnn import GCN
 from torchcps.utils import add_model_specific_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.rl import ExperienceSourceDataset
+
+from .gnn import GCN
 
 
 def discounted_to_go(principal: torch.Tensor, discount: float) -> torch.Tensor:
@@ -66,11 +67,11 @@ class GNNActor(nn.Module):
         mu = action[:, : self.action_ndim]
         sigma = torch.exp(self.log_std)
         return mu, sigma
-    
+
     def distribution(self, state: torch.Tensor, data: BaseData) -> Normal:
         mu, sigma = self.forward(state, data)
         return Normal(mu, sigma)
-    
+
     def log_prob(self, pi: Normal, action: torch.Tensor) -> torch.Tensor:
         return pi.log_prob(action)
 
@@ -98,7 +99,7 @@ class GNNActor(nn.Module):
             action = torch.tanh(mu + sigma * eps)
             assert isinstance(action, torch.Tensor)
             return torch.tanh(action)
-        
+
         dist = Normal(mu, sigma)
         return dist, self.log_prob(dist, action)
 
@@ -175,7 +176,7 @@ class GNNCritic(nn.Module):
         y = self.gnn.forward(x, data.edge_index, data.edge_attr)
         # y = scatter_mean(y, data.batch, dim=0)
         return y.squeeze(-1)
-    
+
 
 class GNNValue(nn.Module):
     def __init__(
@@ -247,7 +248,7 @@ class GNNActorCritic(nn.Module):
     @classmethod
     def add_model_specific_args(cls, group):
         return add_model_specific_args(cls, group)
-    
+
     def __init__(
         self,
         observation_ndim: int,
@@ -266,7 +267,7 @@ class GNNActorCritic(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        
+
         self.actor = GNNActor(
             observation_ndim,
             action_ndim,
@@ -301,7 +302,7 @@ class GNNActorCritic(nn.Module):
             mlp_hidden_channels,
             dropout,
         )
-        self.critic2 = None # Only used for TD3
+        self.critic2 = None  # Only used for TD3
 
         self.value = GNNValue(
             observation_ndim,
@@ -314,17 +315,22 @@ class GNNActorCritic(nn.Module):
             mlp_hidden_channels,
             dropout,
         )
-    
-    def policy(self, mu: torch.Tensor, sigma: torch.Tensor, action: Optional[torch.Tensor] = None):
+
+    def policy(
+        self,
+        mu: torch.Tensor,
+        sigma: torch.Tensor,
+        action: Optional[torch.Tensor] = None,
+    ):
         return self.actor.policy(mu, sigma, action)
-    
+
     def step(self, state: torch.Tensor, data: BaseData):
         with torch.no_grad():
             pi = self.actor.distribution(state, data)
             action = pi.sample()
             logp = self.actor.log_prob(pi, action)
             value = self.value(state, data)
-        
+
         return action, logp, value
 
     def action(self, state: torch.Tensor, data: BaseData):
@@ -375,7 +381,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
         self.ac = GNNActorCritic(
-            self.env.observation_ndim + 1, # Data is augmented with time
+            self.env.observation_ndim + 1,  # Data is augmented with time
             # self.env.action_ndim * 2, # Agent and target positions
             self.env.action_ndim,
             # n_agents,
@@ -388,11 +394,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
             mlp_hidden_channels,
             dropout,
         )
-    
+
     def clip_action(self, action):
         magnitude = torch.norm(action, dim=-1)
-        magnitude = torch.clip(magnitude, 0, self.env.max_accel)
-        tmp = action[:, 0] + 1j * action[:, 1] # Assumes two dimensions
+        magnitude = torch.clip(magnitude, 0, self.env.max_vel)
+        tmp = action[:, 0] + 1j * action[:, 1]  # Assumes two dimensions
         angles = torch.angle(tmp)
         action_x = (magnitude * torch.cos(angles))[:, None]
         action_y = (magnitude * torch.sin(angles))[:, None]
@@ -409,7 +415,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         Called after rollout step.
         """
         data.action = self.ac.policy(data.mu, data.sigma)
-        next_state, centralized_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
+        next_state, centralized_state, reward, done, _ = self.env.step(
+            data.action.detach().cpu().numpy()
+        )
         return data, next_state, centralized_state, reward, done
 
     @torch.no_grad()
@@ -430,7 +438,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data, next_state, centralized_state, reward, done = self.rollout_step(data)
 
             # add additional attributes
-            next_data = self.to_data(next_state, centralized_state, step + 1, self.env.adjacency())
+            next_data = self.to_data(
+                next_state, centralized_state, step + 1, self.env.adjacency()
+            )
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
             data.next_centralized_state = next_data.centralized_state
@@ -463,11 +473,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
     def configure_optimizers(self):
         return [
             torch.optim.AdamW(
-                self.ac.actor.parameters(), lr=self.actor_lr, weight_decay=self.weight_decay
+                self.ac.actor.parameters(),
+                lr=self.actor_lr,
+                weight_decay=self.weight_decay,
             ),
             torch.optim.AdamW(
-                self.ac.critic.parameters(), lr=self.critic_lr, weight_decay=self.weight_decay
-            )
+                self.ac.critic.parameters(),
+                lr=self.critic_lr,
+                weight_decay=self.weight_decay,
+            ),
         ]
 
     def to_data(self, state, centralized_state, step, adjacency) -> BaseData:
