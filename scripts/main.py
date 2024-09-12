@@ -313,7 +313,6 @@ def rollout(
     for trial in tqdm(range(params.n_trials)):
         frames_trial = []
         observation, centralized_state = env.reset()
-        curr_collision = np.zeros(env.n_agents)
         for step in range(params.max_steps):
             action = (
                 policy_fn(observation, centralized_state, step + 1, env.adjacency())
