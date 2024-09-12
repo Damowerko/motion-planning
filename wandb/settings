@@ -1,0 +1,5 @@
+[default]
+entity = test-team-12
+project = motion-planning
+base_url = https://api.wandb.ai
+
