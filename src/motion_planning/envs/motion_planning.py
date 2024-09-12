@@ -385,8 +385,7 @@ class MotionPlanning(GraphEnv):
         return reward
 
     def coverage(self) -> float:
-        dist = cdist(self.target_positions, self.position)
-        return np.mean(np.any(dist < self.reward_cutoff * np.ones_like(dist), axis=1))
+        return np.mean(np.any(self.dist_pt < self.reward_cutoff, axis=0))
 
     def step(self, action):
         assert action.shape == self.action_space.shape  # type: ignore
