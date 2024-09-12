@@ -47,14 +47,32 @@ def main():
             "ppo",
             "test",
             "baseline",
-            "transfer-agents",
-            "transfer-area",
-            "transfer-density",
-            "test-q",
         ],
         help="The operation to perform.",
     )
     operation = sys.argv[1]
+
+    # common args
+    group = parser.add_argument_group("Simulation")
+    group.add_argument("--n_trials", type=int, default=10)
+    group.add_argument(
+        "--agent_radius",
+        type=float,
+        default=0.1,
+        help="The radius of the agents. Used to measure collisions",
+    )
+    group.add_argument(
+        "--agent_margin",
+        type=float,
+        default=0.0,
+        help="Additional margin to consider when initializing for collision avoidance.",
+    )
+    group.add_argument(
+        "--collision_coefficient",
+        type=float,
+        default=5.0,
+        help="Scalling cofficient for the reward penalty for collisions.",
+    )
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
@@ -75,41 +93,19 @@ def main():
     elif operation in (
         "test",
         "baseline",
-        "transfer-agents",
-        "transfer-area",
-        "transfer-density",
-        "test-q",
     ):
         # test specific args
-        if operation in (
-            "test",
-            "transfer-agents",
-            "transfer-area",
-            "transfer-density",
-            "test-q",
-        ):
+        if operation in ("test",):
             group.add_argument("--checkpoint", type=str, required=True)
         # baseline specific args
         if operation == "baseline":
             group.add_argument(
                 "--policy", type=str, default="c", choices=["c", "d0", "d1", "capt"]
             )
-        # transfer specific args
-        if operation in (
-            "transfer-area",
-            "transfer-density",
-        ):  # keep the area or density constant
-            group.add_argument("--n_agents", nargs="+", type=int, default=100)
-        else:
-            group.add_argument("--n_agents", type=int, default=100)
-
-        if operation == "transfer-agents":  # keep the number of agents constant
-            group.add_argument("--width", nargs="+", type=float, default=10.0)
-        else:
-            group.add_argument("--width", type=float, default=10.0)
         # common args
+        group.add_argument("--n_agents", type=int, default=100)
+        group.add_argument("--width", type=float, default=10.0)
         group.add_argument("--render", action="store_true")
-        group.add_argument("--n_trials", type=int, default=10)
         group.add_argument("--max_steps", type=int, default=200)
         group.add_argument(
             "--scenario",
@@ -117,34 +113,12 @@ def main():
             default="uniform",
             choices=["uniform", "gaussian_uniform"],
         )
-        group.add_argument(
-            "--agent_radius",
-            type=float,
-            default=0.1,
-            help="The radius of the agents. Used to measure collisions",
-        )
-        group.add_argument(
-            "--agent_margin",
-            type=float,
-            default=0.0,
-            help="Additional margin to consider when initializing for collision avoidance.",
-        )
-        group.add_argument(
-            "--collision_coefficient",
-            type=float,
-            default=5.0,
-            help="Scalling cofficient for the reward penalty for collisions.",
-        )
 
     params = parser.parse_args()
     if params.operation in ("ddpg", "td3", "ppo"):
         train(params)
     elif params.operation == "test":
         test(params)
-    elif params.operation == "test-q":
-        test_q(params)
-    elif params.operation.startswith("transfer-"):
-        transfer(params)
     elif params.operation == "imitation":
         imitation(params)
     elif params.operation == "baseline":
@@ -405,53 +379,6 @@ def test_q(params):
         .cpu()
         .numpy()
     )
-
-
-def transfer(params):
-    model, name = load_model(params.checkpoint)
-    model = model.eval()
-    iv_type = params.width if params.operation == "transfer-agents" else params.n_agents
-    if params.operation == "transfer-area":
-        code = "r"
-    elif params.operation == "transfer-agents":
-        code = "a"
-    else:
-        code = "d"
-
-    for iv_value in iv_type:
-        if params.operation == "transfer-area":
-            env = MotionPlanning(
-                n_agents=iv_value,
-                width=params.width,
-                scenario=params.scenario,
-                agent_radius=params.agent_radius,
-                collision_coefficient=params.collision_coefficient,
-            )
-        elif params.operation == "transfer-agents":
-            env = MotionPlanning(
-                n_agents=params.n_agents,
-                width=iv_value,
-                scenario=params.scenario,
-                agent_radius=params.agent_radius,
-                collision_coefficient=params.collision_coefficient,
-            )
-        else:
-            env = MotionPlanning(
-                n_agents=iv_value,
-                width=1.0 * np.sqrt(iv_value),
-                scenario=params.scenario,
-                agent_radius=params.agent_radius,
-                collision_coefficient=params.collision_coefficient,
-            )
-
-        @torch.no_grad()
-        def policy_fn(observation, centralized_state, step, graph):
-            data = model.to_data(observation, centralized_state, step, graph)
-            return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
-
-        data, frames = rollout(env, policy_fn, params)
-        filename = name + f"-{iv_value}-{code}"
-        save_results(name, Path("figures") / "test_results" / filename, data, frames)
 
 
 def save_results(name: str, path: Path, data: pd.DataFrame, frames: np.ndarray):
