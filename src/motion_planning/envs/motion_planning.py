@@ -177,7 +177,14 @@ class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
     scenarios = {"uniform", "gaussian_uniform", "q-scenario"}
 
-    def __init__(self, n_agents=100, width=10, agent_radius=0.1, scenario="uniform"):
+    def __init__(
+        self,
+        n_agents=100,
+        width=10,
+        agent_radius=0.1,
+        collision_coefficient=5.0,
+        scenario="uniform",
+    ):
         self.n_agents = n_agents
         self.n_targets = n_agents
 
@@ -194,6 +201,7 @@ class MotionPlanning(GraphEnv):
         self.width = width
         self.reward_cutoff = 0.2
         self.reward_sigma = 0.1
+        self.collision_coefficient = collision_coefficient
 
         # agent properties
         self.max_vel = 0.5
@@ -364,61 +372,16 @@ class MotionPlanning(GraphEnv):
         return np.sum((distances < r).astype(int))
 
     def _reward(self):
-        reward = np.zeros(self.n_agents)
         row_idx, col_idx = linear_sum_assignment(self.dist_pt)
         assert (row_idx == np.arange(self.n_agents)).all()
-        d = np.linalg.norm(
-            self.target_positions[col_idx] - self.position[row_idx], axis=1
-        )
-        reward = reward + np.exp(-((d / self.reward_sigma) ** 2))
-        # reward = np.zeros(self.n_agents)
-
-        # distance = cdist(self.position, self.target_positions)
-        # row_idx, col_idx = linear_sum_assignment(distance)
-        # assert (row_idx == np.arange(self.n_agents)).all()
-        # d = np.linalg.norm(self.target_positions[col_idx] - self.position[row_idx], axis=1)
-        # reward = reward + 5 * np.exp(-(d / self.reward_sigma) ** 2)
-
-        # dist = cdist(self.target_positions, self.position)
-        # uncovered_targets = self.target_positions[np.all(dist > 0.1*np.ones_like(dist), axis=1)]
-        # dist = cdist(self.position, uncovered_targets)
-        # mask = (dist < 2).sum(axis=1)
-        # reward = reward - 0.05 * mask
-
-        # dist = cdist(self.target_positions, self.position)
-        # idx = argtopk(-dist, 1, axis=1).squeeze()
-        # d = dist[np.arange(len(idx)), idx]
-        # reward = reward - 0.1 * d.max()
-
-        reward = reward - 0.3 * self.n_collisions(self.agent_radius)
-        # dist = cdist(self.position, self.position)
-        # dist[np.arange(self.n_agents), np.arange(self.n_agents)] = np.inf
-        # collided = np.any(dist < 0.2*np.ones_like(dist), axis=1)
-        # reward = reward - 10 * collided
-
-        # dist = cdist(self.position, self.position)
-        # collided = np.any(dist < 0.1*np.ones_like(dist), axis=1)
-        # dist = cdist(self.position, self.target_positions)
-        # covering = np.any(dist < 0.1*np.ones_like(dist), axis=1)
-        # covering_same = np.logical_and(collided, covering)
-        # reward = reward - covering_same
-
-        # best_action = self.centralized_policy()
-        # action_similarity = (
-        #     best_action[:, 0] * self.velocity[:, 0]
-        #     + best_action[:, 1] * self.velocity[:, 1]
-        # )
-        # reward = reward + action_similarity
-
-        # seen_targets = self._observed_targets().reshape(-1, 2)
-        # unseen_targets = np.array(list(filter(lambda x: x not in seen_targets, self.target_positions)))
-        # dist = cdist(self.position, unseen_targets)
-        # mask = (dist < 2).sum(axis=1)
-        # reward = reward - 0.1 * mask
-
-        dist = cdist(self.target_positions, self.position)
-        reward = np.any(dist < 0.1 * np.ones_like(dist), axis=1)
-
+        # use the distance to the optimal assignment agent as a reward
+        distances = self.dist_pt[row_idx, col_idx]
+        reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
+        # count the number of collisions per agent
+        n_collisions_per_agent = np.sum(self.dist_pp < self.agent_radius, axis=1) - 1
+        penalty_collision = self.collision_coefficient * n_collisions_per_agent
+        # the reward for each agent is the coverage reward minus the collision penalty
+        reward = reward_coverage - penalty_collision
         return reward
 
     def coverage(self) -> float:

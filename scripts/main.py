@@ -129,6 +129,12 @@ def main():
             default=0.0,
             help="Additional margin to consider when initializing for collision avoidance.",
         )
+        group.add_argument(
+            "--collision_coefficient",
+            type=float,
+            default=5.0,
+            help="Scalling cofficient for the reward penalty for collisions.",
+        )
 
     params = parser.parse_args()
     if params.operation in ("ddpg", "td3", "ppo"):
@@ -338,6 +344,7 @@ def baseline(params):
         width=params.width,
         scenario=params.scenario,
         agent_radius=params.agent_radius + params.agent_margin,
+        collision_coefficient=params.collision_coefficient,
     )
     if params.policy == "c":
         policy_fn = lambda o, g: env.centralized_policy()
@@ -362,6 +369,7 @@ def test(params):
         width=params.width,
         scenario=params.scenario,
         agent_radius=params.agent_radius + params.agent_margin,
+        collision_coefficient=params.collision_coefficient,
     )
     model, name = load_model(params.checkpoint)
     model = model.eval()
@@ -381,6 +389,7 @@ def test_q(params):
         width=params.width,
         scenario="q-scenario",
         agent_radius=params.agent_radius,
+        collision_coefficient=params.collision_coefficient,
     )
     model, name = load_model(params.checkpoint)
     model = model.eval()
@@ -416,6 +425,7 @@ def transfer(params):
                 width=params.width,
                 scenario=params.scenario,
                 agent_radius=params.agent_radius,
+                collision_coefficient=params.collision_coefficient,
             )
         elif params.operation == "transfer-agents":
             env = MotionPlanning(
@@ -423,6 +433,7 @@ def transfer(params):
                 width=iv_value,
                 scenario=params.scenario,
                 agent_radius=params.agent_radius,
+                collision_coefficient=params.collision_coefficient,
             )
         else:
             env = MotionPlanning(
@@ -430,6 +441,7 @@ def transfer(params):
                 width=1.0 * np.sqrt(iv_value),
                 scenario=params.scenario,
                 agent_radius=params.agent_radius,
+                collision_coefficient=params.collision_coefficient,
             )
 
         @torch.no_grad()
