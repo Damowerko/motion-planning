@@ -143,7 +143,7 @@ def main():
         test(params)
     elif params.operation == "test-q":
         test_q(params)
-    elif params.operation in ("transfer-agents", "transfer-area", "transfer-density"):
+    elif params.operation.startswith("transfer-"):
         transfer(params)
     elif params.operation == "imitation":
         imitation(params)
@@ -294,6 +294,7 @@ def rollout(
     policy_fn: typing.Callable,
     params: argparse.Namespace,
     baseline: bool = False,
+    pbar: bool = True,
 ) -> tuple[pd.DataFrame, np.ndarray]:
     """
     Perform rollouts in the environment using a given policy.
@@ -310,7 +311,7 @@ def rollout(
     """
     data = []
     frames = []
-    for trial in tqdm(range(params.n_trials)):
+    for trial in tqdm(range(params.n_trials)) if pbar else range(params.n_trials):
         frames_trial = []
         observation, centralized_state = env.reset()
         for step in range(params.max_steps):
@@ -462,9 +463,7 @@ def save_results(name: str, path: Path, data: pd.DataFrame, frames: np.ndarray):
     """
     path.mkdir(parents=True, exist_ok=True)
 
-    data.to_parquet(path / "data.parquet")
-
-    print(data)
+    data.to_parquet(path / f"{name}.parquet")
 
     # make a single plot of basic metrics
     metric_names = ["reward", "coverage", "collisions", "near_collisions"]
@@ -484,7 +483,7 @@ def save_results(name: str, path: Path, data: pd.DataFrame, frames: np.ndarray):
         "Collisions Mean": data.groupby("trial")["collisions"].sum().mean(),
         "Near Collisions Mean": data.groupby("trial")["near_collisions"].sum().mean(),
     }
-    with open(path / "metrics.json", "w") as f:
+    with open(path / f"{name}.json", "w") as f:
         json.dump(metrics, f)
 
     # make a single video of all trials
