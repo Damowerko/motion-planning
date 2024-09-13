@@ -2,8 +2,6 @@ from copy import deepcopy
 from pathlib import Path
 
 import imageio.v3 as iio
-import matplotlib.pyplot as plt
-import wandb
 
 from motion_planning.models.base import *
 from motion_planning.rl import ReplayBuffer
