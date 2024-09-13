@@ -363,6 +363,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         max_steps=200,
         n_agents: int = 100,
         width: float = 10.0,
+        agent_radius: float = 0.1,
+        agent_margin: float = 0.1,
+        collision_coefficient: float = 5.0,
         scenario: str = "uniform",
         **kwargs,
     ):
@@ -379,7 +382,13 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.max_steps = max_steps
         self.dropout = dropout
 
-        self.env = MotionPlanning(n_agents=n_agents, width=width, scenario=scenario)
+        self.env = MotionPlanning(
+            n_agents=n_agents,
+            width=width,
+            scenario=scenario,
+            agent_radius=agent_radius + agent_margin,
+            collision_coefficient=collision_coefficient,
+        )
         self.ac = GNNActorCritic(
             self.env.observation_ndim + 1,  # Data is augmented with time
             # self.env.action_ndim * 2, # Agent and target positions

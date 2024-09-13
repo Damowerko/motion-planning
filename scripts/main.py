@@ -55,24 +55,6 @@ def main():
     # common args
     group = parser.add_argument_group("Simulation")
     group.add_argument("--n_trials", type=int, default=10)
-    group.add_argument(
-        "--agent_radius",
-        type=float,
-        default=0.1,
-        help="The radius of the agents. Used to measure collisions",
-    )
-    group.add_argument(
-        "--agent_margin",
-        type=float,
-        default=0.0,
-        help="Additional margin to consider when initializing for collision avoidance.",
-    )
-    group.add_argument(
-        "--collision_coefficient",
-        type=float,
-        default=5.0,
-        help="Scalling cofficient for the reward penalty for collisions.",
-    )
 
     # operation specific arguments arguments
     group = parser.add_argument_group("Operation")
