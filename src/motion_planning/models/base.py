@@ -381,6 +381,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.polyak = polyak
         self.max_steps = max_steps
         self.dropout = dropout
+        self.agent_radius = agent_radius
+        self.agent_margin = agent_margin
 
         self.env = MotionPlanning(
             n_agents=n_agents,
