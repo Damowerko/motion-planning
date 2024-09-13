@@ -425,12 +425,12 @@ class MotionPlanningActorCritic(pl.LightningModule):
         """
         data.action = self.ac.policy(data.mu, data.sigma)
         next_state, centralized_state, reward, done, _ = self.env.step(
-            data.action.detach().cpu().numpy()
+            data.action.detach().cpu().numpy()  # type: ignore
         )
         return data, next_state, centralized_state, reward, done
 
     @torch.no_grad()
-    def rollout(self, render=False) -> List[BaseData]:
+    def rollout(self, render=False) -> tuple[List[BaseData], List[np.ndarray]]:
         self.rollout_start()
         episode = []
         observation, centralized_state = self.env.reset()
@@ -497,7 +497,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         if isinstance(adjacency, list):
             data = []
             for i, adj in enumerate(adjacency):
-                data.append(self.to_data(state[i], centralized_state[i], adj))
+                data.append(self.to_data(state[i], centralized_state[i], step, adj))
             return Batch.from_data_list(data)
         step = step / self.max_steps
         step = np.tile(step, state.shape[0])[:, None]
