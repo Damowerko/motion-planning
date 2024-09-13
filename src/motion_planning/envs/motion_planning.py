@@ -179,11 +179,11 @@ class MotionPlanning(GraphEnv):
 
     def __init__(
         self,
-        n_agents=100,
-        width=10,
-        agent_radius=0.1,
-        collision_coefficient=5.0,
-        scenario="uniform",
+        n_agents: int = 100,
+        width: float = 10,
+        agent_radius: float = 0.1,
+        collision_coefficient: float = 5.0,
+        scenario: str = "uniform",
     ):
         self.n_agents = n_agents
         self.n_targets = n_agents
