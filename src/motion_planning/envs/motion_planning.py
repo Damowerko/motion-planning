@@ -143,11 +143,11 @@ def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarra
         dist = cdist(positions, positions[idx])
         dist[idx, np.arange(len(idx))] = np.inf
         min_dist = dist.min(axis=0)
-        if (min_dist > r).all():
+        if (min_dist > 2 * r).all():
             break
         # find indices of agents that are too close and need to be changed
         # this set will be monotonically decreasing
-        idx = idx[min_dist < r]
+        idx = idx[min_dist < 2 * r]
         positions[idx] = sampler(idx.shape[0])
     return positions
 
