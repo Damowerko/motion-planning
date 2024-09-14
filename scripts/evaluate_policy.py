@@ -1,9 +1,13 @@
-from concurrent.futures import ProcessPoolExecutor
+import argparse
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
+from typing import List
 
+import pandas as pd
 import torch
-from main import load_model, rollout, save_results
+from main import load_model, rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
 
@@ -20,7 +24,7 @@ class Parameters:
     max_steps: int = 200
 
 
-def evaluate(name, params):
+def evaluate(params):
     # evaluate the model for different agent radiuses
     env = MotionPlanning(
         n_agents=params.n_agents,
@@ -28,7 +32,7 @@ def evaluate(name, params):
         agent_radius=params.agent_radius,
         scenario="uniform",
     )
-    model, model_name = load_model(params.checkpoint)
+    model, _ = load_model(params.checkpoint)
     model = model.eval()
 
     @torch.no_grad()
@@ -36,41 +40,49 @@ def evaluate(name, params):
         data = model.to_data(observation, centralized_state, step, graph)
         return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
-    data, frames = rollout(
+    data, _ = rollout(
         env,
         policy_fn,
         params,  # type: ignore
         pbar=False,
     )
-    save_results(
-        name,
-        Path("data") / "policy_evaluation" / f"{model_name}",
-        data,
-        frames,
-    )
+    # add metadata
+    data["n_agents"] = params.n_agents
+    data["width"] = params.width
+    data["area"] = params.width**2
+    data["agent_radius"] = params.agent_radius
+    data["agent_margin"] = params.agent_margin
+    return data
 
 
-def evaluate_radius(agent_radius):
-    params = Parameters(agent_radius=agent_radius)
-    evaluate(f"radius-{agent_radius}", params)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n_workers", type=int)
+    args = parser.parse_args()
+
+    with ProcessPoolExecutor(max_workers=args.n_workers) as e:
+        # vary number of agents and density [agents / m^2]
+        futures: List[Future] = []
+        for n_agents, density in product(
+            [20, 50, 100, 200, 500],
+            [0.2, 0.5, 1.0, 2.0, 5.0],
+        ):
+            width = (n_agents / density) ** 0.5
+            futures.append(
+                e.submit(evaluate, Parameters(n_agents=n_agents, width=width))
+            )
+        pd.concat([future.result() for future in futures]).to_parquet(
+            Path("data/scalability.parquet")
+        )
+
+        # for radius in [0.1, 0.2, 0.3, 0.4, 0.5]:
+        #     e.submit(evaluate_radius, radius)
+        # for n_agents in [10, 50, 100, 200, 500]:
+        #     e.submit(evaluate_density, n_agents)
+        # for n_agents in [10, 50, 100, 200, 500]:
+        #     e.submit(evaluate_scalability, n_agents)
+        #     e.submit(evaluate_scalability, n_agents)
 
 
-def evaluate_density(n_agents):
-    params = Parameters(n_agents=n_agents)
-    evaluate(f"density-{n_agents}", params)
-
-
-def evaluate_scalability(n_agents, default_width=10, default_n_agents=100):
-    # density is the number of agents per unit area
-    density = default_n_agents / default_width**2
-    params = Parameters(n_agents=n_agents, width=(n_agents / density) ** 0.5)
-    evaluate(f"scalability-{n_agents}", params)
-
-
-with ProcessPoolExecutor() as e:
-    # for radius in [0.1, 0.2, 0.3, 0.4, 0.5]:
-    #     e.submit(evaluate_radius, radius)
-    for n_agents in [10, 50, 100, 200, 500]:
-        e.submit(evaluate_density, n_agents)
-    for n_agents in [10, 50, 100, 200, 500]:
-        e.submit(evaluate_scalability, n_agents)
+if __name__ == "__main__":
+    main()
