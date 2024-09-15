@@ -318,7 +318,7 @@ def baseline(params):
 
     data, frames = rollout(env, policy_fn, params, baseline=True)
     save_results(
-        params.policy, Path("figures") / "test_results" / params.policy, data, frames
+        params.policy, Path("data") / "test_results" / params.policy, data, frames
     )
 
 
