@@ -65,6 +65,10 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
+        self.log("val/coverage", data.coverage.mean(), batch_size=data.batch_size)
+        self.log(
+            "val/n_collisions", data.n_collisions.mean(), batch_size=data.batch_size
+        )
 
         return loss
 
@@ -114,8 +118,12 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             # use greedy policy
             data.action = data.mu
 
-        next_state, centralized_state, reward, done, _ = self.env.step(data.action.detach().cpu().numpy())
-        return data, next_state, centralized_state, reward, done
+        next_state, centralized_state, reward, done, _ = self.env.step(
+            data.action.detach().cpu().numpy()
+        )
+        coverage = self.env.coverage()
+        n_collisions = self.env.n_collisions(r=self.agent_radius)
+        return data, next_state, centralized_state, reward, done, coverage, n_collisions
 
     def batch_generator(
         self, n_episodes=1, render=False, use_buffer=True, training=True

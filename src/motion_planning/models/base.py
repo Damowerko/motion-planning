@@ -430,7 +430,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         next_state, centralized_state, reward, done, _ = self.env.step(
             data.action.detach().cpu().numpy()  # type: ignore
         )
-        return data, next_state, centralized_state, reward, done
+        coverage = self.env.coverage()
+        n_collisions = self.env.n_collisions(r=self.agent_radius)
+        return data, next_state, centralized_state, reward, done, coverage, n_collisions
 
     @torch.no_grad()
     def rollout(self, render=False) -> tuple[List[BaseData], List[np.ndarray]]:
@@ -447,13 +449,23 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data.mu, data.sigma = self.ac.actor(data.state, data)
 
             # take step
-            data, next_state, centralized_state, reward, done = self.rollout_step(data)
+            (
+                data,
+                next_state,
+                centralized_state,
+                reward,
+                done,
+                coverage,
+                n_collisions,
+            ) = self.rollout_step(data)
 
             # add additional attributes
             next_data = self.to_data(
                 next_state, centralized_state, step + 1, self.env.adjacency()
             )
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
+            data.coverage = torch.tensor([coverage]).to(device=self.device, dtype=self.dtype)  # type: ignore
+            data.n_collisions = torch.tensor([n_collisions]).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
             data.next_centralized_state = next_data.centralized_state
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
