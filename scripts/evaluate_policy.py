@@ -16,8 +16,8 @@ from motion_planning.envs.motion_planning import MotionPlanning
 class Parameters:
     n_agents: int = 100
     width: int = 10
-    agent_radius: float = 0.1
-    agent_margin: float = 0.1
+    agent_radius: float = 0.05
+    agent_margin: float = 0.05
     scenario: str = "uniform"
     checkpoint: str = "wandb://test-team-12/motion-planning/j0pmfvt9"
     n_trials: int = 50
@@ -62,26 +62,23 @@ def main():
 
     with ProcessPoolExecutor(max_workers=args.n_workers) as e:
         # vary number of agents and density [agents / m^2]
-        futures_scalability: List[Future] = []
+        futures: List[Future] = []
         for n_agents, density in product(
             [20, 50, 100, 200, 500],
             [0.2, 0.5, 1.0, 2.0, 5.0],
         ):
             width = (n_agents / density) ** 0.5
-            futures_scalability.append(
+            futures.append(
                 e.submit(evaluate, Parameters(n_agents=n_agents, width=width))
             )
-
-        futures_radius: List[Future] = []
-        for radius in [0.1, 0.2, 0.3, 0.4]:
-            futures_radius.append(e.submit(evaluate, Parameters(agent_radius=radius)))
-
-        pd.concat([f.result() for f in futures_scalability]).to_parquet(
+        pd.concat([f.result() for f in futures]).to_parquet(
             Path("data/scalability.parquet")
         )
-        pd.concat([f.result() for f in futures_radius]).to_parquet(
-            Path("data/radius.parquet")
-        )
+
+        futures: List[Future] = []
+        for radius in [0.05, 0.1, 0.2, 0.3, 0.4]:
+            futures.append(e.submit(evaluate, Parameters(agent_radius=radius)))
+        pd.concat([f.result() for f in futures]).to_parquet(Path("data/radius.parquet"))
 
         # futures: List[Future] = []
         # for n_agents in [10, 50, 100, 200, 500]:

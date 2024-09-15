@@ -383,6 +383,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.dropout = dropout
         self.agent_radius = agent_radius
         self.agent_margin = agent_margin
+        self.collision_coefficient = collision_coefficient
 
         self.env = MotionPlanning(
             n_agents=n_agents,

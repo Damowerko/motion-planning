@@ -143,7 +143,7 @@ def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarra
         dist = cdist(positions, positions[idx])
         dist[idx, np.arange(len(idx))] = np.inf
         min_dist = dist.min(axis=0)
-        if (min_dist > 2 * r).all():
+        if (min_dist >= 2 * r).all():
             break
         # find indices of agents that are too close and need to be changed
         # this set will be monotonically decreasing
@@ -378,7 +378,9 @@ class MotionPlanning(GraphEnv):
         distances = self.dist_pt[row_idx, col_idx]
         reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
         # count the number of collisions per agent
-        n_collisions_per_agent = np.sum(self.dist_pp < self.agent_radius, axis=1) - 1
+        n_collisions_per_agent = (
+            np.sum(self.dist_pp < 2 * self.agent_radius, axis=1) - 1
+        )
         penalty_collision = self.collision_coefficient * n_collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
         reward = reward_coverage - penalty_collision
@@ -470,7 +472,7 @@ if __name__ == "__main__":
         env.reset()
         for i in range(n_steps):
             action = env.centralized_policy()
-            _, _, _, done = env.step(action)
+            _, _, _, done, _ = env.step(action)
             adj = env.adjacency()
             env.render()
             if done:
