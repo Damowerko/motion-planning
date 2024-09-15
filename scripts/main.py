@@ -95,8 +95,8 @@ def main():
             default="uniform",
             choices=["uniform", "gaussian_uniform"],
         )
-        group.add_argument("--agent_radius", type=float, default=0.1)
-        group.add_argument("--agent_margin", type=float, default=0.1)
+        group.add_argument("--agent_radius", type=float, default=0.05)
+        group.add_argument("--agent_margin", type=float, default=0.05)
         group.add_argument("--collision_coefficient", type=float, default=5.0)
 
     params = parser.parse_args()
