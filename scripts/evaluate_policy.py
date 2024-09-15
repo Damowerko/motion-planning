@@ -16,11 +16,11 @@ from motion_planning.envs.motion_planning import MotionPlanning
 class Parameters:
     n_agents: int = 100
     width: int = 10
-    agent_radius: float = 0.1
-    agent_margin: float = 0.1
+    agent_radius: float = 0.05
+    agent_margin: float = 0.05
     scenario: str = "uniform"
     checkpoint: str = "wandb://test-team-12/motion-planning/j0pmfvt9"
-    n_trials: int = 10
+    n_trials: int = 50
     max_steps: int = 200
 
 
@@ -71,12 +71,16 @@ def main():
             futures.append(
                 e.submit(evaluate, Parameters(n_agents=n_agents, width=width))
             )
-        pd.concat([future.result() for future in futures]).to_parquet(
+        pd.concat([f.result() for f in futures]).to_parquet(
             Path("data/scalability.parquet")
         )
 
-        # for radius in [0.1, 0.2, 0.3, 0.4, 0.5]:
-        #     e.submit(evaluate_radius, radius)
+        futures: List[Future] = []
+        for radius in [0.05, 0.1, 0.2, 0.3, 0.4]:
+            futures.append(e.submit(evaluate, Parameters(agent_radius=radius)))
+        pd.concat([f.result() for f in futures]).to_parquet(Path("data/radius.parquet"))
+
+        # futures: List[Future] = []
         # for n_agents in [10, 50, 100, 200, 500]:
         #     e.submit(evaluate_density, n_agents)
         # for n_agents in [10, 50, 100, 200, 500]:
