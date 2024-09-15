@@ -295,8 +295,8 @@ class MotionPlanning(GraphEnv):
         return action
 
     def decentralized_policy(self, hops=0):
-        observed_targets = self._observed_targets() + self.position[:, None, :]
-        observed_agents = self._observed_agents() + self.position[:, None, :]
+        observed_targets = self._observed_targets()
+        observed_agents = self._observed_agents()
         if hops == 0:
             action = observed_targets[:, 0, :]
         elif hops == 1:
