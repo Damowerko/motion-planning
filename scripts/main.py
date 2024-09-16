@@ -339,7 +339,7 @@ def test(params):
         return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
     data, frames = rollout(env, policy_fn, params)
-    save_results(name, Path("figures") / "test_results" / name, data, frames)
+    save_results(name, Path("data") / "test_results" / name, data, frames)
 
 
 def test_q(params):
