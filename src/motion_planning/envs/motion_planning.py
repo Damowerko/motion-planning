@@ -369,7 +369,7 @@ class MotionPlanning(GraphEnv):
     def n_collisions(self, r: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
         distances = self.dist_pp[x_idx, y_idx]
-        return np.sum((distances < r).astype(int))
+        return np.sum((distances < 2 * r).astype(int))
 
     def _reward(self):
         row_idx, col_idx = linear_sum_assignment(self.dist_pt)
