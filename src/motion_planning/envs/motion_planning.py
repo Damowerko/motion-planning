@@ -175,7 +175,7 @@ class GraphEnv(gym.Env, ABC):
 
 class MotionPlanning(GraphEnv):
     metadata = {"render.modes": ["human"]}
-    scenarios = {"uniform", "gaussian_uniform", "q-scenario"}
+    scenarios = {"uniform", "gaussian_uniform", "circle", "two_lines", "icra", "q-scenario"}
 
     def __init__(
         self,
@@ -425,6 +425,139 @@ class MotionPlanning(GraphEnv):
             self.position = collision_free_sampling(
                 self.n_agents, self.agent_radius, lambda n: rng.normal(size=(n, 2))
             )
+        elif self.scenario == "circle":
+            def circ_sampler(n):
+                radius = rng.uniform(3 * self.width / 16, 5 * self.width / 16, (n, 1))
+                angle = rng.uniform(-np.pi, np.pi, (n, 1))
+                return np.concatenate([radius * np.cos(angle), radius * np.sin(angle)], axis=1)
+            
+            self.target_positions = collision_free_sampling(
+                self.n_targets,
+                self.agent_radius,
+                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2))
+            )
+            self.position = collision_free_sampling(
+                self.n_agents, self.agent_radius, circ_sampler
+            )
+        elif self.scenario == "two_lines":
+            sampler = lambda x: (lambda n: np.concatenate([
+                rng.uniform(
+                    self.width / 4 if x == 0 else -3 * self.width / 8,
+                    3 * self.width / 8 if x == 0 else -self.width / 4,
+                    (n, 1)
+                ),
+                rng.uniform(-self.width / 2, self.width / 2, (n, 1))
+            ], axis=1))
+            self.position = collision_free_sampling(
+                self.n_targets, self.agent_radius, sampler(1)
+            )
+            self.target_positions = collision_free_sampling(
+                self.n_targets, self.agent_radius, sampler(0)
+            )
+        elif self.scenario == "icra":
+            self.position = collision_free_sampling(
+                self.n_targets,
+                self.agent_radius,
+                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2))
+            )
+
+            i_points = []
+            for row in range(8):
+                for col in range(2):
+                    i_points.append(np.array(
+                        [row * self.width / 16 - self.width / 4, col * self.width / 16 - self.width / 2]
+                    ))
+            i_points = np.array(i_points)
+
+            c_points = []
+            for row in range(2):
+                for col in range(4):
+                    c_points.append(np.array(
+                        [row * self.width / 16 - self.width / 4, col * self.width / 16 - 5 * self.width / 16]
+                    ))
+            for row in range(4):
+                for col in range(2):
+                    c_points.append(np.array(
+                        [row * self.width / 16 - self.width / 8, col * self.width / 16 - 5 * self.width / 16]
+                    ))
+            for row in range(2):
+                for col in range(4):
+                    c_points.append(np.array(
+                        [row * self.width / 16 + self.width / 8, col * self.width / 16 - 5 * self.width / 16]
+                    ))
+            c_points = np.array(c_points)
+
+            r_points = []
+            for row in range(2):
+                for col in range(4):
+                    r_points.append(np.array(
+                        [row * self.width / 16 - self.width / 4, col * self.width / 16]
+                    ))
+            for row in range(2):
+                for col in range(2):
+                    r_points.append(np.array(
+                        [row * self.width / 16 - self.width / 8, col * self.width / 16]
+                    ))
+            for row in range(2):
+                for col in range(1):
+                    r_points.append(np.array(
+                        [row * self.width / 16 - self.width / 8, col * self.width / 16 + 3 * self.width / 16]
+                    ))
+            for row in range(2):
+                for col in range(4):
+                    r_points.append(np.array(
+                        [row * self.width / 16 - self.width / 16, col * self.width / 16]
+                    ))
+            for col in range(3):
+                r_points.append(np.array(
+                    [self.width / 16, col * self.width / 16]
+                ))
+            for row in range(2):
+                for col in range(2):
+                    r_points.append(np.array(
+                        [row * self.width / 16 + self.width / 8, col * self.width / 16]
+                    ))
+            for row in range(2):
+                for col in range(1):
+                    r_points.append(np.array(
+                        [row * self.width / 16 + self.width / 8, col * self.width / 16 + 3 * self.width / 16]
+                    ))
+
+            a_points = []
+            for row in range(2):
+                for col in range(4):
+                    a_points.append(np.array(
+                        [row * self.width / 16 - self.width / 4, col * self.width / 16 + 5 * self.width / 16]
+                    ))
+            for row in range(2):
+                a_points.append(np.array(
+                    [row * self.width / 16 - self.width / 8, 5 * self.width / 16]
+                ))
+            for row in range(2):
+                a_points.append(np.array(
+                    [row * self.width / 16 - self.width / 8, self.width / 2]
+                ))
+            for row in range(2):
+                for col in range(4):
+                    a_points.append(np.array(
+                        [row * self.width / 16 - self.width / 16, col * self.width / 16 + 5 * self.width / 16]
+                    ))
+            for row in range(3):
+                a_points.append(np.array(
+                    [row * self.width / 16 + self.width / 16, 5 * self.width / 16]
+                ))
+            for row in range(3):
+                a_points.append(np.array(
+                    [row * self.width / 16 + self.width / 16, self.width / 2]
+                ))
+        
+            others = np.array(
+                [[3 * self.width / 8, -self.width / 4],
+                [3 * self.width / 8, 0],
+                [3 * self.width / 8, self.width / 4]]
+            )
+
+            self.target_positions = np.concatenate([i_points, c_points, r_points, a_points, others], axis=0)
         elif self.scenario == "q-scenario":
             # collision free sampling
             self.target_positions = collision_free_sampling(
