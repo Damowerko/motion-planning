@@ -19,6 +19,8 @@ numba = ">=0.55.1"
 torchcps = {git = "https://github.com/Damowerko/torchcps"}
 imageio = {extras = ["ffmpeg"], version = "^2.34.0"}
 wandb = "^0.16.3"
+pyarrow = "^17.0.0"
+scienceplots = "^2.1.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"

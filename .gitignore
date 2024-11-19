@@ -1,7 +1,12 @@
 .vscode/
-figures/
-logs/
-cluster/
+# Project Top-Level Dirs
+/logs
+/data
+/figures
+/cluster
+/out
+/models
+/checkpoints
 
 ## PYTHON
 # Byte-compiled / optimized / DLL files
