@@ -88,13 +88,14 @@ class MotionPlanningVideo:
             for edge in self.G.edges:
                 pygame.draw.line(surf, (0, 0, 0), self.agent_pos[edge[0]], self.agent_pos[edge[1]], width=2)
 
-    def __init__(self, width, n_agents, agent_radius, max_steps, scenario='uniform'):
+    def __init__(self, width, n_agents, agent_radius, max_steps, scenario='uniform', baseline=False):
         self.width = width
         self.n_agents = n_agents
         self.agent_radius = agent_radius
         self.target_radius = agent_radius
         self.curr_step = 0
         self.max_steps = max_steps
+        self.baseline = baseline
 
         self.env = MotionPlanning(n_agents, width, agent_radius, scenario=scenario)
 
@@ -117,13 +118,20 @@ class MotionPlanningVideo:
         if event.type == pygame.QUIT:
             self._running = False
     def on_loop(self, policy_fn):
-        action = policy_fn(
-            self.observations,
-            self.c_state,
-            self.curr_step + 1,
-            self.env.adjacency()
-        )
+        if self.baseline:
+            action = policy_fn(
+                self.observations,
+                self.env.adjacency()
+            )
+        else:
+            action = policy_fn(
+                self.observations,
+                self.c_state,
+                self.curr_step + 1,
+                self.env.adjacency()
+            )
         self.observations, self.c_state, _, self.done, _ = self.env.step(action)
+        # print(action == self.env.clip_action(self.env._observed_targets()[:,0,:]))
         self.curr_step += 1
     def on_render(self):
         self._display.fill((255, 255, 255))
@@ -449,10 +457,13 @@ def baseline(params):
     else:
         raise ValueError(f"Invalid policy {params.policy}.")
 
-    data, frames = rollout(env, policy_fn, params, baseline=True)
-    save_results(
-        params.policy, Path("data") / "test_results" / params.policy, data, frames
-    )
+    # data, frames = rollout(env, policy_fn, params, baseline=True)
+    # save_results(
+    #     params.policy, Path("data") / "test_results" / params.policy, data, frames
+    # )
+    sim = MotionPlanningVideo(params.width, params.n_agents, params.agent_radius, params.max_steps, scenario=params.scenario, baseline=True)
+    name_scenario = f'{params.policy}-{params.scenario}'
+    sim.save_video(Path("data") / "test_results" / params.policy, name_scenario, policy_fn)
 
 
 def test(params):
