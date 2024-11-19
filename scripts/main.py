@@ -27,7 +27,6 @@ from motion_planning.models import (
     MotionPlanningActorCritic,
     MotionPlanningDDPG,
     MotionPlanningImitation,
-    MotionPlanningPPO,
     MotionPlanningTD3,
 )
 
@@ -556,8 +555,6 @@ def get_model_cls(model_str) -> typing.Type[MotionPlanningActorCritic]:
         return MotionPlanningDDPG
     elif model_str == "td3":
         return MotionPlanningTD3
-    elif model_str == "ppo":
-        return MotionPlanningPPO
     raise ValueError(f"Invalid model {model_str}.")
 
 

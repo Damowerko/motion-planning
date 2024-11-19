@@ -107,13 +107,6 @@ class GNNActor(nn.Module):
 class GNNCritic(nn.Module):
     def __init__(
         self,
-        # state_ndim: int,
-        # action_ndim: int,
-        # n_agents: int,
-        # n_layers: int = 2,
-        # n_channels: int = 32,
-        # activation: typing.Union[nn.Module, str] = "leaky_relu",
-        # dropout: float = 0.0,
         state_ndim: int,
         action_ndim: int,
         n_taps: int = 4,
@@ -126,21 +119,6 @@ class GNNCritic(nn.Module):
         dropout: float = 0.0,
     ):
         super().__init__()
-        # self.n_agents = n_agents
-        # self.state_ndim = state_ndim
-        # self.action_ndim = action_ndim
-        # self.in_channels = n_agents * state_ndim + n_agents * action_ndim
-        # self.mlp = gnn.MLP(
-        #     in_channels=self.in_channels,
-        #     hidden_channels=n_channels,
-        #     out_channels=1,
-        #     num_layers=n_layers,
-        #     dropout=dropout,
-        #     act=activation,
-        #     norm=None,
-        # )
-        # self.state_ndim = state_ndim
-        # self.action_ndim = action_ndim
         self.gnn = GCN(
             state_ndim + action_ndim,
             1,
@@ -154,18 +132,6 @@ class GNNCritic(nn.Module):
             dropout,
         )
 
-    # def forward(
-    #     self,
-    #     centralized_state: torch.Tensor,
-    #     action: torch.Tensor,
-    #     data: BaseData,
-    # ) -> torch.Tensor:
-    #     centralized_state = centralized_state.reshape(data.batch_size, self.n_agents * self.state_ndim)
-    #     action = action.reshape(data.batch_size, self.n_agents * self.action_ndim)
-    #     x = torch.cat((centralized_state, action), dim=1)
-    #     y = self.mlp.forward(x)
-    #     return y.squeeze(-1)
-
     def forward(
         self,
         state: torch.Tensor,
@@ -175,72 +141,6 @@ class GNNCritic(nn.Module):
         x = torch.cat([state, action], dim=-1)
         y = self.gnn.forward(x, data.edge_index, data.edge_attr)
         # y = scatter_mean(y, data.batch, dim=0)
-        return y.squeeze(-1)
-
-
-class GNNValue(nn.Module):
-    def __init__(
-        self,
-        # state_ndim: int,
-        # action_ndim: int,
-        # n_agents: int,
-        # n_layers: int = 2,
-        # n_channels: int = 32,
-        # activation: typing.Union[nn.Module, str] = "leaky_relu",
-        # dropout: float = 0.0,
-        state_ndim: int,
-        n_taps: int = 4,
-        n_layers: int = 2,
-        n_channels: int = 32,
-        activation: typing.Union[nn.Module, str] = "leaky_relu",
-        mlp_read_layers: int = 1,
-        mlp_per_gnn_layers: int = 0,
-        mlp_hidden_channels: int = 256,
-        dropout: float = 0.0,
-    ):
-        super().__init__()
-        # self.n_agents = n_agents
-        # self.state_ndim = state_ndim
-        # self.in_channels = n_agents * state_ndim
-        # self.mlp = gnn.MLP(
-        #     in_channels=self.in_channels,
-        #     hidden_channels=n_channels,
-        #     out_channels=1,
-        #     num_layers=n_layers,
-        #     dropout=dropout,
-        #     act=activation,
-        #     norm=None,
-        # )
-        # self.state_ndim = state_ndim
-        self.gnn = GCN(
-            state_ndim,
-            1,
-            n_taps,
-            n_layers,
-            n_channels,
-            activation,
-            mlp_read_layers,
-            mlp_per_gnn_layers,
-            mlp_hidden_channels,
-            dropout,
-        )
-
-    # def forward(
-    #     self,
-    #     centralized_state: torch.Tensor,
-    #     data: BaseData,
-    # ) -> torch.Tensor:
-    #     centralized_state = centralized_state.reshape(data.batch_size, self.n_agents * self.state_ndim)
-    #     x = torch.cat((centralized_state, action), dim=1)
-    #     y = self.mlp.forward(x)
-    #     return y.squeeze(-1)
-
-    def forward(
-        self,
-        state: torch.Tensor,
-        data: BaseData,
-    ) -> torch.Tensor:
-        y = self.gnn.forward(state, data.edge_index, data.edge_attr)
         return y.squeeze(-1)
 
 
@@ -281,15 +181,6 @@ class GNNActorCritic(nn.Module):
             dropout,
         )
 
-        # self.critic = GNNCritic(
-        #     state_ndim,
-        #     action_ndim,
-        #     n_agents,
-        #     n_layers * 2,
-        #     n_channels * 2,
-        #     activation,
-        #     dropout,
-        # )
         self.critic = GNNCritic(
             observation_ndim,
             action_ndim,
@@ -303,18 +194,6 @@ class GNNActorCritic(nn.Module):
             dropout,
         )
         self.critic2 = None  # Only used for TD3
-
-        self.value = GNNValue(
-            observation_ndim,
-            n_taps,
-            n_layers,
-            n_channels,
-            activation,
-            mlp_read_layers,
-            mlp_per_gnn_layers,
-            mlp_hidden_channels,
-            dropout,
-        )
 
     def policy(
         self,
@@ -394,9 +273,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         )
         self.ac = GNNActorCritic(
             self.env.observation_ndim + 1,  # Data is augmented with time
-            # self.env.action_ndim * 2, # Agent and target positions
             self.env.action_ndim,
-            # n_agents,
             n_taps,
             n_layers,
             n_channels,
@@ -438,8 +315,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
     def rollout(self, render=False) -> tuple[List[BaseData], List[np.ndarray]]:
         self.rollout_start()
         episode = []
-        observation, centralized_state = self.env.reset()
-        data = self.to_data(observation, centralized_state, 0, self.env.adjacency())
+        observation = self.env.reset()
+        data = self.to_data(observation, 0, self.env.adjacency())
         frames = []
         for step in range(self.max_steps):
             if render:
@@ -452,7 +329,6 @@ class MotionPlanningActorCritic(pl.LightningModule):
             (
                 data,
                 next_state,
-                centralized_state,
                 reward,
                 done,
                 coverage,
@@ -461,13 +337,12 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
             # add additional attributes
             next_data = self.to_data(
-                next_state, centralized_state, step + 1, self.env.adjacency()
+                next_state, step + 1, self.env.adjacency()
             )
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.coverage = torch.tensor([coverage]).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.n_collisions = torch.tensor([n_collisions]).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
-            data.next_centralized_state = next_data.centralized_state
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
 
             episode.append(data)
@@ -508,11 +383,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
             ),
         ]
 
-    def to_data(self, state, centralized_state, step, adjacency) -> BaseData:
+    def to_data(self, state, step, adjacency) -> BaseData:
         if isinstance(adjacency, list):
             data = []
             for i, adj in enumerate(adjacency):
-                data.append(self.to_data(state[i], centralized_state[i], step, adj))
+                data.append(self.to_data(state[i], step, adj))
             return Batch.from_data_list(data)
         step = step / self.max_steps
         step = np.tile(step, state.shape[0])[:, None]
@@ -520,16 +395,12 @@ class MotionPlanningActorCritic(pl.LightningModule):
         state = torch.from_numpy(state).to(
             dtype=self.dtype, device=self.device  # type: ignore
         )
-        centralized_state = torch.from_numpy(centralized_state).to(
-            dtype=self.dtype, device=self.device
-        )
         # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
         edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore
         return Data(
             state=state,
-            centralized_state=centralized_state,
             edge_index=edge_index,
             edge_attr=edge_weight,
             num_nodes=state.shape[0],

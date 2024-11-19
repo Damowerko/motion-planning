@@ -112,16 +112,12 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def critic_loss(
         self,
         state,
-        centralized_state,
         action,
         reward,
         next_state,
-        next_centralized_state,
         done,
         data,
     ):
-        # q1 = self.ac.critic(centralized_state, action, data)
-        # q2 = self.ac.critic2(centralized_state, action, data)
         q1 = self.ac.critic(state, action, data)
         q2 = self.ac.critic2(state, action, data)  # type: ignore
 
@@ -130,8 +126,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             eps = torch.randn_like(next_mu) * self.noise
             next_action = next_mu + torch.clip(eps, -self.noise_clip, self.noise_clip)
             next_action = self.clip_action(next_action)
-            # q1_target = self.ac_target.critic(next_centralized_state, next_action, data)
-            # q2_target = self.ac_target.critic2(next_centralized_state, next_action, data)
             q1_target = self.ac_target.critic(next_state, next_action, data)
             q2_target = self.ac_target.critic2(next_state, next_action, data)  # type: ignore
 
@@ -148,7 +142,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         return loss1, loss2
 
-    def actor_loss(self, state, centralized_state, data):
+    def actor_loss(self, state, data):
         action, _ = self.ac.actor(state, data)
         self.log(
             "vals/action_magnitude",
@@ -157,7 +151,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             batch_size=data.batch_size,
         )
         action = self.clip_action(action)
-        # q = self.ac.critic(centralized_state, action, data)
         q = self.ac.critic(state, action, data)
         return -q.mean()
 
@@ -168,11 +161,9 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         # Update the critic function
         loss_q1, loss_q2 = self.critic_loss(
             data.state,
-            data.centralized_state,
             data.action,
             data.reward,
             data.next_state,
-            data.next_centralized_state,
             data.done,
             data,
         )
@@ -216,7 +207,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
                 p.requires_grad = False
 
             # Update the actor function
-            loss_pi = self.actor_loss(data.state, data.centralized_state, data)
+            loss_pi = self.actor_loss(data.state, data)
             self.log(
                 "train/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size
             )
@@ -246,15 +237,13 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def validation_step(self, data, batch_idx):
         loss_q = self.critic_loss(
             data.state,
-            data.centralized_state,
             data.action,
             data.reward,
             data.next_state,
-            data.next_centralized_state,
             data.done,
             data,
         )
-        loss_pi = self.actor_loss(data.state, data.centralized_state, data)
+        loss_pi = self.actor_loss(data.state, data)
 
         self.log(
             "val/critic1_loss", loss_q[0], prog_bar=True, batch_size=data.batch_size
@@ -276,15 +265,13 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def test_step(self, data, batch_idx):
         loss_q = self.critic_loss(
             data.state,
-            data.centralized_state,
             data.action,
             data.reward,
             data.next_state,
-            data.next_centralized_state,
             data.done,
             data,
         )
-        loss_pi = self.actor_loss(data.state, data.centralized_state, data)
+        loss_pi = self.actor_loss(data.state, data)
 
         self.log("test/critic1_loss", loss_q[0], batch_size=data.batch_size)
         self.log("test/critic2_loss", loss_q[1], batch_size=data.batch_size)
@@ -306,19 +293,19 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             # use greedy policy
             data.action = data.mu
 
-        next_state, centralized_state, reward, done, _ = self.env.step(
+        next_state, reward, done, _ = self.env.step(
             data.action.detach().cpu().numpy()
         )
         coverage = self.env.coverage()
         n_collisions = self.env.n_collisions(r=self.agent_radius)
-        return data, next_state, centralized_state, reward, done, coverage, n_collisions
+        return data, next_state, reward, done, coverage, n_collisions
 
     @torch.no_grad()
     def rollout(self, render=False) -> tuple[List[BaseData], List[np.ndarray]]:
         self.rollout_start()
         episode = []
-        observation, centralized_state = self.env.reset()
-        data = self.to_data(observation, centralized_state, 0, self.env.adjacency())
+        observation = self.env.reset()
+        data = self.to_data(observation, 0, self.env.adjacency())
         frames = []
         for step in range(self.max_steps):
             if render:
@@ -331,7 +318,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             (
                 data,
                 next_state,
-                centralized_state,
                 reward,
                 done,
                 coverage,
@@ -340,13 +326,12 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
             # add additional attributes
             next_data = self.to_data(
-                next_state, centralized_state, step + 1, self.env.adjacency()
+                next_state, step + 1, self.env.adjacency()
             )
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.coverage = torch.tensor([coverage]).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.n_collisions = torch.tensor([n_collisions]).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.next_state = next_data.state
-            data.next_centralized_state = next_data.centralized_state
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
 
             episode.append(data)

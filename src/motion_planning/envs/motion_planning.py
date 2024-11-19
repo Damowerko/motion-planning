@@ -187,6 +187,7 @@ class MotionPlanning(GraphEnv):
     ):
         self.n_agents = n_agents
         self.n_targets = n_agents
+        self.n_obstacles = int(n_agents / 10)
 
         if scenario not in self.scenarios:
             raise ValueError(
@@ -355,9 +356,6 @@ class MotionPlanning(GraphEnv):
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
-    def _centralized_state(self):
-        return np.concatenate((self.position, self.target_positions), axis=1)
-
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)
         return too_far_gone
@@ -398,7 +396,6 @@ class MotionPlanning(GraphEnv):
         self._compute_distances()
         return (
             self._observation(),
-            self._centralized_state(),
             self._reward(),
             self._done(),
             {},
@@ -579,7 +576,7 @@ class MotionPlanning(GraphEnv):
         self._compute_distances()
         if self.render_ is not None:
             self.render_.reset()
-        return self._observation(), self._centralized_state()
+        return self._observation()
 
     def render(self, mode="human"):
         if self.render_ is None or self.render_.mode != mode:
