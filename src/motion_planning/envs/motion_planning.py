@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import gym
 import matplotlib.pyplot as plt
@@ -127,7 +127,12 @@ def index_to_coo(idx):
     return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
 
 
-def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarray]):
+def collision_free_sampling(
+        n: int,
+        r: float,
+        sampler: Callable[[int], np.ndarray],
+        obstacles: Optional[Tuple[np.ndarray, float]] = None,
+    ):
     """
     Sample n positions without collisions within a given radius r.
 
@@ -136,6 +141,11 @@ def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarra
         r: The minimum distance between positions.
         sampler: A function that samples positions given the number of positions to sample.
     """
+    # extract obstacle information
+    if obstacles:
+        obs_positions = obstacles[0]
+        obs_r = obstacles[1]
+
     # set of indices of agents that were changed in this iteration
     idx: np.ndarray = np.arange(n)
     positions: np.ndarray = sampler(n)
@@ -143,11 +153,19 @@ def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarra
         dist = cdist(positions, positions[idx])
         dist[idx, np.arange(len(idx))] = np.inf
         min_dist = dist.min(axis=0)
-        if (min_dist >= 2 * r).all():
-            break
-        # find indices of agents that are too close and need to be changed
-        # this set will be monotonically decreasing
-        idx = idx[min_dist < 2 * r]
+
+        if obstacles:
+            dist_obs = cdist(obs_positions, positions[idx])
+            min_dist_obs = dist_obs.min(axis=0)
+            if (min_dist >= 2 * r).all() and (min_dist_obs >= r + obs_r).all():
+                break
+            # find indices of agents that are too close and need to be changed
+            # this set will be monotonically decreasing
+            idx = idx[np.logical_or(min_dist < 2 * r, min_dist_obs < r + obs_r)]
+        else:
+            if (min_dist >= 2 * r).all():
+                break
+            idx = idx[min_dist < 2 * r]
         positions[idx] = sampler(idx.shape[0])
     return positions
 
@@ -202,13 +220,16 @@ class MotionPlanning(GraphEnv):
         self.width = width
         self.reward_cutoff = 0.2
         self.reward_sigma = 0.1
-        self.collision_coefficient = collision_coefficient
+        self.collision_coefficient_agent = collision_coefficient
+        self.collision_coefficient_obs = collision_coefficient
 
-        # agent properties
+        # agent/environment properties
         self.max_vel = 0.5
         self.agent_radius = agent_radius
+        self.obstacle_radius = 4 * agent_radius
         self.n_observed_agents = 3
         self.n_observed_targets = 3
+        self.n_observed_obstacles = 3
 
         # comm graph properties
         self.n_neighbors = 3
@@ -230,6 +251,7 @@ class MotionPlanning(GraphEnv):
             self.state_ndim / 2
             + self.n_observed_targets * 2
             + self.n_observed_agents * 2
+            + self.n_observed_obstacles * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -348,13 +370,18 @@ class MotionPlanning(GraphEnv):
     def _observed_targets(self):
         idx = argtopk(-self.dist_pt, self.n_observed_targets, axis=1)
         return self.target_positions[idx, :] - self.position[:, np.newaxis, :]
+    
+    def _observed_obstacles(self):
+        idx = argtopk(-self.dist_po, self.n_observed_obstacles, axis=1)
+        return self.obstacle_positions[idx, :] - self.position[:, np.newaxis, :]
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:, 2:], tgt, agt), axis=1)
-        assert obs.shape == self.observation_space.shape  # type: ignore
-        return obs
+        obs = self._observed_obstacles().reshape(self.n_agents, -1)
+        o = np.concatenate((self.state[:, 2:], tgt, agt, obs), axis=1)
+        assert o.shape == self.observation_space.shape  # type: ignore
+        return o
 
     def _done(self) -> bool:
         too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)
@@ -363,6 +390,7 @@ class MotionPlanning(GraphEnv):
     def _compute_distances(self):
         self.dist_pp = cdist(self.position, self.position)
         self.dist_pt = cdist(self.position, self.target_positions)
+        self.dist_po = cdist(self.position, self.obstacle_positions)
 
     def n_collisions(self, r: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
@@ -376,12 +404,16 @@ class MotionPlanning(GraphEnv):
         distances = self.dist_pt[row_idx, col_idx]
         reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
         # count the number of collisions per agent
-        n_collisions_per_agent = (
+        n_agent_collisions_per_agent = (
             np.sum(self.dist_pp < 2 * self.agent_radius, axis=1) - 1
         )
-        penalty_collision = self.collision_coefficient * n_collisions_per_agent
+        n_obs_collisions_per_agent = (
+            np.sum(self.dist_po < self.agent_radius + self.obstacle_radius, axis=1)
+        )
+        penalty_collision_agent = self.collision_coefficient_agent * n_agent_collisions_per_agent
+        penalty_collision_obs = self.collision_coefficient_obs * n_obs_collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
-        reward = reward_coverage - penalty_collision
+        reward = reward_coverage - (penalty_collision_agent + penalty_collision_obs)
         return reward
 
     def coverage(self) -> float:
@@ -405,11 +437,14 @@ class MotionPlanning(GraphEnv):
         self.state = np.zeros((self.n_agents, self.state_ndim))
         if self.scenario == "uniform":
             sampler = lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2))
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.target_positions = collision_free_sampling(
-                self.n_targets, self.agent_radius, sampler
+                self.n_targets, self.agent_radius, sampler, obstacles=(self.obstacle_positions, self.obstacle_radius)
             )
             self.position = collision_free_sampling(
-                self.n_agents, self.agent_radius, sampler
+                self.n_agents, self.agent_radius, sampler, obstacles=(self.obstacle_positions, self.obstacle_radius)
             )
         elif self.scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
