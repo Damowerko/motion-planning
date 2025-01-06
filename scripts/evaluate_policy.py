@@ -7,9 +7,10 @@ from typing import List
 
 import pandas as pd
 import torch
-from main import load_model, rollout
+from main import rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
+from scripts.utils import load_model
 
 
 @dataclass
@@ -19,7 +20,7 @@ class Parameters:
     agent_radius: float = 0.05
     agent_margin: float = 0.05
     scenario: str = "uniform"
-    checkpoint: str = "wandb://test-team-12/motion-planning/j0pmfvt9"
+    checkpoint: str = "wandb://test-team-12/motion-planning/lo49pixb"
     n_trials: int = 50
     max_steps: int = 200
 
@@ -38,7 +39,7 @@ def evaluate(params):
     @torch.no_grad()
     def policy_fn(observation, centralized_state, step, graph):
         data = model.to_data(observation, centralized_state, step, graph)
-        return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
+        return model.model.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
     data, _ = rollout(
         env,

@@ -18,7 +18,6 @@ networkx = "^2.7.1"
 numba = ">=0.55.1"
 torchcps = {git = "https://github.com/Damowerko/torchcps"}
 imageio = {extras = ["ffmpeg"], version = "^2.34.0"}
-wandb = "^0.16.3"
 pyarrow = "^17.0.0"
 scienceplots = "^2.1.1"
 
@@ -40,7 +39,7 @@ priority = "supplemental"
 
 [[tool.poetry.source]]
 name = "pyg"
-url = "https://data.pyg.org/whl/torch-2.1.0+cu121.html"
+url = "https://data.pyg.org/whl/torch-2.5.0+cu124.html"
 priority = "primary"
 
 [build-system]

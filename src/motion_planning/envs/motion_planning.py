@@ -109,12 +109,13 @@ def argtopk(X, K, axis=-1):
     return idx.take(r, axis=axis)
 
 
-def index_to_coo(idx):
+def index_to_coo(idx, mask=None):
     """
     Create an scipy coo_matrix from an index array.
 
     Args:
         idx: An array of shape (N, M) that represents a matrix A[i, idx[i, j]] = 1 for i,j.
+        mask: A boolean array of shape (N, M) that represents the mask of the matrix.
 
     Returns:
         A scipy coo_matrix of shape (N, N)
@@ -123,6 +124,10 @@ def index_to_coo(idx):
     M = idx.shape[1]
     i = np.repeat(np.arange(N), M)
     j = np.ravel(idx, order="C")
+    if mask is not None:
+        mask = np.ravel(mask, order="C")
+        i = i[mask]
+        j = j[mask]
     data = np.ones_like(i)
     return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
 
@@ -206,11 +211,12 @@ class MotionPlanning(GraphEnv):
         # agent properties
         self.max_vel = 0.5
         self.agent_radius = agent_radius
-        self.n_observed_agents = 3
-        self.n_observed_targets = 3
+
+        self.observe_max_agents = 3
+        self.observe_max_targets = 3
 
         # comm graph properties
-        self.n_neighbors = 3
+        self.comm_max_neighbors = 3
 
         self._n_nodes = self.n_agents
 
@@ -227,8 +233,8 @@ class MotionPlanning(GraphEnv):
         self.state_ndim = 4
         self._observation_ndim = int(
             self.state_ndim / 2
-            + self.n_observed_targets * 2
-            + self.n_observed_agents * 2
+            + self.observe_max_targets * 2
+            + self.observe_max_agents * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -255,11 +261,11 @@ class MotionPlanning(GraphEnv):
         return self._observation_ndim
 
     @property
-    def position(self):
+    def positions(self):
         return self.state[..., 0:2]
 
-    @position.setter
-    def position(self, value):
+    @positions.setter
+    def positions(self, value):
         self.state[..., 0:2] = value
 
     @property
@@ -271,7 +277,7 @@ class MotionPlanning(GraphEnv):
         self.state[..., 2:4] = value
 
     def adjacency(self):
-        idx = argtopk(-self.dist_pp, self.n_neighbors + 1, axis=1)
+        idx = argtopk(-self.dist_pp, self.comm_max_neighbors + 1, axis=1)
         return index_to_coo(idx)
 
     def clip_action(self, action):
@@ -289,10 +295,10 @@ class MotionPlanning(GraphEnv):
     def centralized_policy(self):
         row_idx, col_idx = linear_sum_assignment(self.dist_pt)
         assert (row_idx == np.arange(self.n_agents)).all()
-        action = self.target_positions[col_idx] - self.position[row_idx]
+        action = self.targets[col_idx] - self.positions[row_idx]
         action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
-        return action
+        return action / self.max_vel
 
     def decentralized_policy(self, hops=0):
         observed_targets = self._observed_targets()
@@ -304,8 +310,8 @@ class MotionPlanning(GraphEnv):
             for i in range(self.n_agents):
                 agent_positions = np.concatenate(
                     (
-                        self.position[i, None, :],
-                        observed_agents[i] + self.position[i, None, :],
+                        self.positions[i, None, :],
+                        observed_agents[i] + self.positions[i, None, :],
                     ),
                     axis=0,
                 )
@@ -319,34 +325,34 @@ class MotionPlanning(GraphEnv):
             raise NotImplementedError("Hops > 1 not implemented.")
         action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
-        return action
+        return action / self.max_vel
 
     def capt_policy(self):
         # compute the linear sum assignment on distance squared
         row_idx, col_idx = linear_sum_assignment(self.dist_pt**2)
         # find the distance for each target
         distances = np.linalg.norm(
-            self.target_positions[col_idx] - self.position[row_idx], axis=1
+            self.targets[col_idx] - self.positions[row_idx], axis=1
         )
         # find the maximum distance between agents and targets
         time_to_target = distances.max() / self.max_vel
         # since we are in discrete time, set dt as the minimum time to target
         time_to_target = max(time_to_target, self.dt)
         # find the velocity to reach the target in time_to_target
-        action_raw = (
-            self.target_positions[col_idx] - self.position[row_idx]
-        ) / time_to_target
+        action_raw = (self.targets[col_idx] - self.positions[row_idx]) / time_to_target
         action = self.clip_action(action_raw)
-        return action
+        return action / self.max_vel
 
     def _observed_agents(self):
-        idx = argtopk(-self.dist_pp, self.n_observed_agents + 1, axis=1)
+        idx = argtopk(-self.dist_pp, self.observe_max_agents + 1, axis=1)
         idx = idx[:, 1:]  # remove self
-        return self.position[idx] - self.position[:, np.newaxis, :]
+        observed_positions = self.positions[idx] - self.positions[:, np.newaxis, :]
+        return observed_positions
 
     def _observed_targets(self):
-        idx = argtopk(-self.dist_pt, self.n_observed_targets, axis=1)
-        return self.target_positions[idx, :] - self.position[:, np.newaxis, :]
+        idx = argtopk(-self.dist_pt, self.observe_max_targets, axis=1)
+        observed_positions = self.targets[idx, :] - self.positions[:, np.newaxis, :]
+        return observed_positions
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
@@ -355,16 +361,13 @@ class MotionPlanning(GraphEnv):
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 
-    def _centralized_state(self):
-        return np.concatenate((self.position, self.target_positions), axis=1)
-
     def _done(self) -> bool:
-        too_far_gone = (np.abs(self.position) > self.width).any(axis=1).all(axis=0)
+        too_far_gone = (np.abs(self.positions) > self.width).any(axis=1).all(axis=0)
         return too_far_gone
 
     def _compute_distances(self):
-        self.dist_pp = cdist(self.position, self.position)
-        self.dist_pt = cdist(self.position, self.target_positions)
+        self.dist_pp = cdist(self.positions, self.positions)
+        self.dist_pt = cdist(self.positions, self.targets)
 
     def n_collisions(self, r: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
@@ -390,15 +393,28 @@ class MotionPlanning(GraphEnv):
         return np.mean(np.any(self.dist_pt < self.reward_cutoff, axis=0))
 
     def step(self, action):
+        """
+        Args:
+            action (np.ndarray): The action to take. Normalized to a unit ball. Will be multipled by self.max_vel to get the actual velocity command.
+
+        Returns:
+            observation (np.ndarray): The observation of the environment.
+            agent_positions (np.ndarray): The position of the agents.
+            target_positions (np.ndarray): The position of the targets.
+            reward (float): The reward of the environment.
+            done (bool): Whether the episode is done.
+            info (dict): Additional information.
+        """
         assert action.shape == self.action_space.shape  # type: ignore
-        action = self.clip_action(action)
+        action = self.clip_action(action * self.max_vel)
         self.velocity = action
-        self.position += self.velocity * self.dt
+        self.positions += self.velocity * self.dt
         self.t += self.dt
         self._compute_distances()
         return (
             self._observation(),
-            self._centralized_state(),
+            self.positions,
+            self.targets,
             self._reward(),
             self._done(),
             {},
@@ -408,31 +424,31 @@ class MotionPlanning(GraphEnv):
         self.state = np.zeros((self.n_agents, self.state_ndim))
         if self.scenario == "uniform":
             sampler = lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2))
-            self.target_positions = collision_free_sampling(
+            self.targets = collision_free_sampling(
                 self.n_targets, self.agent_radius, sampler
             )
-            self.position = collision_free_sampling(
+            self.positions = collision_free_sampling(
                 self.n_agents, self.agent_radius, sampler
             )
         elif self.scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
             # targets are uniformly distributed
-            self.target_positions = collision_free_sampling(
+            self.targets = collision_free_sampling(
                 self.n_targets,
                 self.agent_radius,
                 lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
             )
-            self.position = collision_free_sampling(
+            self.positions = collision_free_sampling(
                 self.n_agents, self.agent_radius, lambda n: rng.normal(size=(n, 2))
             )
         elif self.scenario == "q-scenario":
             # collision free sampling
-            self.target_positions = collision_free_sampling(
+            self.targets = collision_free_sampling(
                 self.n_targets,
                 self.agent_radius,
                 lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
             )
-            self.position = collision_free_sampling(
+            self.positions = collision_free_sampling(
                 self.n_agents,
                 self.agent_radius,
                 lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
@@ -446,15 +462,15 @@ class MotionPlanning(GraphEnv):
         self._compute_distances()
         if self.render_ is not None:
             self.render_.reset()
-        return self._observation(), self._centralized_state()
+        return self._observation(), self.positions, self.targets
 
     def render(self, mode="human"):
         if self.render_ is None or self.render_.mode != mode:
             self.render_ = MotionPlanningRender(self.width, self.state_ndim, mode=mode)
 
         return self.render_.render(
-            self.target_positions.T,
-            self.position.T,
+            self.targets.T,
+            self.positions.T,
             self._reward(),
             self.coverage(),
             self._observed_targets(),
