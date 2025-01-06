@@ -104,7 +104,7 @@ def rollout(
         observation, positions, targets = env.reset()
         for step in range(params.max_steps):
             action = (
-                policy_fn(observation, positions, targets, step + 1, env.adjacency())
+                policy_fn(observation, positions, targets, env.adjacency())
                 if not baseline
                 else policy_fn(observation, env.adjacency())
             )
@@ -167,9 +167,9 @@ def test(params):
     model = model.eval()
 
     @torch.no_grad()
-    def policy_fn(observation, positions, targets, step, graph):
-        data = model.to_data(observation, positions, targets, step, graph)
-        return model.model.actor.forward(data.state, data)[0].detach().cpu().numpy()
+    def policy_fn(observation, positions, targets, graph):
+        data = model.to_data(observation, positions, targets, graph)
+        return model.model.forward_actor(data).detach().cpu().numpy()
 
     data, frames = rollout(env, policy_fn, params)
     save_results(name, Path("data") / "test_results" / name, data, frames)

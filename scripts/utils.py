@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import lightning.pytorch as pl
+import yaml
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from wandb.sdk.wandb_run import Run
@@ -112,14 +113,6 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
             model_str = api.run(f"{user}/{project}/{run_id}").config["operation"]
         else:
             name = os.path.basename(uri).split(".")[0]
-            if "imitation" in uri:
-                model_str = "imitation"
-            elif "gpg" in uri:
-                model_str = "gpg"
-            elif "td3" in uri:
-                model_str = "td3"
-            else:
-                raise ValueError(f"Invalid model uri {uri}.")
 
         cls = get_operation_cls(model_str)
         model = cls.load_from_checkpoint(uri)

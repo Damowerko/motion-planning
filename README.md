@@ -20,3 +20,13 @@ For example we can change the batch size and the learning rate of the actor.
 ```
 python scripts/train.py imitation transformer --batch_size 32 --actor_lr 1e-6
 ```
+
+## Testing a Checkpoint
+```
+python scripts/test.py <operation> <architecture> --checkpoint <uri>
+```
+As before the operation can be either `imitaiton` or `td3`. The architecture can be `transformer` or `gnn`. The uri can be either a path to a local file or a uri for wandb. In the latter case the uri should be in the form of `wandb://<project>/<run>/<checkpoint>`.
+```
+python scripts/test.py imitation transformer --checkpoint wandb://damowerko/motion-planning/a3qcx5i8
+```
+The results of the testing will be saved into `data/test_results/<checkpoint_name>`. This will include a video of the policy evaluation, several plots, summary metrics, and a parquet file containing detailed metrics.
