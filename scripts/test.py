@@ -12,9 +12,9 @@ import seaborn as sns
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+from utils import load_model
 
 from motion_planning.envs.motion_planning import MotionPlanning
-from scripts.utils import load_model
 
 
 def main():
@@ -26,7 +26,7 @@ def main():
     parser.add_argument(
         "operation",
         type=str,
-        default="td3",
+        default="test",
         choices=[
             "test",
             "baseline",
@@ -243,3 +243,7 @@ def save_results(
         frames_path.mkdir(parents=True)
         for i, frame in enumerate(itertools.chain(*frames)):
             iio.imwrite(frames_path / f"{i}.png", frame)
+
+
+if __name__ == "__main__":
+    main()
