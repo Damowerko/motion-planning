@@ -323,8 +323,8 @@ class GCN(nn.Module):
 class GNNActorCritic(ActorCritic):
     def __init__(
         self,
-        state_ndim: int,
-        action_ndim: int,
+        state_ndim: int = 14,
+        action_ndim: int = 2,
         n_taps: int = 4,
         n_layers: int = 2,
         n_channels: int = 32,
@@ -365,7 +365,8 @@ class GNNActorCritic(ActorCritic):
         """
         Returns normalized action within the range [-1, 1].
         """
-        return self.actor(data).tanh()
+        return self.actor(data.state, data.edge_index).tanh()
 
     def forward_critic(self, action: torch.Tensor, data: Data) -> torch.Tensor:
-        return self.critic(action, data.edge_index)
+        x = torch.cat([data.state, action], dim=-1)
+        return self.critic(x, data.edge_index)
