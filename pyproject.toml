@@ -20,6 +20,7 @@ torchcps = {git = "https://github.com/Damowerko/torchcps"}
 imageio = {extras = ["ffmpeg"], version = "^2.34.0"}
 pyarrow = "^17.0.0"
 scienceplots = "^2.1.1"
+optuna = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"
