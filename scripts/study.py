@@ -86,7 +86,7 @@ def objective(trial: optuna.trial.Trial, default_params: dict):
         weight_decay=trial.suggest_float("weight_decay", 1e-16, 1, log=True),
         n_layers=trial.suggest_int("n_layers", 2, 10),
         n_heads=trial.suggest_int("n_heads", 1, 8),
-        n_channels=trial.suggest_int("n_channels", 128, 1024),
+        n_channels=trial.suggest_int("n_channels", 16, 128),
         dropout=trial.suggest_float("dropout", 0.0, 0.5),
     )
     params = {**default_params, **params}
