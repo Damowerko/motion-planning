@@ -12,23 +12,31 @@ class TransformerActor(nn.Module):
         n_layers: int = 4,
         n_channels: int = 256,
         n_heads: int = 8,
+        dropout: float = 0.0,
     ):
         super().__init__()
+        self.state_ndim = 14
         self.action_ndim = 2
 
+        self.readin_state_encoder = gnn.MLP(
+            [self.state_ndim, 2 * n_channels, n_channels],
+            norm="layer_norm",
+            dropout=dropout,
+        )
         self.readin_pos_encoder = gnn.MLP(
-            [2, 2 * n_channels, n_channels], norm="layer_norm"
+            [2, 2 * n_channels, n_channels], norm="layer_norm", dropout=dropout
         )
         self.readin_pos_decoder = gnn.MLP(
-            [2, 2 * n_channels, n_channels], norm="layer_norm"
+            [2, 2 * n_channels, n_channels], norm="layer_norm", dropout=dropout
         )
         self.readin_targets = gnn.MLP(
-            [2, 2 * n_channels, n_channels], norm="layer_norm"
+            [2, 2 * n_channels, n_channels], norm="layer_norm", dropout=dropout
         )
         self.readout = gnn.MLP(
             [n_channels, 2 * n_channels, self.action_ndim],
             plain_last=True,
             norm="layer_norm",
+            dropout=dropout,
         )
         self.transformer = nn.Transformer(
             d_model=n_channels,
@@ -36,16 +44,20 @@ class TransformerActor(nn.Module):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
             batch_first=True,
+            dropout=dropout,
         )
 
     def forward(self, data: Data) -> torch.Tensor:
         batch_size = data.batch_size if isinstance(data, Batch) else 1
         positions = data.positions.reshape(batch_size, -1, 2)
         targets = data.targets.reshape(batch_size, -1, 2)
-        src = torch.cat(
-            [self.readin_pos_encoder(positions), self.readin_targets(targets)], dim=1
-        )
-        tgt = self.readin_pos_decoder(positions)
+        state = data.state.reshape(batch_size, -1, self.state_ndim)
+        positions_emb = self.readin_pos_encoder(positions)
+        targets_emb = self.readin_targets(targets)
+        state_emb = self.readin_state_encoder(state)
+        src = torch.cat([positions_emb + state_emb, targets_emb], dim=1)
+        # tgt = self.readin_pos_decoder(positions)
+        tgt = positions_emb + state_emb
         y = self.transformer(src, tgt)
         return self.readout(y).reshape(-1, self.action_ndim)
 
@@ -56,17 +68,20 @@ class TransformerCritic(nn.Module):
         n_layers: int = 4,
         n_channels: int = 256,
         n_heads: int = 8,
+        dropout: float = 0.0,
     ):
         super().__init__()
 
         self.readin = gnn.MLP(
             [4, 2 * n_channels, n_channels],
             norm="layer_norm",
+            dropout=dropout,
         )
         self.readout = gnn.MLP(
             [n_channels, 2 * n_channels, 1],
             plain_last=True,
             norm="layer_norm",
+            dropout=dropout,
         )
         self.transformer = nn.Transformer(
             d_model=n_channels,
@@ -74,6 +89,7 @@ class TransformerCritic(nn.Module):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
             batch_first=True,
+            dropout=dropout,
         )
 
     def forward(self, action: torch.Tensor, data: Data) -> torch.Tensor:
@@ -92,16 +108,19 @@ class TransformerActorCritic(ActorCritic):
         n_layers: int = 4,
         n_channels: int = 256,
         n_heads: int = 8,
+        dropout: float = 0.0,
         **kwargs,
     ):
         actor = TransformerActor(
             n_layers,
             n_channels,
             n_heads,
+            dropout,
         )
         critic = TransformerCritic(
             n_layers,
             n_channels,
             n_heads,
+            dropout,
         )
         super().__init__(actor, critic)
