@@ -20,6 +20,7 @@ pyarrow = "^17.0.0"
 scienceplots = "^2.1.1"
 optuna = "^4.1.0"
 psycopg2-binary = "^2.9.10"
+optuna-integration = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"

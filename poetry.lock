@@ -2827,6 +2827,50 @@ optional = ["boto3", "cmaes (>=0.10.0)", "google-cloud-storage", "matplotlib (!=
 test = ["coverage", "fakeredis[lua]", "kaleido", "moto", "pytest", "scipy (>=1.9.2)", "torch"]
 
 [[package]]
+name = "optuna-integration"
+version = "4.1.0"
+description = "Integration libraries of Optuna."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "optuna_integration-4.1.0-py3-none-any.whl", hash = "sha256:d6ce0ffb650f7783e6cc4a4fd2f684fb1252db441414669b14c01f65b1556a2c"},
+    {file = "optuna_integration-4.1.0.tar.gz", hash = "sha256:86201502fab9c3bba8aa6ffaac0f465b0bcdb75ec75fd157eda8b96352fb3cf3"},
+]
+
+[package.dependencies]
+optuna = "*"
+
+[package.extras]
+allennlp = ["allennlp", "jsonnet", "numpy (<2.0.0)", "psutil"]
+botorch = ["botorch (<0.10.0)"]
+catboost = ["catboost", "numpy (<2.0.0)"]
+chainer = ["chainer", "numpy (<2.0.0)"]
+chainermn = ["chainermn", "numpy (<2.0.0)"]
+checking = ["black", "blackdoc", "hacking", "isort", "mypy", "types-PyYAML", "types-redis", "types-setuptools", "typing-extensions (>=3.10.0.0)"]
+cma = ["cma", "numpy (<2.0.0)"]
+comet = ["comet-ml (>=3.39.3)"]
+dask = ["distributed"]
+document = ["mlflow", "pandas", "scikit-learn (>=0.24.2)", "scipy (>=1.9.2)", "sphinx", "sphinx-rtd-theme"]
+fastai = ["fastai (>=2.0.0)"]
+fastaiv2 = ["fastai (>=2.0.0)"]
+keras = ["tensorflow"]
+lightgbm = ["lightgbm", "scikit-learn"]
+mlflow = ["mlflow"]
+mxnet = ["mxnet"]
+pytorch-distributed = ["gpytorch"]
+pytorch-ignite = ["pytorch-ignite"]
+pytorch-lightning = ["lightning"]
+shap = ["numpy (<2.0.0)", "shap"]
+sklearn = ["pandas", "scikit-learn", "scipy"]
+skorch = ["skorch"]
+tensorboard = ["tensorboard", "tensorflow"]
+tensorflow = ["tensorflow (<=2.15.0)"]
+test = ["coverage", "fakeredis[lua]", "pytest"]
+tfkeras = ["tensorflow"]
+wandb = ["wandb"]
+xgboost = ["xgboost"]
+
+[[package]]
 name = "overrides"
 version = "7.7.0"
 description = "A decorator to automatically detect mismatch when overriding a method."
@@ -5306,4 +5350,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "8399338965162b5a650360d3cfd4c03b6f3b960e6abab4a7e1a23e25fabae717"
+content-hash = "dcc05ff6a76a4607a9851ed79e79d18a7d5a08d9239278d23c57360e15d05442"
