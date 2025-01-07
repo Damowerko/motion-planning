@@ -34,16 +34,12 @@ def get_operation_cls(operation_str) -> typing.Type[MotionPlanningActorCritic]:
     raise ValueError(f"Invalid operation {operation_str}.")
 
 
-def make_trainer(params):
+def make_trainer(
+    params,
+    callbacks: list[pl.Callback] = [],
+    wandb_kwargs: dict = {},
+) -> pl.Trainer:
     logger = False
-    callbacks: list[pl.Callback] = [
-        EarlyStopping(
-            monitor="val/reward",
-            mode="max",
-            patience=params.patience,
-        ),
-    ]
-
     if params.log:
         logger = WandbLogger(
             project="motion-planning",
@@ -51,6 +47,7 @@ def make_trainer(params):
             config=params,
             log_model=True,
             notes=params.notes,
+            **wandb_kwargs,
         )
         logger.log_hyperparams(params)
         run = typing.cast(Run, logger.experiment)
@@ -62,22 +59,35 @@ def make_trainer(params):
                 and ("src" in path or "scripts" in path)
             ),
         )
+
+        if params["operation"] == "imitation":
+            monitor = "val/actor_loss"
+            mode = "min"
+        else:
+            monitor = "val/reward"
+            mode = "max"
+
         callbacks += [
+            EarlyStopping(
+                monitor=monitor,
+                mode=mode,
+                patience=params.patience,
+            ),
             ModelCheckpoint(
-                monitor="val/reward",
-                mode="max",
+                monitor=monitor,
+                mode=mode,
                 dirpath=f"logs/{params.operation}/{run.id}/",
                 filename="best",
                 auto_insert_metric_name=False,
                 save_last=True,
                 save_top_k=1,
-            )
+            ),
         ]
 
-    print("starting training")
     trainer = pl.Trainer(
         logger=logger,
         callbacks=callbacks,
+        devices=1,
         enable_checkpointing=params.log,
         precision=32,
         max_epochs=params.max_epochs,
