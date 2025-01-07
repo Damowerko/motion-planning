@@ -10,7 +10,7 @@ class TransformerActor(nn.Module):
     def __init__(
         self,
         n_layers: int = 4,
-        n_channels: int = 256,
+        n_channels: int = 32,
         n_heads: int = 8,
         dropout: float = 0.0,
     ):
@@ -109,7 +109,7 @@ class TransformerActorCritic(ActorCritic):
     def __init__(
         self,
         n_layers: int = 4,
-        n_channels: int = 256,
+        n_channels: int = 32,
         n_heads: int = 8,
         dropout: float = 0.0,
         **kwargs,
