@@ -57,45 +57,45 @@ def main():
     if operation in ("ddpg", "td3", "ppo"):
         training_group.add_argument("--checkpoint", type=str)
 
-    params = parser.parse_args()
-    if params.operation in ("ddpg", "td3", "ppo"):
+    params = vars(parser.parse_args())
+    if operation in ("ddpg", "td3", "ppo"):
         reinforce(params)
-    elif params.operation == "imitation":
+    elif operation == "imitation":
         imitate(params)
 
 
-def imitate(params):
+def imitate(params: dict):
     trainer = make_trainer(params)
-    architecture = get_architecture_cls(params.architecture)(**vars(params))
-    model = MotionPlanningImitation(architecture, **vars(params))
+    architecture = get_architecture_cls(params["architecture"])(**params)
+    model = MotionPlanningImitation(architecture, **params)
 
     ckpt_path = "./imitation/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
-    if params.test:
+    if params["test"]:
         trainer.test(model)
 
 
-def reinforce(params):
+def reinforce(params: dict):
     trainer = make_trainer(params)
 
-    if params.checkpoint:
-        params.pretrain = True
+    if params["checkpoint"]:
+        params["pretrain"] = True
         print("Resuming from pretraining.")
-        imitation, _ = load_model(params.checkpoint)
-        model = get_operation_cls(params.operation)(**vars(params))
+        imitation, _ = load_model(params["checkpoint"])
+        model = get_operation_cls(params["operation"])(**params)
         model.model.actor = imitation.model.actor
         model.ac_target = deepcopy(model.model)
     else:
-        params.pretrain = False
+        params["pretrain"] = False
         print("Did not find a pretrain checkpoint.")
-        model = get_operation_cls(params.operation)(**vars(params))
+        model = get_operation_cls(params["operation"])(**params)
 
     # check if checkpoint exists
     ckpt_path = "./train/checkpoints/last.ckpt"
     ckpt_path = ckpt_path if os.path.exists(ckpt_path) else None
     trainer.fit(model, ckpt_path=ckpt_path)
-    if params.test:
+    if params["test"]:
         trainer.test(model)
 
 

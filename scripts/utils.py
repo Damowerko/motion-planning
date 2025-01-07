@@ -35,18 +35,18 @@ def get_operation_cls(operation_str) -> typing.Type[MotionPlanningActorCritic]:
 
 
 def make_trainer(
-    params,
+    params: dict,
     callbacks: list[pl.Callback] = [],
     wandb_kwargs: dict = {},
 ) -> pl.Trainer:
     logger = False
-    if params.log:
+    if params["log"]:
         logger = WandbLogger(
             project="motion-planning",
             save_dir="logs",
             config=params,
             log_model=True,
-            notes=params.notes,
+            notes=params["notes"],
             **wandb_kwargs,
         )
         logger.log_hyperparams(params)
@@ -71,12 +71,12 @@ def make_trainer(
             EarlyStopping(
                 monitor=monitor,
                 mode=mode,
-                patience=params.patience,
+                patience=params["patience"],
             ),
             ModelCheckpoint(
                 monitor=monitor,
                 mode=mode,
-                dirpath=f"logs/{params.operation}/{run.id}/",
+                dirpath=f"logs/{params['operation']}/{run.id}/",
                 filename="best",
                 auto_insert_metric_name=False,
                 save_last=True,
@@ -88,9 +88,9 @@ def make_trainer(
         logger=logger,
         callbacks=callbacks,
         devices=1,
-        enable_checkpointing=params.log,
+        enable_checkpointing=params["log"],
         precision=32,
-        max_epochs=params.max_epochs,
+        max_epochs=params["max_epochs"],
         default_root_dir="logs/",
         check_val_every_n_epoch=1,
     )
