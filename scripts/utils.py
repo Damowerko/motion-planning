@@ -46,7 +46,7 @@ def make_trainer(
             save_dir="logs",
             config=params,
             log_model=True,
-            notes=params["notes"],
+            notes=params.get("notes", None),
             **wandb_kwargs,
         )
         logger.log_hyperparams(params)
