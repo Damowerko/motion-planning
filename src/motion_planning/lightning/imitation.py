@@ -29,7 +29,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             render: whether to render the environment
         """
         super().__init__(model, **kwargs)
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["model"])
         self.target_policy = target_policy
         self.render = render > 0
         self.buffer = ReplayBuffer[tuple[Data, Data]](buffer_size)
@@ -54,18 +54,18 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         opt_actor.step()
 
         # critic step
-        q = self.model.forward_critic(data.action, data)
-        with torch.no_grad():
-            # we get the expected action, since we want the critic to predict the expected reward
-            next_action = self.model.forward_actor(next_data)
-            next_q = self.model.forward_critic(next_action, next_data)
-        loss_critic = self.critic_loss(q, next_q, data.reward, data.done)
-        self.log(
-            "train/critic_loss", loss_critic, prog_bar=True, batch_size=data.batch_size
-        )
-        opt_critic.zero_grad()
-        self.manual_backward(loss_critic)
-        opt_critic.step()
+        # q = self.model.forward_critic(data.action, data)
+        # with torch.no_grad():
+        #     # we get the expected action, since we want the critic to predict the expected reward
+        #     next_action = self.model.forward_actor(next_data)
+        #     next_q = self.model.forward_critic(next_action, next_data)
+        # loss_critic = self.critic_loss(q, next_q, data.reward, data.done)
+        # self.log(
+        #     "train/critic_loss", loss_critic, prog_bar=True, batch_size=data.batch_size
+        # )
+        # opt_critic.zero_grad()
+        # self.manual_backward(loss_critic)
+        # opt_critic.step()
 
     def validation_step(self, data_pair, *args):
         data, next_data = data_pair
