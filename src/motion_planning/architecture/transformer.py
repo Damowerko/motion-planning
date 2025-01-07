@@ -17,29 +17,30 @@ class TransformerActor(nn.Module):
         super().__init__()
         self.state_ndim = 14
         self.action_ndim = 2
+        self.embed_dim = n_channels * n_heads
 
         self.readin_state_encoder = gnn.MLP(
-            [self.state_ndim, 2 * n_channels, n_channels],
+            [self.state_ndim, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
             dropout=dropout,
         )
         self.readin_pos_encoder = gnn.MLP(
-            [2, 2 * n_channels, n_channels], norm="layer_norm", dropout=dropout
+            [2, 2 * self.embed_dim, self.embed_dim], norm="layer_norm", dropout=dropout
         )
         self.readin_pos_decoder = gnn.MLP(
-            [2, 2 * n_channels, n_channels], norm="layer_norm", dropout=dropout
+            [2, 2 * self.embed_dim, self.embed_dim], norm="layer_norm", dropout=dropout
         )
         self.readin_targets = gnn.MLP(
-            [2, 2 * n_channels, n_channels], norm="layer_norm", dropout=dropout
+            [2, 2 * self.embed_dim, self.embed_dim], norm="layer_norm", dropout=dropout
         )
         self.readout = gnn.MLP(
-            [n_channels, 2 * n_channels, self.action_ndim],
+            [self.embed_dim, 2 * self.embed_dim, self.action_ndim],
             plain_last=True,
             norm="layer_norm",
             dropout=dropout,
         )
         self.transformer = nn.Transformer(
-            d_model=n_channels,
+            d_model=self.embed_dim,
             nhead=n_heads,
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
@@ -66,25 +67,27 @@ class TransformerCritic(nn.Module):
     def __init__(
         self,
         n_layers: int = 4,
-        n_channels: int = 256,
+        n_channels: int = 32,
         n_heads: int = 8,
         dropout: float = 0.0,
     ):
         super().__init__()
 
+        self.embed_dim = n_channels * n_heads
+
         self.readin = gnn.MLP(
-            [4, 2 * n_channels, n_channels],
+            [4, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
             dropout=dropout,
         )
         self.readout = gnn.MLP(
-            [n_channels, 2 * n_channels, 1],
+            [self.embed_dim, 2 * self.embed_dim, 1],
             plain_last=True,
             norm="layer_norm",
             dropout=dropout,
         )
         self.transformer = nn.Transformer(
-            d_model=n_channels,
+            d_model=self.embed_dim,
             nhead=n_heads,
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
