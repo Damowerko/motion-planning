@@ -65,7 +65,9 @@ def study(params: dict):
     study_name = "ump-1"
     storage = os.environ["OPTUNA_STORAGE"]
     pruner = optuna.pruners.HyperbandPruner(
-        min_resource=10, max_resource=params["max_epochs"], reduction_factor=3
+        min_resource=10,
+        max_resource=200,
+        reduction_factor=3,  # Increased max_resource to 200
     )
     study = optuna.create_study(
         study_name=study_name,
