@@ -118,14 +118,25 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
             )
             artifact.download(root=tmpdir)
             uri = f"{tmpdir}/model.ckpt"
+            run = api.run(f"{user}/{project}/{run_id}")
             # set the name and model_str
             name = run_id
-            model_str = api.run(f"{user}/{project}/{run_id}").config["operation"]
+            params: dict = api.run(f"{user}/{project}/{run_id}").config
+            model_str = params["operation"]
         else:
             name = os.path.basename(uri).split(".")[0]
+            with open(Path(uri).with_suffix("yaml")) as f:
+                params = yaml.safe_load(f)
 
-        cls = get_operation_cls(model_str)
-        model = cls.load_from_checkpoint(uri)
+        try:
+            # New checkpoints should include the architecture in the state_dict
+            model = get_operation_cls(model_str).load_from_checkpoint(uri)
+        except TypeError:
+            # If the model was saved without the architecture, we need to load it manually
+            architecture = get_architecture_cls(params["architecture"])(**params)
+            model = get_operation_cls(model_str).load_from_checkpoint(
+                uri, model=architecture
+            )
         return model, name
 
 
