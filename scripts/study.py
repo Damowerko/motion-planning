@@ -49,7 +49,7 @@ def parse_args():
     # training arguments
     training_group = parser.add_argument_group("Training")
     training_group.add_argument("--no_log", action="store_false", dest="log")
-    training_group.add_argument("--max_epochs", type=int, default=100)
+    training_group.add_argument("--max_epochs", type=int, default=500)
     # disable early stopping by default (set to 10_000 epochs)
     training_group.add_argument("--patience", type=int, default=10_000)
 
