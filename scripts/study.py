@@ -67,7 +67,7 @@ def study(params: dict):
     pruner = optuna.pruners.HyperbandPruner(
         min_resource=10,
         max_resource=params["max_epochs"],
-        reduction_factor=3,
+        reduction_factor=4,
     )
     study = optuna.create_study(
         study_name=study_name,
