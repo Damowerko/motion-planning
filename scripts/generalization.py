@@ -54,6 +54,7 @@ def evaluate(model, params):
 
 
 def main():
+    torch.set_float32_matmul_precision("high")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--n_workers",
