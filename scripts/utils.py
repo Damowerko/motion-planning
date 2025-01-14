@@ -101,13 +101,25 @@ def make_trainer(
     return trainer
 
 
+def load_model_name(uri: str) -> str:
+    if uri.startswith("wandb://"):
+        user, project, run_id = uri[len("wandb://") :].split("/")
+        return run_id
+    return os.path.basename(uri).split(".")[0]
+
+
 def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, str]:
     """Load a model from a uri.
 
     Args:
         uri (str): The uri of the model to load. By default this is a path to a file. If you want to use a wandb model, use the format wandb://<user>/<project>/<run_id>.
         cls: The class of the model to load.
+
+    Returns:
+        model (MotionPlanningActorCritic): The loaded model.
+        name (str): The name of the model.
     """
+    name = load_model_name(uri)
     with TemporaryDirectory() as tmpdir:
         if uri.startswith("wandb://"):
             import wandb
@@ -122,13 +134,10 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
             )
             artifact.download(root=tmpdir)
             uri = f"{tmpdir}/model.ckpt"
-            run = api.run(f"{user}/{project}/{run_id}")
             # set the name and model_str
-            name = run_id
             params: dict = api.run(f"{user}/{project}/{run_id}").config
             model_str = params["operation"]
         else:
-            name = os.path.basename(uri).split(".")[0]
             with open(Path(uri).with_suffix("yaml")) as f:
                 params = yaml.safe_load(f)
 
@@ -150,7 +159,8 @@ def rollout(
     params: dict,
     baseline: bool = False,
     pbar: bool = True,
-) -> tuple[pd.DataFrame, np.ndarray]:
+    frames: bool = True,
+) -> tuple[pd.DataFrame, np.ndarray | None]:
     """
     Perform rollouts in the environment using a given policy.
 
@@ -158,6 +168,7 @@ def rollout(
         env (MotionPlanning): The environment to perform rollouts in.
         policy_fn (typing.Callable): The policy function to use for selecting actions.
         params (dict): Additional parameters for the rollouts.
+        frames (bool): Whether to return the frames of the rollouts.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: A tuple containing the rewards and frames for each rollout.
@@ -165,7 +176,7 @@ def rollout(
         - frames (np.ndarray): An array of shape (n_trial, max_steps, H, W) where H and W are the heights and widths of the rendered frames.
     """
     data = []
-    frames = []
+    frames_all = []
     for trial in tqdm(range(params["n_trials"])) if pbar else range(params["n_trials"]):
         frames_trial = []
         observation, positions, targets = env.reset()
@@ -188,9 +199,12 @@ def rollout(
                     ),
                 )
             )
-            frames_trial.append(env.render(mode="rgb_array"))
-        frames.append(frames_trial)
-    return pd.DataFrame(data), np.asarray(frames)
+            if frames:
+                frames_trial.append(env.render(mode="rgb_array"))
+        if frames:
+            frames_all.append(frames_trial)
+    frames_array = np.asarray(frames_all) if frames else None
+    return pd.DataFrame(data), frames_array
 
 
 def find_checkpoint(operation):
