@@ -22,14 +22,14 @@ class Parameters:
     agent_margin: float = 0.05
     scenario: str = "uniform"
     checkpoint: str = "wandb://damowerko-academic/motion-planning/jwtdsmlx"
-    n_trials: int = 50
+    n_trials: int = 5
     max_steps: int = 200
 
 
 def evaluate(params):
     torch.set_float32_matmul_precision("high")
     model, _ = load_model(params.checkpoint)
-    model = model.eval()
+    model = model.eval().cuda()
     # evaluate the model for different agent radiuses
     env = MotionPlanning(
         n_agents=params.n_agents,
@@ -76,11 +76,7 @@ def main():
         # vary number of agents and density [agents / m^2]
         futures: List[Future] = []
         for n_agents, density in product(
-            [
-                20,
-                50,
-                100,
-            ],
+            [20, 50, 100, 200, 500, 1000],
             [1.0],
         ):
             width = (n_agents / density) ** 0.5
