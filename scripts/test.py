@@ -2,7 +2,6 @@ import argparse
 import itertools
 import json
 import sys
-import typing
 from pathlib import Path
 
 import imageio.v3 as iio
@@ -11,8 +10,7 @@ import pandas as pd
 import seaborn as sns
 import torch
 from matplotlib import pyplot as plt
-from tqdm import tqdm
-from utils import load_model
+from utils import load_model, rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
 
@@ -33,6 +31,13 @@ def main():
         ],
         help="The operation to perform.",
     )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Override the filenames of outputs to **/{name}.{ext}. If not provided the name is inferred from the checkpoint.",
+    )
+
     operation = sys.argv[1]
 
     # common args
@@ -68,87 +73,38 @@ def main():
         help="The policy to test. Can be either a  c / d0 / d1 / capt will use.",
     )
 
-    params = parser.parse_args()
-    if params.operation == "test":
+    params = vars(parser.parse_args())
+    if params["operation"] == "test":
         test(params)
-    elif params.operation == "baseline":
+    elif params["operation"] == "baseline":
         baseline(params)
     else:
-        raise ValueError(f"Invalid operation {params.operation}.")
+        raise ValueError(f"Invalid operation {params['operation']}.")
 
 
-def rollout(
-    env: MotionPlanning,
-    policy_fn: typing.Callable,
-    params: argparse.Namespace,
-    baseline: bool = False,
-    pbar: bool = True,
-) -> tuple[pd.DataFrame, np.ndarray]:
-    """
-    Perform rollouts in the environment using a given policy.
-
-    Args:
-        env (MotionPlanning): The environment to perform rollouts in.
-        policy_fn (typing.Callable): The policy function to use for selecting actions.
-        params (argparse.Namespace): Additional parameters for the rollouts.
-
-    Returns:
-        tuple[np.ndarray, np.ndarray]: A tuple containing the rewards and frames for each rollout.
-        - rewards (pd.DataFrame): A Pandas dataframe with columns=['trial', 'step', 'reward', 'coverage', 'collisions', 'near_collisions'].
-        - frames (np.ndarray): An array of shape (n_trial, max_steps, H, W) where H and W are the heights and widths of the rendered frames.
-    """
-    data = []
-    frames = []
-    for trial in tqdm(range(params.n_trials)) if pbar else range(params.n_trials):
-        frames_trial = []
-        observation, positions, targets = env.reset()
-        for step in range(params.max_steps):
-            action = (
-                policy_fn(observation, positions, targets, env.adjacency())
-                if not baseline
-                else policy_fn(observation, env.adjacency())
-            )
-            observation, _, _, reward, _, _ = env.step(action)
-            data.append(
-                dict(
-                    trial=trial,
-                    step=step,
-                    reward=reward.mean(),
-                    coverage=env.coverage(),
-                    collisions=env.n_collisions(r=params.agent_radius),
-                    near_collisions=env.n_collisions(
-                        r=params.agent_radius + params.agent_margin
-                    ),
-                )
-            )
-            frames_trial.append(env.render(mode="rgb_array"))
-        frames.append(frames_trial)
-    return pd.DataFrame(data), np.asarray(frames)
-
-
-def baseline(params):
+def baseline(params: dict):
     env = MotionPlanning(
-        n_agents=params.n_agents,
-        width=params.width,
-        scenario=params.scenario,
-        agent_radius=params.agent_radius + params.agent_margin,
-        collision_coefficient=params.collision_coefficient,
+        n_agents=params["n_agents"],
+        width=params["width"],
+        scenario=params["scenario"],
+        agent_radius=params["agent_radius"] + params["agent_margin"],
+        collision_coefficient=params["collision_coefficient"],
     )
-    if params.policy == "c":
+    if params["policy"] == "c":
         policy_fn = lambda o, g: env.centralized_policy()
-    elif params.policy == "d0":
+    elif params["policy"] == "d0":
         policy_fn = lambda o, g: env.decentralized_policy(0)
-    elif params.policy == "d1":
+    elif params["policy"] == "d1":
         policy_fn = lambda o, g: env.decentralized_policy(1)
-    elif params.policy == "capt":
+    elif params["policy"] == "capt":
         policy_fn = lambda o, g: env.capt_policy()
     else:
-        raise ValueError(f"Invalid policy {params.policy}.")
+        raise ValueError(f"Invalid policy {params['policy']}.")
 
     data, frames = rollout(env, policy_fn, params, baseline=True)
     save_results(
-        params.policy,
-        Path("data") / "test_results" / params.policy,
+        params["policy"],
+        Path("data") / "test_results" / params["policy"],
         data,
         frames,
         output_images=False,
@@ -157,13 +113,13 @@ def baseline(params):
 
 def test(params):
     env = MotionPlanning(
-        n_agents=params.n_agents,
-        width=params.width,
-        scenario=params.scenario,
-        agent_radius=params.agent_radius + params.agent_margin,
-        collision_coefficient=params.collision_coefficient,
+        n_agents=params["n_agents"],
+        width=params["width"],
+        scenario=params["scenario"],
+        agent_radius=params["agent_radius"] + params["agent_margin"],
+        collision_coefficient=params["collision_coefficient"],
     )
-    model, name = load_model(params.checkpoint)
+    model, name = load_model(params["checkpoint"])
     model = model.eval()
 
     @torch.no_grad()
@@ -171,19 +127,21 @@ def test(params):
         data = model.to_data(observation, positions, targets, graph)
         return model.model.forward_actor(data).detach().cpu().numpy()
 
+    # can override the filename as an argument
+    filename = params.get("name", name)
     data, frames = rollout(env, policy_fn, params)
-    save_results(name, Path("data") / "test_results" / name, data, frames)
+    save_results(filename, Path("data") / "test_results" / filename, data, frames)
 
 
 def test_q(params):
     env = MotionPlanning(
-        n_agents=params.n_agents,
-        width=params.width,
+        n_agents=params["n_agents"],
+        width=params["width"],
         scenario="q-scenario",
-        agent_radius=params.agent_radius,
-        collision_coefficient=params.collision_coefficient,
+        agent_radius=params["agent_radius"] + params["agent_margin"],
+        collision_coefficient=params["collision_coefficient"],
     )
-    model, name = load_model(params.checkpoint)
+    model, name = load_model(params["checkpoint"])
     model = model.eval()
 
     null_action = torch.zeros(env.n_agents, 2).to(device="cuda")
@@ -207,7 +165,7 @@ def save_results(
         path (Path): The path to save the summary to.
         data (pd.DataFrame): Dataframe containing numerical info of performance at each step.
         frames (np.ndarray): An array of shape (n_trial, max_steps, H, W).
-        output_images (bool): Whether to output frames as sequence of images or a video.
+        output_images (bool): If True, save the frames as individual .png files. Otherwise, save a video.
     """
     path.mkdir(parents=True, exist_ok=True)
 

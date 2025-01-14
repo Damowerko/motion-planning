@@ -4,13 +4,17 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import lightning.pytorch as pl
+import numpy as np
+import pandas as pd
 import yaml
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from tqdm import tqdm
 from wandb.sdk.wandb_run import Run
 
 from motion_planning.architecture import GNNActorCritic, TransformerActorCritic
 from motion_planning.architecture.base import ActorCritic
+from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.lightning import (
     MotionPlanningActorCritic,
     MotionPlanningImitation,
@@ -138,6 +142,55 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
                 uri, model=architecture
             )
         return model, name
+
+
+def rollout(
+    env: MotionPlanning,
+    policy_fn: typing.Callable,
+    params: dict,
+    baseline: bool = False,
+    pbar: bool = True,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """
+    Perform rollouts in the environment using a given policy.
+
+    Args:
+        env (MotionPlanning): The environment to perform rollouts in.
+        policy_fn (typing.Callable): The policy function to use for selecting actions.
+        params (dict): Additional parameters for the rollouts.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: A tuple containing the rewards and frames for each rollout.
+        - rewards (pd.DataFrame): A Pandas dataframe with columns=['trial', 'step', 'reward', 'coverage', 'collisions', 'near_collisions'].
+        - frames (np.ndarray): An array of shape (n_trial, max_steps, H, W) where H and W are the heights and widths of the rendered frames.
+    """
+    data = []
+    frames = []
+    for trial in tqdm(range(params["n_trials"])) if pbar else range(params["n_trials"]):
+        frames_trial = []
+        observation, positions, targets = env.reset()
+        for step in range(params["max_steps"]):
+            action = (
+                policy_fn(observation, positions, targets, env.adjacency())
+                if not baseline
+                else policy_fn(observation, env.adjacency())
+            )
+            observation, _, _, reward, _, _ = env.step(action)
+            data.append(
+                dict(
+                    trial=trial,
+                    step=step,
+                    reward=reward.mean(),
+                    coverage=env.coverage(),
+                    collisions=env.n_collisions(r=params["agent_radius"]),
+                    near_collisions=env.n_collisions(
+                        r=params["agent_radius"] + params["agent_margin"]
+                    ),
+                )
+            )
+            frames_trial.append(env.render(mode="rgb_array"))
+        frames.append(frames_trial)
+    return pd.DataFrame(data), np.asarray(frames)
 
 
 def find_checkpoint(operation):
