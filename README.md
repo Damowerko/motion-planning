@@ -41,3 +41,9 @@ Use `scripts/scalability.py` to test a checkpoint while varying the environment 
 ```
 python scripts/scalability.py --checkpoint <uri>
 ```
+
+## Notebooks
+There are several notebooks in the `notebooks` folder. They are used to analyze the results of the training and testing.
+
+- `compare.ipynb` is used to compare the results of different checkpoints.
+- `scalability.ipynb` is used to analyze the results of the scalability testing. Should be used in conjunction with `scripts/scalability.py`.
