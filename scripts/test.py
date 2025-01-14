@@ -54,7 +54,18 @@ def main():
         )
     # common args
     group.add_argument("--n_agents", type=int, default=100)
-    group.add_argument("--width", type=float, default=10.0)
+    group.add_argument(
+        "--width",
+        type=float,
+        default=None,
+        help="The width of the environment. Defaults to `(n_agents / density)**0.5`.",
+    )
+    group.add_argument(
+        "--density",
+        type=float,
+        default=1.0,
+        help="Number of agents per unit area if `width` is not provided.",
+    )
     group.add_argument("--render", action="store_true")
     group.add_argument("--max_steps", type=int, default=200)
     group.add_argument(
@@ -74,6 +85,9 @@ def main():
     )
 
     params = vars(parser.parse_args())
+    if params["width"] is None:
+        params["width"] = (params["n_agents"] / params["density"]) ** 0.5
+
     if params["operation"] == "test":
         test(params)
     elif params["operation"] == "baseline":
