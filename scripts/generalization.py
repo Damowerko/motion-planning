@@ -61,9 +61,15 @@ def main():
         default=1,
         help="Number of workers to use. Will use multiprocessing if > 1.",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default="wandb://damowerko-academic/motion-planning/jwtdsmlx",
+        help="The checkpoint to evaluate",
+    )
     args = parser.parse_args()
 
-    model, model_name = load_model(Parameters().checkpoint)
+    model, model_name = load_model(args.checkpoint)
     model = model.eval()
 
     executor_cls = ProcessPoolExecutor if args.n_workers > 1 else ThreadPoolExecutor
@@ -71,30 +77,29 @@ def main():
         # vary number of agents and density [agents / m^2]
         futures: List[Future] = []
         for n_agents, density in product(
-            [20, 50, 100, 200, 500],
-            [0.2, 0.5, 1.0, 2.0, 5.0],
+            [20, 50, 100, 200, 500, 1000],
+            [1.0],
         ):
             width = (n_agents / density) ** 0.5
             futures.append(
-                e.submit(evaluate, model, Parameters(n_agents=n_agents, width=width))
+                e.submit(
+                    evaluate,
+                    model,
+                    Parameters(
+                        n_agents=n_agents, width=width, checkpoint=args.checkpoint
+                    ),
+                )
             )
         pd.concat([f.result() for f in futures]).to_parquet(
             Path("data") / "test_results" / model_name / "scalability.parquet"
         )
 
-        futures: List[Future] = []
-        for radius in [0.05, 0.1, 0.2, 0.3, 0.4]:
-            futures.append(e.submit(evaluate, model, Parameters(agent_radius=radius)))
-        pd.concat([f.result() for f in futures]).to_parquet(
-            Path("data") / "test_results" / model_name / "radius.parquet"
-        )
-
         # futures: List[Future] = []
-        # for n_agents in [10, 50, 100, 200, 500]:
-        #     e.submit(evaluate_density, n_agents)
-        # for n_agents in [10, 50, 100, 200, 500]:
-        #     e.submit(evaluate_scalability, n_agents)
-        #     e.submit(evaluate_scalability, n_agents)
+        # for radius in [0.05, 0.1, 0.2, 0.3, 0.4]:
+        #     futures.append(e.submit(evaluate, model, Parameters(agent_radius=radius)))
+        # pd.concat([f.result() for f in futures]).to_parquet(
+        #     Path("data") / "test_results" / model_name / "radius.parquet"
+        # )
 
 
 if __name__ == "__main__":
