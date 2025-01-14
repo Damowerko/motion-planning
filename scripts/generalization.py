@@ -41,7 +41,7 @@ def evaluate(model, params):
     data, _ = rollout(
         env,
         policy_fn,
-        params,  # type: ignore
+        vars(params),
         pbar=False,
     )
     # add metadata
