@@ -30,3 +30,14 @@ As before the operation can be either `imitaiton` or `td3`. The architecture can
 python scripts/test.py imitation transformer --checkpoint wandb://damowerko/motion-planning/a3qcx5i8
 ```
 The results of the testing will be saved into `data/test_results/<checkpoint_name>`. This will include a video of the policy evaluation, several plots, summary metrics, and a parquet file containing detailed metrics.
+
+### Common flags
+- `--name` To change the folder/filename of where the results are saved.
+- `--n_agents` To change the number of agents in the environment. Environment area is scaled proportionally, by default.
+- `--density` Alter the number of agents per unit area. By default the density is 1.0.
+
+## Testing Checkpoint Generalizatioin
+Use `scripts/generalization.py` to test a checkpoint while varying the environment parameters such as the number of agents, their density, or radius. The script has the following usage.
+```
+python scripts/generalization.py --checkpoint <uri>
+```
