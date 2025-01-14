@@ -23,7 +23,7 @@ class Parameters:
     scenario: str = "uniform"
     checkpoint: str = "wandb://damowerko-academic/motion-planning/jwtdsmlx"
     n_trials: int = 5
-    max_steps: int = 200
+    max_steps: int = 100
 
 
 def evaluate(params):

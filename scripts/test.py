@@ -67,7 +67,7 @@ def main():
         help="Number of agents per unit area if `width` is not provided.",
     )
     group.add_argument("--render", action="store_true")
-    group.add_argument("--max_steps", type=int, default=200)
+    group.add_argument("--max_steps", type=int, default=100)
     group.add_argument(
         "--scenario",
         type=str,
