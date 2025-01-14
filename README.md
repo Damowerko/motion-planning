@@ -37,7 +37,7 @@ The results of the testing will be saved into `data/test_results/<checkpoint_nam
 - `--density` Alter the number of agents per unit area. By default the density is 1.0.
 
 ## Testing Checkpoint Generalizatioin
-Use `scripts/generalization.py` to test a checkpoint while varying the environment parameters such as the number of agents, their density, or radius. The script has the following usage.
+Use `scripts/scalability.py` to test a checkpoint while varying the environment parameters such as the number of agents, their density, or radius. The script has the following usage.
 ```
-python scripts/generalization.py --checkpoint <uri>
+python scripts/scalability.py --checkpoint <uri>
 ```
