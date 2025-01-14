@@ -1,5 +1,6 @@
 import argparse
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
+import multiprocessing
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
@@ -7,7 +8,8 @@ from typing import List
 
 import pandas as pd
 import torch
-from utils import load_model, rollout
+from tqdm import tqdm
+from utils import load_model, load_model_name, rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
 
@@ -24,7 +26,10 @@ class Parameters:
     max_steps: int = 200
 
 
-def evaluate(model, params):
+def evaluate(params):
+    torch.set_float32_matmul_precision("high")
+    model, _ = load_model(params.checkpoint)
+    model = model.eval()
     # evaluate the model for different agent radiuses
     env = MotionPlanning(
         n_agents=params.n_agents,
@@ -54,46 +59,47 @@ def evaluate(model, params):
 
 
 def main():
-    torch.set_float32_matmul_precision("high")
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--n_workers",
-        type=int,
-        default=1,
-        help="Number of workers to use. Will use multiprocessing if > 1.",
-    )
+    parser.add_argument("--n_workers", type=int, default=8)
     parser.add_argument(
         "--checkpoint",
         type=str,
         default="wandb://damowerko-academic/motion-planning/jwtdsmlx",
-        help="The checkpoint to evaluate",
     )
     args = parser.parse_args()
 
-    model, model_name = load_model(args.checkpoint)
-    model = model.eval()
+    model_name = load_model_name(args.checkpoint)
 
-    executor_cls = ProcessPoolExecutor if args.n_workers > 1 else ThreadPoolExecutor
-    with executor_cls(max_workers=args.n_workers) as e:
+    multiprocessing.set_start_method("spawn")
+
+    with ProcessPoolExecutor(max_workers=args.n_workers) as e:
         # vary number of agents and density [agents / m^2]
         futures: List[Future] = []
         for n_agents, density in product(
-            [20, 50, 100, 200, 500, 1000],
+            [
+                20,
+                50,
+                100,
+            ],
             [1.0],
         ):
             width = (n_agents / density) ** 0.5
             futures.append(
                 e.submit(
                     evaluate,
-                    model,
                     Parameters(
                         n_agents=n_agents, width=width, checkpoint=args.checkpoint
                     ),
                 )
             )
-        pd.concat([f.result() for f in futures]).to_parquet(
-            Path("data") / "test_results" / model_name / "scalability.parquet"
-        )
+        pd.concat(
+            [
+                f.result()
+                for f in tqdm(
+                    as_completed(futures), total=len(futures), desc="Evaluating"
+                )
+            ]
+        ).to_parquet(Path("data") / "test_results" / model_name / "scalability.parquet")
 
         # futures: List[Future] = []
         # for radius in [0.05, 0.1, 0.2, 0.3, 0.4]:
