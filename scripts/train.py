@@ -46,16 +46,16 @@ def main():
     get_architecture_cls(architecture).add_model_specific_args(group)
 
     # training arguments
-    training_group = parser.add_argument_group("Training")
-    training_group.add_argument("--no_log", action="store_false", dest="log")
-    training_group.add_argument("--test", action="store_true")
-    training_group.add_argument("--max_epochs", type=int, default=100)
-    training_group.add_argument("--patience", type=int, default=10)
-    training_group.add_argument("--notes", type=str, default="")
+    group = parser.add_argument_group("Training")
+    group.add_argument("--no_log", action="store_false", dest="log")
+    group.add_argument("--test", action="store_true")
+    group.add_argument("--max_epochs", type=int, default=100)
+    group.add_argument("--patience", type=int, default=10)
+    group.add_argument("--notes", type=str, default="")
 
     # reinforcement learning specific args
     if operation in ("ddpg", "td3", "ppo"):
-        training_group.add_argument("--checkpoint", type=str)
+        group.add_argument("--checkpoint", type=str)
 
     params = vars(parser.parse_args())
     if operation in ("ddpg", "td3", "ppo"):

@@ -13,23 +13,35 @@ class ActorCritic(nn.Module):
         self,
         actor: nn.Module,
         critic: nn.Module,
+        compile: bool = True,
+        **_,
     ):
         """
         Args:
             actor: Actor network, no activation function at last layer.
             critic: Critic network, no activation function at last layer.
+            compile: Weather to compile the models.
         """
         super().__init__()
         self.actor = actor
         self.critic = critic
 
-    @torch.compile(dynamic=False)
+        self.actor = torch.compile(self.actor, dynamic=False, disable=not compile)
+        self.critic = torch.compile(self.critic, dynamic=False, disable=not compile)
+
     def forward_actor(self, data: Data) -> torch.Tensor:
         """
         Returns normalized action within the range [-1, 1].
         """
         return self.actor(data).tanh()
 
-    @torch.compile(dynamic=False)
     def forward_critic(self, action: torch.Tensor, data: Data) -> torch.Tensor:
         return self.critic(action, data)
+
+    def state_dict(self, *args, **kwargs):
+        actor_state_dict = self.actor._orig_mod.state_dict(*args, **kwargs)
+        critic_state_dict = self.critic._orig_mod.state_dict(*args, **kwargs)
+        return {
+            "actor": actor_state_dict,
+            "critic": critic_state_dict,
+        }
