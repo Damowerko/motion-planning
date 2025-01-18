@@ -39,8 +39,14 @@ class ActorCritic(nn.Module):
         return self.critic(action, data)
 
     def state_dict(self, *args, **kwargs):
-        actor_state_dict = self.actor._orig_mod.state_dict(*args, **kwargs)
-        critic_state_dict = self.critic._orig_mod.state_dict(*args, **kwargs)
+        if not hasattr(self.actor, "_orig_mod") or not hasattr(
+            self.critic, "_orig_mod"
+        ):
+            actor_state_dict = self.actor._orig_mod.state_dict(*args, **kwargs)
+            critic_state_dict = self.critic._orig_mod.state_dict(*args, **kwargs)
+        else:
+            actor_state_dict = self.actor.state_dict(*args, **kwargs)
+            critic_state_dict = self.critic.state_dict(*args, **kwargs)
         return {
             "actor": actor_state_dict,
             "critic": critic_state_dict,
