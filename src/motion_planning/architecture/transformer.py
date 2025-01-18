@@ -11,48 +11,48 @@ from motion_planning.architecture.base import ActorCritic
 logger = logging.getLogger(__name__)
 
 
-def linear_frequencies(period: float, n_frequencies: int):
-    return 2 * torch.pi * torch.arange(1, 1 + n_frequencies) / period
+def linear_frequencies(encoding_period: float, n_frequencies: int):
+    return 2 * torch.pi * torch.arange(1, 1 + n_frequencies) / encoding_period
 
 
-def geometric_frequencies(period: float, n_frequencies: int):
+def geometric_frequencies(encoding_period: float, n_frequencies: int):
     # geometric frequency, multiply frequency by (n_frequencies - 1) / n_frequencies
     exponent = torch.arange(n_frequencies, 0, -1) / n_frequencies
-    return 2 * torch.pi * torch.pow(1 / period, exponent)
+    return 2 * torch.pi * torch.pow(1 / encoding_period, exponent)
 
 
 def generate_frequencies(
-    period: float, n_frequencies: int, frequency_generator: str = "linear"
+    encoding_period: float, n_frequencies: int, encoding_frequencies: str = "linear"
 ):
-    if frequency_generator == "linear":
-        return linear_frequencies(period, n_frequencies)
-    elif frequency_generator == "geometric":
-        return geometric_frequencies(period, n_frequencies)
+    if encoding_frequencies == "linear":
+        return linear_frequencies(encoding_period, n_frequencies)
+    elif encoding_frequencies == "geometric":
+        return geometric_frequencies(encoding_period, n_frequencies)
     else:
-        raise ValueError(f"Unknown frequency generator: {frequency_generator}")
+        raise ValueError(f"Unknown frequency generator: {encoding_frequencies}")
 
 
 class AbsolutePositionalEncoding(nn.Module):
     def __init__(
         self,
         embed_dim: int,
-        period: float,
+        encoding_period: float,
         n_dimensions: int = 2,
-        frequency_generator: str = "linear",
+        encoding_frequencies: str = "linear",
     ):
         """
         Absolute positional encoding layer. Each position is represented by a complex exponential.
 
         Args:
             embed_dim: The dimensionality of the embedding.
-            period: The period of the embedding. Attention will have this period.
+            encoding_period: The period of the embedding. Attention will have this period.
             n_dimensions: The number of dimensions of the input data.
-            frequency_generator: The method to generate the frequencies. Either "linear" or "geometric".
+            encoding_frequencies: The method to generate the frequencies. Either "linear" or "geometric".
 
         """
         super().__init__()
         self.embed_dim = embed_dim
-        self.period = period
+        self.encoding_period = encoding_period
         self.n_dimensions = n_dimensions
         if embed_dim % (n_dimensions * 2) != 0:
             raise ValueError(
@@ -61,7 +61,9 @@ class AbsolutePositionalEncoding(nn.Module):
         self.n_frequencies = self.embed_dim // self.n_dimensions // 2
         self.register_buffer(
             "frequencies",
-            generate_frequencies(period, self.n_frequencies, frequency_generator),
+            generate_frequencies(
+                encoding_period, self.n_frequencies, encoding_frequencies
+            ),
         )
 
     def forward(self, pos: torch.Tensor) -> torch.Tensor:
@@ -83,23 +85,23 @@ class RotaryPositionalEncoding(nn.Module):
     def __init__(
         self,
         embed_dim: int,
-        period: float,
+        encoding_period: float,
         n_dimensions: int = 2,
-        frequency_generator: str = "linear",
+        encoding_frequencies: str = "linear",
     ):
         """
         Rotary positional encoding layer. Each position is represented by a complex exponential.
 
         Args:
             embed_dim: The dimensionality of the embedding.
-            period: The period of the embedding.
+            encoding_period: The period of the embedding.
             n_dimensions: The number of dimensions of the input data.
-            frequency_generator: The method to generate the frequencies. Either "linear" or "geometric".
+            encoding_frequencies: The method to generate the frequencies. Either "linear" or "geometric".
 
         """
         super().__init__()
         self.embed_dim = embed_dim
-        self.period = period
+        self.encoding_period = encoding_period
         self.n_dimensions = n_dimensions
         if embed_dim % (n_dimensions * 2) != 0:
             raise ValueError(
@@ -109,7 +111,9 @@ class RotaryPositionalEncoding(nn.Module):
         self.n_frequencies = self.embed_dim // self.n_dimensions // 2
         self.register_buffer(
             "frequencies",
-            generate_frequencies(period, self.n_frequencies, frequency_generator),
+            generate_frequencies(
+                encoding_period, self.n_frequencies, encoding_frequencies
+            ),
         )
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
@@ -148,8 +152,8 @@ class Transformer(nn.Module):
         n_heads: int,
         dropout: float = 0.0,
         encoding_type: str | None = None,
-        period: float = 10.0,
-        frequency_generator: str = "linear",
+        encoding_period: float = 10.0,
+        encoding_frequencies: str = "linear",
     ):
         super().__init__()
         self.n_layers = n_layers
@@ -189,11 +193,11 @@ class Transformer(nn.Module):
             self.encoding = None
         elif encoding_type == "absolute":
             self.encoding = AbsolutePositionalEncoding(
-                self.embed_dim, period, 2, frequency_generator
+                self.embed_dim, encoding_period, 2, encoding_frequencies
             )
         elif encoding_type == "rotary":
             self.encoding = RotaryPositionalEncoding(
-                self.embed_dim, period, 2, frequency_generator
+                self.embed_dim, encoding_period, 2, encoding_frequencies
             )
         elif encoding_type == "mlp":
             self.encoding = gnn.MLP(
@@ -249,6 +253,8 @@ class TransformerActor(nn.Module):
         n_heads: int = 8,
         dropout: float = 0.0,
         encoding_type: str = "mlp",
+        encoding_period: float = 10.0,
+        encoding_frequencies: str = "linear",
     ):
         super().__init__()
         self.state_ndim = 14
@@ -267,7 +273,13 @@ class TransformerActor(nn.Module):
             dropout=dropout,
         )
         self.transformer = Transformer(
-            n_layers, self.embed_dim, n_heads, dropout, encoding_type=encoding_type
+            n_layers,
+            self.embed_dim,
+            n_heads,
+            dropout,
+            encoding_type=encoding_type,
+            encoding_period=encoding_period,
+            encoding_frequencies=encoding_frequencies,
         )
 
     def forward(self, data: Data) -> torch.Tensor:
@@ -329,6 +341,8 @@ class TransformerActorCritic(ActorCritic):
         n_heads: int = 2,
         dropout: float = 0.0,
         encoding_type: str = "mlp",
+        encoding_period: float = 10.0,
+        encoding_frequencies: str = "linear",
         **kwargs,
     ):
         actor = TransformerActor(
@@ -337,6 +351,8 @@ class TransformerActorCritic(ActorCritic):
             n_heads,
             dropout,
             encoding_type=encoding_type,
+            encoding_period=encoding_period,
+            encoding_frequencies=encoding_frequencies,
         )
         critic = TransformerCritic(
             n_layers,
