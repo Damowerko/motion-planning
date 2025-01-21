@@ -142,7 +142,7 @@ def test(params):
         return model.model.forward_actor(data).detach().cpu().numpy()
 
     # can override the filename as an argument
-    filename = params.get("name", name)
+    filename = name if params["name"] is None else params["name"]
     data, frames = rollout(env, policy_fn, params)
     save_results(filename, Path("data") / "test_results" / filename, data, frames)
 
