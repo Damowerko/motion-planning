@@ -154,6 +154,7 @@ class Transformer(nn.Module):
         encoding_type: str | None = None,
         encoding_period: float = 10.0,
         encoding_frequencies: str = "linear",
+        attention_window: float = 0.0,
     ):
         super().__init__()
         self.n_layers = n_layers
@@ -161,6 +162,7 @@ class Transformer(nn.Module):
         self.dropout = float(dropout)
         self.embed_dim = embed_dim
         self.head_dim = embed_dim // n_heads
+        self.attention_window = attention_window
 
         # will have n_layers for encoder and n_layers for decoder
         self.Wq = nn.ModuleList(
@@ -208,10 +210,34 @@ class Transformer(nn.Module):
         else:
             raise ValueError(f"Unknown positional encoding: {encoding_type}")
 
+    @staticmethod
+    def _window_mask(pos: torch.Tensor, attention_window: float) -> torch.Tensor:
+        """
+        Create a window mask for the transformer. The mask is a matrix of shape (B, N, N) where N is the number of
+        positions and B is the batch size.
+
+        Args:
+            pos: The positions of the input tensor with shape (B, N, n_dimensions).
+            attention_window: The window size.
+
+        Returns:
+            A tensor of shape (B, 1, N, N) with the window mask.
+        """
+        distance = torch.cdist(pos, pos)
+        # divide by 2 because we want to have the window size be the full width
+        mask = distance <= attention_window / 2
+        return mask.unsqueeze(1)
+
     def forward(self, x: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
         B, N = x.shape[:2]
         if isinstance(self.encoding, (AbsolutePositionalEncoding, gnn.MLP)):
             x = x + self.encoding(pos)
+
+        attn_mask = (
+            self._window_mask(pos, self.attention_window)
+            if self.attention_window > 0
+            else None
+        )
 
         for i in range(self.n_layers):
             # using pre-norm transformer, so we apply layer norm before attention
@@ -231,7 +257,9 @@ class Transformer(nn.Module):
 
             # compute attention and reshape to "concate" heads
             x_attention = (
-                F.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout)
+                F.scaled_dot_product_attention(
+                    q, k, v, dropout_p=self.dropout, attn_mask=attn_mask
+                )
                 .transpose(1, 2)
                 .reshape(B, N, self.embed_dim)
             )
@@ -255,6 +283,7 @@ class TransformerActor(nn.Module):
         encoding_type: str = "mlp",
         encoding_period: float = 10.0,
         encoding_frequencies: str = "linear",
+        attention_window: float = 0.0,
     ):
         super().__init__()
         self.state_ndim = 14
@@ -281,6 +310,7 @@ class TransformerActor(nn.Module):
             encoding_type=encoding_type,
             encoding_period=encoding_period,
             encoding_frequencies=encoding_frequencies,
+            attention_window=attention_window,
         )
 
     def forward(self, data: Data) -> torch.Tensor:
@@ -345,6 +375,7 @@ class TransformerActorCritic(ActorCritic):
         encoding_type: str = "mlp",
         encoding_period: float = 10.0,
         encoding_frequencies: str = "linear",
+        attention_window: float = 0.0,
         **kwargs,
     ):
         actor = TransformerActor(
@@ -355,6 +386,7 @@ class TransformerActorCritic(ActorCritic):
             encoding_type=encoding_type,
             encoding_period=encoding_period,
             encoding_frequencies=encoding_frequencies,
+            attention_window=attention_window,
         )
         critic = TransformerCritic(
             n_layers,
