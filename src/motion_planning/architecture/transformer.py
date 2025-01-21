@@ -158,7 +158,7 @@ class Transformer(nn.Module):
         super().__init__()
         self.n_layers = n_layers
         self.n_heads = n_heads
-        self.dropout = dropout
+        self.dropout = float(dropout)
         self.embed_dim = embed_dim
         self.head_dim = embed_dim // n_heads
 
@@ -203,7 +203,7 @@ class Transformer(nn.Module):
             self.encoding = gnn.MLP(
                 [2, 2 * self.embed_dim, self.embed_dim],
                 norm="layer_norm",
-                dropout=dropout,
+                dropout=self.dropout,
             )
         else:
             raise ValueError(f"Unknown positional encoding: {encoding_type}")
@@ -260,23 +260,24 @@ class TransformerActor(nn.Module):
         self.state_ndim = 14
         self.action_ndim = 2
         self.embed_dim = n_channels * n_heads
+        self.dropout = float(dropout)
 
         self.readin = gnn.MLP(
             [self.state_ndim, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
-            dropout=dropout,
+            dropout=self.dropout,
         )
         self.readout = gnn.MLP(
             [self.embed_dim, 2 * self.embed_dim, self.action_ndim],
             plain_last=True,
             norm="layer_norm",
-            dropout=dropout,
+            dropout=self.dropout,
         )
         self.transformer = Transformer(
             n_layers,
             self.embed_dim,
             n_heads,
-            dropout,
+            self.dropout,
             encoding_type=encoding_type,
             encoding_period=encoding_period,
             encoding_frequencies=encoding_frequencies,
@@ -302,17 +303,18 @@ class TransformerCritic(nn.Module):
         super().__init__()
 
         self.embed_dim = n_channels * n_heads
+        self.dropout = float(dropout)
 
         self.readin = gnn.MLP(
             [4, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
-            dropout=dropout,
+            dropout=self.dropout,
         )
         self.readout = gnn.MLP(
             [self.embed_dim, 2 * self.embed_dim, 1],
             plain_last=True,
             norm="layer_norm",
-            dropout=dropout,
+            dropout=self.dropout,
         )
         self.transformer = nn.Transformer(
             d_model=self.embed_dim,
@@ -320,7 +322,7 @@ class TransformerCritic(nn.Module):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
             batch_first=True,
-            dropout=dropout,
+            dropout=self.dropout,
         )
 
     def forward(self, action: torch.Tensor, data: Data) -> torch.Tensor:
