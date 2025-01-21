@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
 from torch_geometric.data import Data
@@ -23,11 +25,11 @@ class ActorCritic(nn.Module):
             compile: Weather to compile the models.
         """
         super().__init__()
-        self.actor = actor
-        self.critic = critic
+        self.actor: nn.Module = actor
+        self.critic: nn.Module = critic
 
-        self.actor = torch.compile(self.actor, dynamic=False, disable=not compile)
-        self.critic = torch.compile(self.critic, dynamic=False, disable=not compile)
+        self.actor = torch.compile(self.actor, dynamic=False, disable=not compile)  # type: ignore
+        self.critic = torch.compile(self.critic, dynamic=False, disable=not compile)  # type: ignore
 
     def forward_actor(self, data: Data) -> torch.Tensor:
         """
@@ -37,18 +39,3 @@ class ActorCritic(nn.Module):
 
     def forward_critic(self, action: torch.Tensor, data: Data) -> torch.Tensor:
         return self.critic(action, data)
-
-    def state_dict(self, *args, **kwargs):
-        if hasattr(self.actor, "_orig_mod"):
-            actor_state_dict = self.actor._orig_mod.state_dict(*args, **kwargs)
-        else:
-            actor_state_dict = self.actor.state_dict(*args, **kwargs)
-
-        if hasattr(self.critic, "_orig_mod"):
-            critic_state_dict = self.critic._orig_mod.state_dict(*args, **kwargs)
-        else:
-            critic_state_dict = self.critic.state_dict(*args, **kwargs)
-        return {
-            "actor": actor_state_dict,
-            "critic": critic_state_dict,
-        }

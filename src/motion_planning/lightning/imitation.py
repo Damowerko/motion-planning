@@ -37,19 +37,6 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.expert_probability_decay = expert_probability_decay
         self.automatic_optimization = False
 
-    def state_dict(self, *args, **kwargs):
-        # since the model is passed as an argument, we need to save it separately
-        state = super().state_dict(*args, **kwargs)
-        state["model"] = self.model.state_dict()
-        return state
-
-    def load_state_dict(self, state, *args, **kwargs):
-        # the model is normally passed into the init function, so we need to manually load it
-        model_state_dict = state.pop("model", None)
-        if model_state_dict is not None:
-            self.model.load_state_dict(state.pop("model"))
-        super().load_state_dict(state, *args, **kwargs)
-
     def training_step(self, data_pair, *args):
         data, next_data = data_pair
         opt_actor, opt_critic = self.optimizers()
