@@ -43,12 +43,9 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             render: whether to render the environment
         """
         super().__init__(**kwargs)
-        self.save_hyperparameters()
         self.render = render > 0
         self.buffer = ReplayBuffer[Data](buffer_size)
         self.start_steps = start_steps
-        self.noise = noise
-        self.noise_clip = noise_clip
         self.early_stopping = early_stopping
         self.policy_delay = policy_delay
         self.delay_count = 0
