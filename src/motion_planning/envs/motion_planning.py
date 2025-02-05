@@ -189,6 +189,10 @@ class MotionPlanning(GraphEnv):
         agent_radius: float = 0.1,
         collision_coefficient: float = 5.0,
         scenario: str = "uniform",
+        max_vel: float = 0.5,
+        dt: float = 0.1,
+        reward_cutoff: float = 0.2,
+        reward_sigma: float = 0.1,
     ):
         self.n_agents = n_agents
         self.n_targets = n_agents
@@ -201,15 +205,14 @@ class MotionPlanning(GraphEnv):
 
         # Since space is 2D scale is inversely proportional to sqrt of the number of agents
 
-        self.dt = 0.1
-        # self.width = 1.0 * np.sqrt(self.n_agents)
+        self.dt = dt
         self.width = width
-        self.reward_cutoff = 0.2
-        self.reward_sigma = 0.1
+        self.reward_cutoff = reward_cutoff
+        self.reward_sigma = reward_sigma
         self.collision_coefficient = collision_coefficient
 
         # agent properties
-        self.max_vel = 0.5
+        self.max_vel = max_vel
         self.agent_radius = agent_radius
 
         self.observe_max_agents = 3
@@ -357,7 +360,9 @@ class MotionPlanning(GraphEnv):
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:, 2:], tgt, agt), axis=1)
+        # TODO: Remove, was added because I forgot to normalize and trained with max_vel of 0.5
+        # Hence, Normalizing to 0.5 so that we can change the max_vel without retraining
+        obs = np.concatenate((self.velocity / self.max_vel * 0.5, tgt, agt), axis=1)
         assert obs.shape == self.observation_space.shape  # type: ignore
         return obs
 

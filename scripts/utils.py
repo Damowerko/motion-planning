@@ -1,3 +1,4 @@
+import argparse
 import os
 import typing
 from pathlib import Path
@@ -20,6 +21,33 @@ from motion_planning.lightning import (
     MotionPlanningImitation,
     MotionPlanningTD3,
 )
+
+
+def simulation_args(parser: argparse.ArgumentParser):
+    group = parser.add_argument_group("Simulation")
+    group.add_argument("--n_agents", type=int, default=100)
+    parser.add_argument(
+        "--width",
+        type=float,
+        default=None,
+        help="The width of the environment. Defaults to `(n_agents / density)**0.5`.",
+    )
+    group.add_argument(
+        "--density",
+        type=float,
+        default=1.0,
+        help="Number of agents per unit area if `width` is not provided.",
+    )
+    group.add_argument("--max_steps", type=int, default=100)
+    group.add_argument(
+        "--scenario",
+        type=str,
+        default="uniform",
+        choices=["uniform", "gaussian_uniform"],
+    )
+    group.add_argument("--agent_radius", type=float, default=0.05)
+    group.add_argument("--agent_margin", type=float, default=0.05)
+    group.add_argument("--collision_coefficient", type=float, default=5.0)
 
 
 def get_architecture_cls(model_str) -> typing.Type[ActorCritic]:
@@ -159,8 +187,7 @@ def rollout(
     params: dict,
     baseline: bool = False,
     pbar: bool = True,
-    frames: bool = True,
-) -> tuple[pd.DataFrame, np.ndarray | None]:
+) -> tuple[pd.DataFrame, np.ndarray]:
     """
     Perform rollouts in the environment using a given policy.
 
@@ -182,7 +209,7 @@ def rollout(
         observation, positions, targets = env.reset()
         for step in range(params["max_steps"]):
             action = (
-                policy_fn(observation, positions, targets, env.adjacency())
+                policy_fn(observation, positions, targets, env.adjacency(), step)
                 if not baseline
                 else policy_fn(observation, env.adjacency())
             )
@@ -199,11 +226,9 @@ def rollout(
                     ),
                 )
             )
-            if frames:
-                frames_trial.append(env.render(mode="rgb_array"))
-        if frames:
-            frames_all.append(frames_trial)
-    frames_array = np.asarray(frames_all) if frames else None
+            frames_trial.append(env.render(mode="rgb_array"))
+        frames_all.append(frames_trial)
+    frames_array = np.asarray(frames_all)
     return pd.DataFrame(data), frames_array
 
 

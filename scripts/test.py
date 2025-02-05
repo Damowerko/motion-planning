@@ -1,7 +1,7 @@
 import argparse
 import itertools
 import json
-import sys
+import typing
 from pathlib import Path
 
 import imageio.v3 as iio
@@ -9,10 +9,14 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
+import torch_scatter
+import tqdm
 from matplotlib import pyplot as plt
-from utils import load_model, rollout
+from torch_geometric.data import Batch, Data
+from utils import load_model, rollout, simulation_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.lightning.base import MotionPlanningActorCritic
 
 
 def main():
@@ -20,78 +24,44 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    # program arguments
-    parser.add_argument(
-        "operation",
-        type=str,
-        default="test",
-        choices=[
-            "test",
-            "baseline",
-        ],
-        help="The operation to perform.",
-    )
-    parser.add_argument(
-        "--name",
-        type=str,
-        default=None,
-        help="Override the filenames of outputs to **/{name}.{ext}. If not provided the name is inferred from the checkpoint.",
-    )
-
-    operation = sys.argv[1]
-
     # common args
-    group = parser.add_argument_group("Simulation")
-    group.add_argument("--n_trials", type=int, default=10)
+    subparsers = parser.add_subparsers(
+        title="operation", dest="operation", required=True
+    )
 
-    # test specific args
-    if operation in ("test",):
-        group.add_argument("--checkpoint", type=str, required=True)
-    # baseline specific args
-    if operation == "baseline":
-        group.add_argument(
-            "--policy", type=str, default="c", choices=["c", "d0", "d1", "capt"]
+    test_parser = subparsers.add_parser("test")
+    test_parser.add_argument("--checkpoint", type=str, required=True)
+
+    baseline_parser = subparsers.add_parser("baseline")
+    baseline_parser.add_argument(
+        "--policy", type=str, default="c", choices=["c", "d0", "d1", "capt"]
+    )
+
+    delay_parser = subparsers.add_parser("delay")
+    delay_parser.add_argument("--checkpoint", type=str, required=True)
+
+    for subparser in [test_parser, baseline_parser]:
+        subparser.add_argument(
+            "--name",
+            type=str,
+            default=None,
+            help="Override the filenames of outputs to **/{name}.{ext}. If not provided the name is inferred from the checkpoint.",
         )
-    # common args
-    group.add_argument("--n_agents", type=int, default=100)
-    group.add_argument(
-        "--width",
-        type=float,
-        default=None,
-        help="The width of the environment. Defaults to `(n_agents / density)**0.5`.",
-    )
-    group.add_argument(
-        "--density",
-        type=float,
-        default=1.0,
-        help="Number of agents per unit area if `width` is not provided.",
-    )
-    group.add_argument("--render", action="store_true")
-    group.add_argument("--max_steps", type=int, default=100)
-    group.add_argument(
-        "--scenario",
-        type=str,
-        default="uniform",
-        choices=["uniform", "gaussian_uniform"],
-    )
-    group.add_argument("--agent_radius", type=float, default=0.05)
-    group.add_argument("--agent_margin", type=float, default=0.05)
-    group.add_argument("--collision_coefficient", type=float, default=5.0)
-    group.add_argument("--output_images", action="store_true")
-    group.add_argument(
-        "--policy",
-        type=str,
-        help="The policy to test. Can be either a  c / d0 / d1 / capt will use.",
-    )
+        subparser.add_argument("--n_trials", type=int, default=10)
+        subparser.add_argument("--output_images", action="store_true")
+        simulation_args(subparser)
 
     params = vars(parser.parse_args())
-    if params["width"] is None:
+
+    if "width" in params and params["width"] is None:
         params["width"] = (params["n_agents"] / params["density"]) ** 0.5
 
     if params["operation"] == "test":
         test(params)
     elif params["operation"] == "baseline":
         baseline(params)
+    elif params["operation"] == "delay":
+        delay(params)
     else:
         raise ValueError(f"Invalid operation {params['operation']}.")
 
@@ -137,7 +107,7 @@ def test(params):
     model = model.eval()
 
     @torch.no_grad()
-    def policy_fn(observation, positions, targets, graph):
+    def policy_fn(observation, positions, targets, graph, step):
         data = model.to_data(observation, positions, targets, graph)
         return model.model.forward_actor(data).detach().cpu().numpy()
 
@@ -145,6 +115,207 @@ def test(params):
     filename = name if params["name"] is None else params["name"]
     data, frames = rollout(env, policy_fn, params)
     save_results(filename, Path("data") / "test_results" / filename, data, frames)
+
+
+class DelayedModel:
+    def __init__(
+        self,
+        model: MotionPlanningActorCritic,
+        comm_interval: int = 1,
+        comm_frequency: int = 1,
+        mask_unseen: bool = True,
+    ):
+        """
+        Args:
+            model (MotionPlanningActorCritic): The model to wrap.
+            comm_interval (int): Number of steps between information exchanges.
+            comm_frequency (int): Number of information exchanges per step.
+            mask_unseen (bool): If True, output subgraphs rather than zero padding.
+
+        """
+
+        self.model = model
+        self.initialized = False
+        self.comm_interval = comm_interval
+        self.comm_frequency = comm_frequency
+        self.mask_unseen = mask_unseen
+        if self.comm_interval != 1 and self.comm_frequency != 1:
+            raise ValueError(
+                f"Unexpected combination of {comm_interval=} and {comm_frequency=}"
+            )
+
+    def lazy_init(self, data: Data):
+        self.initialized = True
+        state = data.state
+        self.n_agents = state.size(0)
+        self.n_features = state.size(1)
+        self.device = data.state.device
+
+        # time is an NxN array that stores the most recent time that agent i has received information about agent j
+        # negative values indicate that agent i has not received any information about agent j
+        self.time = -torch.ones(self.n_agents, self.n_agents, device=self.device)
+        # state_buffer is an NxNxF array that stores the most recent state of agent j that agent i has received
+        self.state_buffer = torch.zeros(
+            self.n_agents, self.n_agents, self.n_features, device=self.device
+        )
+        self.positions_buffer = torch.zeros(
+            self.n_agents, self.n_agents, 2, device=self.device
+        )
+
+    def update_buffer(self, data: Data, step):
+        self._update_self(data, step)
+        if step % self.comm_interval != 0:
+            return
+        for _ in range(self.comm_frequency):
+            self._simulate_communication(data)
+
+    def _update_self(self, data: Data, step: int):
+        N = torch.arange(self.n_agents)
+        self.time.fill_diagonal_(step)
+        self.state_buffer[N, N, :] = data.state
+        self.positions_buffer[N, N, :] = data.positions
+
+    def _simulate_communication(self, data: Data):
+        assert data.edge_index is not None
+        # for i in range(self.n_agents):
+        #     # i: current agent (N)
+        #     # j: another agent (N)
+        #     # k: neighbor of i
+        #     # find the neighbor k of i that has the most recent information about j
+        #     neighbors = data.edge_index[1][data.edge_index[0] == i]
+        #     max_time, j_to_k = self.time[neighbors, :].max(dim=0)
+        #     # update the buffer of agent i with the most recent information about agent j
+        #     j = torch.nonzero(max_time > self.time[i]).squeeze()
+        #     self.time[i, j] = max_time[j]
+        #     self.state_buffer[i, j] = self.state_buffer[j_to_k[j], j]
+        #     self.positions_buffer[i, j] = self.positions_buffer[j_to_k[j], j]
+        # Vectorized approach using torch_scatter
+        src, dst = data.edge_index
+        # time.shape == (n_agents, n_agents)
+        # state_buffer.shape == (n_agents, n_agents, n_features)
+        # 1. For each i in row, gather times from its neighbors col
+        time_neighbors = self.time[dst]  # (E, n_agents)
+        # 2. Find max times (and argmax inside each segment) for each i
+        max_time, max_arg = torch_scatter.scatter_max(time_neighbors, src, dim=0)
+        # 3. max_arg is the edge index, so convert to node index
+        k = dst[max_arg]  # (n_agents, n_agents)
+        # 4. Identify which j's should be updated
+        mask = max_time > self.time
+        # 5. Update buffers for all (i, j) where needed
+        i, j = torch.nonzero(mask, as_tuple=True)
+        self.time[mask] = max_time[mask]
+        self.state_buffer[i, j] = self.state_buffer[k[i, j], j]
+        self.positions_buffer[i, j] = self.positions_buffer[k[i, j], j]
+
+    def delayed_data_batch(self):
+        """
+        Provides a batch of pytorch geomtric data objects, one per agent.
+        Each agent receives information about other agents with a delay, if at all.
+        Output is a Data object with the following fields:
+            - state: The state of each agent (with delay).
+            - positions: The positions of each agent (with delay).
+            - mask_self: A mask indicating which agent in the batch is the information receiver.
+            - num_nodes: The number of agents in the batch.
+        """
+
+        batch_list = []
+        for i in range(self.n_agents):
+            mask_unseen = self.time[i] > -1
+            mask_self = torch.zeros(self.n_agents, dtype=torch.bool, device=self.device)
+            mask_self[i] = True
+            if self.mask_unseen:
+                batch_list.append(
+                    Data(
+                        state=self.state_buffer[i, mask_unseen],
+                        positions=self.positions_buffer[i, mask_unseen],
+                        mask_self=mask_self[mask_unseen],
+                        num_nodes=mask_unseen.sum(),
+                    )
+                )
+            else:
+                batch_list.append(
+                    Data(
+                        state=self.state_buffer[i],
+                        positions=self.positions_buffer[i],
+                        mask_self=mask_self,
+                        num_nodes=self.n_agents,
+                    )
+                )
+        return typing.cast(Data, Batch.from_data_list(batch_list))
+
+    def __call__(self, state, positions, targets, graph, step: int):
+        with torch.no_grad():
+            data = self.model.to_data(state, positions, targets, graph)
+            if not self.initialized or step == 0:
+                self.lazy_init(data)
+            self.update_buffer(data, step)
+            # create a batch of data objects with the state for each agent
+            batch = self.delayed_data_batch()
+            outputs = self.model.model.forward_actor(batch)[batch.mask_self]
+            assert (
+                batch.batch is not None
+                and (
+                    batch.batch[batch.mask_self]
+                    == torch.arange(self.n_agents, device=self.device)
+                ).all()
+            )
+            return outputs.detach().cpu().numpy()
+
+
+def delay(params):
+    model, name = load_model(params["checkpoint"])
+    model = model.eval().cuda()
+    filename = params.get("name", name) or name
+    savedir = Path("data") / "test_results" / filename
+    savedir.mkdir(parents=True, exist_ok=True)
+
+    dfs = []
+    for n_agents in [100, 500]:
+        params["n_agents"] = n_agents
+        params["n_trials"] = 1
+        params["max_steps"] = 200
+        # multiply by 100 to get 1km for 100 agents
+        params["width"] = params["n_agents"] ** 0.5
+        params["agent_radius"] = 0.05
+        params["agent_margin"] = 0.05
+        params["reward_cutoff"] = 0.2
+        params["dt"] = 0.1
+        params["max_vel"] = 0.5
+        env = MotionPlanning(
+            n_agents=params["n_agents"],
+            width=params["width"],
+            scenario="uniform",
+            agent_radius=params["agent_radius"] + params["agent_margin"],
+            reward_cutoff=params["reward_cutoff"],
+            dt=params["dt"],
+            max_vel=params["max_vel"],
+        )
+        # I increase the comm_frequency to simulate communication that takes less than dt (one step size) per-hop
+        # Increasing comm_interval, simulates communication that takes comm_interval * dt per hop
+        # delay_frequency: number of information exchanges per step
+        comm_frequency_list = [1] + [10, 5, 2] + [1] * 20
+        # delay_interval: number of steps between information exchanges
+        comm_interval_list = [0] + [1, 1, 1] + list(range(1, 21))
+        for comm_frequency, comm_interval in tqdm.tqdm(
+            list(zip(comm_frequency_list, comm_interval_list)),
+            desc=f"Comm delay sim for {n_agents} agents",
+        ):
+            if comm_interval == 0:
+
+                @torch.no_grad()
+                def policy_fn(observation, positions, targets, graph, step):
+                    data = model.to_data(observation, positions, targets, graph)
+                    return model.model.forward_actor(data).detach().cpu().numpy()
+
+            else:
+                policy_fn = DelayedModel(model, comm_interval=comm_interval, comm_frequency=comm_frequency, mask_unseen=False)  # type: ignore
+
+            df, _ = rollout(env, policy_fn, params, pbar=False)
+            df["delay_s"] = comm_interval * env.dt / comm_frequency
+            df["n_agents"] = n_agents
+            dfs.append(df)
+            # write to disk after each rollout
+            pd.concat(dfs).to_parquet(savedir / f"delay-fixed.parquet")
 
 
 def test_q(params):
