@@ -227,9 +227,9 @@ def rollout(
                     step=step,
                     reward=reward.mean(),
                     coverage=env.coverage(),
-                    collisions=env.n_collisions(threshold=params["agent_radius"]),
+                    collisions=env.n_collisions(threshold=params["collision_distance"]),
                     near_collisions=env.n_collisions(
-                        threshold=params["agent_radius"] + params["agent_margin"]
+                        threshold=2 * params["collision_distance"]
                     ),
                 )
             )

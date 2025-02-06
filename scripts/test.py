@@ -34,7 +34,10 @@ def main():
 
     baseline_parser = subparsers.add_parser("baseline")
     baseline_parser.add_argument(
-        "--policy", type=str, default="c", choices=["c", "d0", "d1", "capt"]
+        "--policy",
+        type=str,
+        default="c",
+        choices=["d0", "d1", "d1_sq", "c", "c_sq", "capt"],
     )
 
     delay_parser = subparsers.add_parser("delay")
@@ -77,7 +80,7 @@ def baseline(params: dict):
         dt=params["dt"],
         collision_distance=params["collision_distance"],
         collision_coefficient=params["collision_coefficient"],
-        coverage_cutoff=params["reward_cutoff"],
+        coverage_cutoff=params["coverage_cutoff"],
         reward_sigma=params["reward_sigma"],
     )
     if params["policy"] == "c":
@@ -111,7 +114,7 @@ def test(params):
         dt=params["dt"],
         collision_distance=params["collision_distance"],
         collision_coefficient=params["collision_coefficient"],
-        coverage_cutoff=params["reward_cutoff"],
+        coverage_cutoff=params["coverage_cutoff"],
         reward_sigma=params["reward_sigma"],
     )
     model, name = load_model(params["checkpoint"])
@@ -286,7 +289,7 @@ def delay(params):
         dt=params["dt"],
         collision_distance=params["collision_distance"],
         collision_coefficient=params["collision_coefficient"],
-        coverage_cutoff=params["reward_cutoff"],
+        coverage_cutoff=params["coverage_cutoff"],
         reward_sigma=params["reward_sigma"],
     )
     dfs = []
@@ -337,7 +340,7 @@ def save_results(
 
     if not output_images:
         # make a single video of all trials
-        iio.imwrite(path / f"{name}.mp4", np.concatenate(frames, axis=0), fps=30)
+        iio.imwrite(path / f"{name}.mp4", np.concatenate(frames, axis=0), fps=10)
     else:
         # save the frames as individual .png files
         frames_path = path / f"{name}"
