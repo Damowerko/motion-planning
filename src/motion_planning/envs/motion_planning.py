@@ -59,7 +59,7 @@ class MotionPlanningRender:
         if not isinstance(self.fig.canvas, FigureCanvasAgg):
             raise ValueError("Only agg matplotlib backend is supported.")
 
-        markersize = 75 / self.width
+        markersize = 6 * (1000 / self.width)
 
         if self.target_scatter is None:
             self.target_scatter = self.ax.plot(
