@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+from typing import Optional
 
 import imageio.v3 as iio
 
@@ -101,7 +102,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             assert isinstance(action, torch.Tensor)
             return action
 
-        dist = Normal(mu, sigma)
+        dist = torch.distributions.Normal(mu, sigma)
         return action, dist.log_prob(action), dist.entropy()
 
     def update_optimizers(self):
@@ -171,7 +172,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         return loss1, loss2
 
     def actor_loss(self, data):
-        action, _ = self.model.forward_actor(ata)
+        action, _ = self.model.forward_actor(data)
         self.log(
             "vals/action_magnitude",
             torch.norm(action, dim=-1).mean(),
