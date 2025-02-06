@@ -194,18 +194,6 @@ class DelayedModel:
 
     def _simulate_communication(self, data: Data):
         assert data.edge_index is not None
-        # for i in range(self.n_agents):
-        #     # i: current agent (N)
-        #     # j: another agent (N)
-        #     # k: neighbor of i
-        #     # find the neighbor k of i that has the most recent information about j
-        #     neighbors = data.edge_index[1][data.edge_index[0] == i]
-        #     max_time, j_to_k = self.time[neighbors, :].max(dim=0)
-        #     # update the buffer of agent i with the most recent information about agent j
-        #     j = torch.nonzero(max_time > self.time[i]).squeeze()
-        #     self.time[i, j] = max_time[j]
-        #     self.state_buffer[i, j] = self.state_buffer[j_to_k[j], j]
-        #     self.positions_buffer[i, j] = self.positions_buffer[j_to_k[j], j]
         # Vectorized approach using torch_scatter
         src, dst = data.edge_index
         # time.shape == (n_agents, n_agents)
