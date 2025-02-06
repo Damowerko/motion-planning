@@ -297,31 +297,7 @@ def delay(params):
         df["n_agents"] = params["n_agents"]
         dfs.append(df)
         # write to disk after each rollout
-        pd.concat(dfs).to_parquet(savedir / f"delay.parquet")
-
-
-def test_q(params):
-    env = MotionPlanning(
-        n_agents=params["n_agents"],
-        width=params["width"],
-        scenario="q-scenario",
-        collision_distance=params["agent_radius"] + params["agent_margin"],
-        collision_coefficient=params["collision_coefficient"],
-    )
-    model, name = load_model(params["checkpoint"])
-    model = model.eval()
-
-    null_action = torch.zeros(env.n_agents, 2).to(device="cuda")
-
-    observation, positions, targets = env.reset()
-    data = model.to_data(observation, positions, targets, 0, env.adjacency())
-    print(
-        model.model.critic.forward(data.state, null_action, data)
-        .mean()
-        .detach()
-        .cpu()
-        .numpy()
-    )
+        pd.concat(dfs).to_parquet(savedir / f"delay.parquet")å
 
 
 def save_results(
