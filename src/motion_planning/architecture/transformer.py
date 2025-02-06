@@ -228,7 +228,18 @@ class Transformer(nn.Module):
         mask = distance <= attention_window / 2
         return mask.unsqueeze(1)
 
-    def forward(self, x: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        pos: torch.Tensor,
+        padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Args:
+            x: The input tensor with shape (B, N, embed_dim).
+            pos: The positions of the input tensor with shape (B, N, n_dimensions).
+            padding_mask: The padding mask with shape (B, N). If None, no mask is applied.
+        """
         B, N = x.shape[:2]
         if isinstance(self.encoding, (AbsolutePositionalEncoding, gnn.MLP)):
             x = x + self.encoding(pos)
@@ -238,6 +249,10 @@ class Transformer(nn.Module):
             if self.attention_window > 0
             else None
         )
+        if padding_mask is not None:
+            # unsqueeze because padding mask has shape (B, N) and we need to be broadcastable with (B,...,N,N)
+            padding_mask = padding_mask.unsqueeze(1).unsqueeze(1)
+            attn_mask = padding_mask if attn_mask is None else attn_mask & padding_mask
 
         for i in range(self.n_layers):
             # using pre-norm transformer, so we apply layer norm before attention
@@ -318,7 +333,12 @@ class TransformerActor(nn.Module):
         state = data.state.reshape(batch_size, -1, self.state_ndim)
         x = self.readin(state)
         pos = data.positions.reshape(batch_size, -1, 2)
-        y = self.transformer(x, pos)
+        padding_mask = (
+            data.padding_mask.reshape(batch_size, -1)
+            if hasattr(data, "padding_mask")
+            else None
+        )
+        y = self.transformer(x, pos, padding_mask)
         return self.readout(y).reshape(-1, self.action_ndim)
 
 

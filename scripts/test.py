@@ -123,14 +123,14 @@ class DelayedModel:
         model: MotionPlanningActorCritic,
         comm_interval: int = 1,
         comm_frequency: int = 1,
-        mask_unseen: bool = True,
+        padding_mask: bool = True,
     ):
         """
         Args:
             model (MotionPlanningActorCritic): The model to wrap.
             comm_interval (int): Number of steps between information exchanges.
             comm_frequency (int): Number of information exchanges per step.
-            mask_unseen (bool): If True, output subgraphs rather than zero padding.
+            padding_mask (bool): If True, output subgraphs rather than zero padding.
 
         """
 
@@ -138,7 +138,7 @@ class DelayedModel:
         self.initialized = False
         self.comm_interval = comm_interval
         self.comm_frequency = comm_frequency
-        self.mask_unseen = mask_unseen
+        self.padding_mask = padding_mask
         if self.comm_interval != 1 and self.comm_frequency != 1:
             raise ValueError(
                 f"Unexpected combination of {comm_interval=} and {comm_frequency=}"
@@ -220,27 +220,17 @@ class DelayedModel:
 
         batch_list = []
         for i in range(self.n_agents):
-            mask_unseen = self.time[i] > -1
             mask_self = torch.zeros(self.n_agents, dtype=torch.bool, device=self.device)
             mask_self[i] = True
-            if self.mask_unseen:
-                batch_list.append(
-                    Data(
-                        state=self.state_buffer[i, mask_unseen],
-                        positions=self.positions_buffer[i, mask_unseen],
-                        mask_self=mask_self[mask_unseen],
-                        num_nodes=mask_unseen.sum(),
-                    )
-                )
-            else:
-                batch_list.append(
-                    Data(
-                        state=self.state_buffer[i],
-                        positions=self.positions_buffer[i],
-                        mask_self=mask_self,
-                        num_nodes=self.n_agents,
-                    )
-                )
+            data = Data(
+                state=self.state_buffer[i],
+                positions=self.positions_buffer[i],
+                mask_self=mask_self,
+                num_nodes=self.n_agents,
+            )
+            if self.padding_mask:
+                data.padding_mask = self.time[i] > -1
+            batch_list.append(data)
         return typing.cast(Data, Batch.from_data_list(batch_list))
 
     def __call__(self, state, positions, targets, graph, step: int):
@@ -308,14 +298,14 @@ def delay(params):
                     return model.model.forward_actor(data).detach().cpu().numpy()
 
             else:
-                policy_fn = DelayedModel(model, comm_interval=comm_interval, comm_frequency=comm_frequency, mask_unseen=False)  # type: ignore
+                policy_fn = DelayedModel(model, comm_interval=comm_interval, comm_frequency=comm_frequency, padding_mask=True)  # type: ignore
 
             df, _ = rollout(env, policy_fn, params, pbar=False)
             df["delay_s"] = comm_interval * env.dt / comm_frequency
             df["n_agents"] = n_agents
             dfs.append(df)
             # write to disk after each rollout
-            pd.concat(dfs).to_parquet(savedir / f"delay-fixed.parquet")
+            pd.concat(dfs).to_parquet(savedir / f"delay-mask.parquet")
 
 
 def test_q(params):
