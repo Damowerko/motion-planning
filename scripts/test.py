@@ -297,7 +297,7 @@ def delay(params):
         df["n_agents"] = params["n_agents"]
         dfs.append(df)
         # write to disk after each rollout
-        pd.concat(dfs).to_parquet(savedir / f"delay.parquet")å
+        pd.concat(dfs).to_parquet(savedir / f"delay.parquet")
 
 
 def save_results(
