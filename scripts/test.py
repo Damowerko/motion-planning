@@ -13,7 +13,7 @@ import torch_scatter
 import tqdm
 from matplotlib import pyplot as plt
 from torch_geometric.data import Batch, Data
-from utils import load_model, rollout, simulation_args
+from utils import compute_width, load_model, rollout, simulation_args
 
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.lightning.base import MotionPlanningActorCritic
@@ -40,21 +40,22 @@ def main():
     delay_parser = subparsers.add_parser("delay")
     delay_parser.add_argument("--checkpoint", type=str, required=True)
 
-    for subparser in [test_parser, baseline_parser]:
+    for subparser in [test_parser, baseline_parser, delay_parser]:
         subparser.add_argument(
             "--name",
             type=str,
             default=None,
             help="Override the filenames of outputs to **/{name}.{ext}. If not provided the name is inferred from the checkpoint.",
         )
-        subparser.add_argument("--n_trials", type=int, default=10)
-        subparser.add_argument("--output_images", action="store_true")
         simulation_args(subparser)
+        subparser.add_argument("--n_trials", type=int, default=10)
+        subparser.add_argument("--max_steps", type=int, default=200)
+        subparser.add_argument("--output_images", action="store_true")
 
     params = vars(parser.parse_args())
 
     if "width" in params and params["width"] is None:
-        params["width"] = (params["n_agents"] / params["density"]) ** 0.5
+        params["width"] = compute_width(params["n_agents"], params["density"])
 
     if params["operation"] == "test":
         test(params)
@@ -70,9 +71,14 @@ def baseline(params: dict):
     env = MotionPlanning(
         n_agents=params["n_agents"],
         width=params["width"],
+        initial_separation=params["initial_separation"],
         scenario=params["scenario"],
-        agent_radius=params["agent_radius"] + params["agent_margin"],
+        max_vel=params["max_vel"],
+        dt=params["dt"],
+        collision_distance=params["collision_distance"],
         collision_coefficient=params["collision_coefficient"],
+        coverage_cutoff=params["reward_cutoff"],
+        reward_sigma=params["reward_sigma"],
     )
     if params["policy"] == "c":
         policy_fn = lambda o, g: env.centralized_policy()
@@ -99,9 +105,14 @@ def test(params):
     env = MotionPlanning(
         n_agents=params["n_agents"],
         width=params["width"],
+        initial_separation=params["initial_separation"],
         scenario=params["scenario"],
-        agent_radius=params["agent_radius"] + params["agent_margin"],
+        max_vel=params["max_vel"],
+        dt=params["dt"],
+        collision_distance=params["collision_distance"],
         collision_coefficient=params["collision_coefficient"],
+        coverage_cutoff=params["reward_cutoff"],
+        reward_sigma=params["reward_sigma"],
     )
     model, name = load_model(params["checkpoint"])
     model = model.eval()
@@ -124,6 +135,7 @@ class DelayedModel:
         comm_interval: int = 1,
         comm_frequency: int = 1,
         padding_mask: bool = True,
+        position_scale: float = 1.0,
     ):
         """
         Args:
@@ -131,6 +143,7 @@ class DelayedModel:
             comm_interval (int): Number of steps between information exchanges.
             comm_frequency (int): Number of information exchanges per step.
             padding_mask (bool): If True, output subgraphs rather than zero padding.
+            position_scale (float): Positions are scaled by the inverse of this value before being passed to the model.
 
         """
 
@@ -139,6 +152,7 @@ class DelayedModel:
         self.comm_interval = comm_interval
         self.comm_frequency = comm_frequency
         self.padding_mask = padding_mask
+        self.position_scale = position_scale
         if self.comm_interval != 1 and self.comm_frequency != 1:
             raise ValueError(
                 f"Unexpected combination of {comm_interval=} and {comm_frequency=}"
@@ -235,6 +249,11 @@ class DelayedModel:
 
     def __call__(self, state, positions, targets, graph, step: int):
         with torch.no_grad():
+            positions /= self.position_scale
+            if self.comm_interval == 0:
+                data = self.model.to_data(state, positions, targets, graph)
+                return self.model.model.forward_actor(data).detach().cpu().numpy()
+
             data = self.model.to_data(state, positions, targets, graph)
             if not self.initialized or step == 0:
                 self.lazy_init(data)
@@ -258,54 +277,27 @@ def delay(params):
     filename = params.get("name", name) or name
     savedir = Path("data") / "test_results" / filename
     savedir.mkdir(parents=True, exist_ok=True)
-
+    env = MotionPlanning(
+        n_agents=params["n_agents"],
+        width=params["width"],
+        initial_separation=params["initial_separation"],
+        scenario=params["scenario"],
+        max_vel=params["max_vel"],
+        dt=params["dt"],
+        collision_distance=params["collision_distance"],
+        collision_coefficient=params["collision_coefficient"],
+        coverage_cutoff=params["reward_cutoff"],
+        reward_sigma=params["reward_sigma"],
+    )
     dfs = []
-    for n_agents in [100, 500]:
-        params["n_agents"] = n_agents
-        params["n_trials"] = 1
-        params["max_steps"] = 200
-        # multiply by 100 to get 1km for 100 agents
-        params["width"] = params["n_agents"] ** 0.5
-        params["agent_radius"] = 0.05
-        params["agent_margin"] = 0.05
-        params["reward_cutoff"] = 0.2
-        params["dt"] = 0.1
-        params["max_vel"] = 0.5
-        env = MotionPlanning(
-            n_agents=params["n_agents"],
-            width=params["width"],
-            scenario="uniform",
-            agent_radius=params["agent_radius"] + params["agent_margin"],
-            reward_cutoff=params["reward_cutoff"],
-            dt=params["dt"],
-            max_vel=params["max_vel"],
-        )
-        # I increase the comm_frequency to simulate communication that takes less than dt (one step size) per-hop
-        # Increasing comm_interval, simulates communication that takes comm_interval * dt per hop
-        # delay_frequency: number of information exchanges per step
-        comm_frequency_list = [1] + [10, 5, 2] + [1] * 20
-        # delay_interval: number of steps between information exchanges
-        comm_interval_list = [0] + [1, 1, 1] + list(range(1, 21))
-        for comm_frequency, comm_interval in tqdm.tqdm(
-            list(zip(comm_frequency_list, comm_interval_list)),
-            desc=f"Comm delay sim for {n_agents} agents",
-        ):
-            if comm_interval == 0:
-
-                @torch.no_grad()
-                def policy_fn(observation, positions, targets, graph, step):
-                    data = model.to_data(observation, positions, targets, graph)
-                    return model.model.forward_actor(data).detach().cpu().numpy()
-
-            else:
-                policy_fn = DelayedModel(model, comm_interval=comm_interval, comm_frequency=comm_frequency, padding_mask=True)  # type: ignore
-
-            df, _ = rollout(env, policy_fn, params, pbar=False)
-            df["delay_s"] = comm_interval * env.dt / comm_frequency
-            df["n_agents"] = n_agents
-            dfs.append(df)
-            # write to disk after each rollout
-            pd.concat(dfs).to_parquet(savedir / f"delay-mask.parquet")
+    for comm_interval in tqdm.trange(11, position=1, desc="Comm interval"):
+        policy_fn = DelayedModel(model, comm_interval=comm_interval, padding_mask=True, position_scale=100.0)  # type: ignore
+        df, _ = rollout(env, policy_fn, params, pbar=False)
+        df["delay_s"] = comm_interval * env.dt
+        df["n_agents"] = params["n_agents"]
+        dfs.append(df)
+        # write to disk after each rollout
+        pd.concat(dfs).to_parquet(savedir / f"delay.parquet")
 
 
 def test_q(params):
@@ -313,7 +305,7 @@ def test_q(params):
         n_agents=params["n_agents"],
         width=params["width"],
         scenario="q-scenario",
-        agent_radius=params["agent_radius"] + params["agent_margin"],
+        collision_distance=params["agent_radius"] + params["agent_margin"],
         collision_coefficient=params["collision_coefficient"],
     )
     model, name = load_model(params["checkpoint"])
