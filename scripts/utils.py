@@ -23,6 +23,10 @@ from motion_planning.lightning import (
 )
 
 
+def compute_width(n_agents: int, density: float) -> float:
+    return (n_agents / density) ** 0.5
+
+
 def simulation_args(parser: argparse.ArgumentParser):
     group = parser.add_argument_group("Simulation")
     group.add_argument("--n_agents", type=int, default=100)
@@ -35,19 +39,22 @@ def simulation_args(parser: argparse.ArgumentParser):
     group.add_argument(
         "--density",
         type=float,
-        default=1.0,
-        help="Number of agents per unit area if `width` is not provided.",
+        default=1e-4,
+        help="Number of agents per m^2 if `width` is not provided.",
     )
-    group.add_argument("--max_steps", type=int, default=100)
+    group.add_argument("--initial_separation", type=float, default=5.0)
     group.add_argument(
         "--scenario",
         type=str,
         default="uniform",
         choices=["uniform", "gaussian_uniform"],
     )
-    group.add_argument("--agent_radius", type=float, default=0.05)
-    group.add_argument("--agent_margin", type=float, default=0.05)
+    group.add_argument("--max_vel", type=float, default=10.0)
+    group.add_argument("--dt", type=float, default=1.0)
+    group.add_argument("--collision_distance", type=float, default=2.5)
     group.add_argument("--collision_coefficient", type=float, default=5.0)
+    group.add_argument("--coverage_cutoff", type=float, default=5.0)
+    group.add_argument("--reward_sigma", type=float, default=10.0)
 
 
 def get_architecture_cls(model_str) -> typing.Type[ActorCritic]:
@@ -220,9 +227,9 @@ def rollout(
                     step=step,
                     reward=reward.mean(),
                     coverage=env.coverage(),
-                    collisions=env.n_collisions(r=params["agent_radius"]),
+                    collisions=env.n_collisions(threshold=params["agent_radius"]),
                     near_collisions=env.n_collisions(
-                        r=params["agent_radius"] + params["agent_margin"]
+                        threshold=params["agent_radius"] + params["agent_margin"]
                     ),
                 )
             )

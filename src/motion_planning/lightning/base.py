@@ -1,4 +1,4 @@
-from typing import Iterator, List, Optional
+from typing import Iterator, List
 
 import lightning.pytorch as pl
 import numpy as np
@@ -28,13 +28,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
         weight_decay: float = 0.0,
         batch_size: int = 32,
         gamma=0.99,
-        max_steps=100,
+        max_steps=200,
+        # MotionPlanning environment parameters
         n_agents: int = 100,
-        width: float = 10.0,
-        agent_radius: float = 0.05,
-        agent_margin: float = 0.05,
-        collision_coefficient: float = 5.0,
+        width: float = 1000.0,
         scenario: str = "uniform",
+        collision_distance: float = 2.5,
+        initial_separation: float = 5.0,
+        collision_coefficient: float = 5.0,
+        # Noise parameters
         noise: float = 0.05,
         noise_clip: float = 0.1,
         **kwargs,
@@ -49,8 +51,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.batch_size = batch_size
         self.gamma = gamma
         self.max_steps = max_steps
-        self.agent_radius = agent_radius
-        self.agent_margin = agent_margin
+        self.collision_distance = collision_distance
+        self.initial_separation = initial_separation
         self.collision_coefficient = collision_coefficient
         self.noise = noise
         self.noise_clip = noise_clip
@@ -59,7 +61,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
             n_agents=n_agents,
             width=width,
             scenario=scenario,
-            agent_radius=agent_radius + agent_margin,
+            collision_distance=collision_distance,
+            initial_separation=initial_separation,
             collision_coefficient=collision_coefficient,
         )
 
@@ -181,7 +184,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             next_state, next_positions, next_targets, self.env.adjacency()
         )
         coverage = self.env.coverage()
-        n_collisions = self.env.n_collisions(r=self.agent_radius)
+        n_collisions = self.env.n_collisions(threshold=self.collision_distance)
         return (
             data,
             next_data,

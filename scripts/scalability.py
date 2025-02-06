@@ -17,9 +17,9 @@ from motion_planning.envs.motion_planning import MotionPlanning
 @dataclass
 class Parameters:
     n_agents: int = 100
-    width: int = 10
-    agent_radius: float = 0.05
-    agent_margin: float = 0.05
+    width: int = 1000
+    collision_distance: float = 2.5
+    initial_separation: float = 5.0
     scenario: str = "uniform"
     checkpoint: str = "wandb://damowerko-academic/motion-planning/jwtdsmlx"
     n_trials: int = 5
@@ -34,8 +34,9 @@ def evaluate(params):
     env = MotionPlanning(
         n_agents=params.n_agents,
         width=params.width,
-        agent_radius=params.agent_radius,
-        scenario="uniform",
+        collision_distance=params.collision_distance,
+        initial_separation=params.initial_separation,
+        scenario=params.scenario,
     )
 
     @torch.no_grad()
@@ -77,7 +78,7 @@ def main():
         futures: List[Future] = []
         for n_agents, density in product(
             [20, 50, 100, 200, 500, 1000],
-            [1.0],
+            [1e-4],
         ):
             width = (n_agents / density) ** 0.5
             futures.append(
