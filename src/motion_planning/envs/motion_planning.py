@@ -59,7 +59,7 @@ class MotionPlanningRender:
         if not isinstance(self.fig.canvas, FigureCanvasAgg):
             raise ValueError("Only agg matplotlib backend is supported.")
 
-        markersize = 6 * (1000 / self.width)
+        markersize = 6.0 * (1000 / self.width)
 
         if self.target_scatter is None:
             self.target_scatter = self.ax.plot(
@@ -297,15 +297,16 @@ class MotionPlanning(GraphEnv):
         action[to_clip] = action[to_clip] / magnitude[to_clip, None] * self.max_vel
         return action
 
-    def centralized_policy(self):
-        row_idx, col_idx = linear_sum_assignment(self.dist_pt)
+    def centralized_policy(self, distance_squared=False):
+        cost = self.dist_pt**2 if distance_squared else self.dist_pt
+        row_idx, col_idx = linear_sum_assignment(cost)
         assert (row_idx == np.arange(self.n_agents)).all()
         action = self.targets[col_idx] - self.positions[row_idx]
         action = self.clip_action(action)
         assert action.shape == self.action_space.shape  # type: ignore
         return action / self.max_vel
 
-    def decentralized_policy(self, hops=0):
+    def decentralized_policy(self, hops=0, distance_squared=False):
         observed_targets = self._observed_targets()
         observed_agents = self._observed_agents()
         if hops == 0:
@@ -322,7 +323,8 @@ class MotionPlanning(GraphEnv):
                 )
                 target_positions = observed_targets[i] + agent_positions[0]
                 distances = cdist(agent_positions, target_positions)
-                row_idx, col_idx = linear_sum_assignment(distances)
+                cost = distances**2 if distance_squared else distances
+                row_idx, col_idx = linear_sum_assignment(cost)
                 assignment = col_idx[np.nonzero(row_idx == 0)]
                 if len(assignment) > 0:
                     action[i] = target_positions[assignment] - agent_positions[0]
