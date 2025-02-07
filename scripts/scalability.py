@@ -26,7 +26,7 @@ class Parameters:
     max_steps: int = 100
 
 
-def evaluate(params):
+def evaluate(params: Parameters):
     torch.set_float32_matmul_precision("high")
     model, _ = load_model(params.checkpoint)
     model = model.eval().cuda()
@@ -54,8 +54,8 @@ def evaluate(params):
     data["n_agents"] = params.n_agents
     data["width"] = params.width
     data["area"] = params.width**2
-    data["agent_radius"] = params.agent_radius
-    data["agent_margin"] = params.agent_margin
+    data["collision_distance"] = params.collision_distance
+    data["initial_separation"] = params.initial_separation
     return data
 
 
