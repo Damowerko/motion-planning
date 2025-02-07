@@ -152,7 +152,7 @@ class Transformer(nn.Module):
         n_heads: int,
         dropout: float = 0.0,
         encoding_type: str | None = None,
-        encoding_period: float = 10.0,
+        encoding_period: float = 1000.0,
         encoding_frequencies: str = "linear",
         attention_window: float = 0.0,
     ):
