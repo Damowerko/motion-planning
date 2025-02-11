@@ -138,7 +138,6 @@ class DelayedModel:
         comm_interval: int = 1,
         comm_frequency: int = 1,
         padding_mask: bool = True,
-        position_scale: float = 1.0,
     ):
         """
         Args:
@@ -146,7 +145,6 @@ class DelayedModel:
             comm_interval (int): Number of steps between information exchanges.
             comm_frequency (int): Number of information exchanges per step.
             padding_mask (bool): If True, output subgraphs rather than zero padding.
-            position_scale (float): Positions are scaled by the inverse of this value before being passed to the model.
 
         """
 
@@ -155,7 +153,6 @@ class DelayedModel:
         self.comm_interval = comm_interval
         self.comm_frequency = comm_frequency
         self.padding_mask = padding_mask
-        self.position_scale = position_scale
         if self.comm_interval != 1 and self.comm_frequency != 1:
             raise ValueError(
                 f"Unexpected combination of {comm_interval=} and {comm_frequency=}"
@@ -240,7 +237,6 @@ class DelayedModel:
 
     def __call__(self, state, positions, targets, graph, step: int):
         with torch.no_grad():
-            positions /= self.position_scale
             if self.comm_interval == 0:
                 data = self.model.to_data(state, positions, targets, graph)
                 return self.model.model.forward_actor(data).detach().cpu().numpy()
@@ -282,7 +278,7 @@ def delay(params):
     )
     dfs = []
     for comm_interval in tqdm.trange(11, position=1, desc="Comm interval"):
-        policy_fn = DelayedModel(model, comm_interval=comm_interval, padding_mask=True, position_scale=100.0)  # type: ignore
+        policy_fn = DelayedModel(model, comm_interval=comm_interval, padding_mask=True)  # type: ignore
         df, _ = rollout(env, policy_fn, params, pbar=False)
         df["delay_s"] = comm_interval * env.dt
         df["n_agents"] = params["n_agents"]
