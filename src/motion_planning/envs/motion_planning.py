@@ -40,7 +40,6 @@ def init_clusters(n_samples, n_samples_per_cluster, width, initial_separation):
         2 * cluster_radius,
         lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 2)),
     )
-    print(initial_separation, cluster_radius)
     return collision_free_sampling(
         initial_separation,
         lambda: uniform_circle(n_samples, cluster_radius)
