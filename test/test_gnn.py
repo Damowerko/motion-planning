@@ -1,4 +1,4 @@
-from motion_planning.models.base import GNN
+from motion_planning.lightning.base import GNN
 import torch
 
 

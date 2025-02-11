@@ -2,11 +2,13 @@ import argparse
 import typing
 from typing import Callable, Type
 
-import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
+from torch_geometric.data import Data
 from torch_geometric.typing import Adj, OptPairTensor, OptTensor, Size
+
+from motion_planning.architecture.base import ActorCritic
 
 activation_choices: typing.Dict[str, Type[nn.Module]] = {
     "tanh": nn.Tanh,
@@ -37,25 +39,31 @@ class DeepSet(nn.Module):
 
         dropout = float(dropout)
 
-        self.phi = gnn.MLP(in_channels=in_channels_phi,
-                       out_channels=in_channels_rho,
-                       hidden_channels=n_hidden_channels,
-                       num_layers=n_layers,
-                       dropout=dropout,
-                       act=activation,)
-        self.rho = gnn.MLP(in_channels=in_channels_rho,
-                       out_channels=out_channels,
-                       hidden_channels=n_hidden_channels,
-                       num_layers = n_layers,
-                       dropout=dropout,
-                       act=activation,)
-        
+        self.phi = gnn.MLP(
+            in_channels=in_channels_phi,
+            out_channels=in_channels_rho,
+            hidden_channels=n_hidden_channels,
+            num_layers=n_layers,
+            dropout=dropout,
+            act=activation,
+        )
+        self.rho = gnn.MLP(
+            in_channels=in_channels_rho,
+            out_channels=out_channels,
+            hidden_channels=n_hidden_channels,
+            num_layers=n_layers,
+            dropout=dropout,
+            act=activation,
+        )
+
     def forward(self, x):
         X_shape = x.shape + (self.rho.in_channels,)
         X = torch.zeros(X_shape)
         num_elements = int(x.size()[2] / self.phi.in_channels)
         for i in range(num_elements):
-            X += self.phi(x[:,:,i*self.phi.in_channels:(i+1)*self.phi.in_channels])
+            X += self.phi(
+                x[:, :, i * self.phi.in_channels : (i + 1) * self.phi.in_channels]
+            )
         return self.rho(X)
 
 
@@ -310,3 +318,55 @@ class GCN(nn.Module):
             x = residual_block(x, edge_index, edge_attr, size)
         x = self.readout(x)
         return x
+
+
+class GNNActorCritic(ActorCritic):
+    def __init__(
+        self,
+        state_ndim: int = 14,
+        action_ndim: int = 2,
+        n_taps: int = 4,
+        n_layers: int = 2,
+        n_channels: int = 32,
+        activation: typing.Union[nn.Module, str] = "leaky_relu",
+        mlp_read_layers: int = 1,
+        mlp_per_gnn_layers: int = 0,
+        mlp_hidden_channels: int = 256,
+        dropout: float = 0.0,
+        **kwargs,
+    ):
+        actor = GCN(
+            state_ndim,
+            action_ndim,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+        critic = GCN(
+            state_ndim + action_ndim,
+            1,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+        super().__init__(actor, critic)
+
+    def forward_actor(self, data: Data) -> torch.Tensor:
+        """
+        Returns normalized action within the range [-1, 1].
+        """
+        return self.actor(data.state, data.edge_index).tanh()
+
+    def forward_critic(self, action: torch.Tensor, data: Data) -> torch.Tensor:
+        x = torch.cat([data.state, action], dim=-1)
+        return self.critic(x, data.edge_index)

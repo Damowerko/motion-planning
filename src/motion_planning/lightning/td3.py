@@ -1,9 +1,10 @@
 from copy import deepcopy
 from pathlib import Path
+from typing import Optional
 
 import imageio.v3 as iio
 
-from motion_planning.models.base import *
+from motion_planning.lightning.base import *
 from motion_planning.rl import ReplayBuffer
 
 
@@ -29,8 +30,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self,
         buffer_size: int = 100_000,
         start_steps: int = 2_000,
-        noise: float = 0.05,
-        noise_clip: float = 0.1,
         early_stopping: int = 50,
         policy_delay: int = 2,
         pretrain: bool = False,
@@ -45,18 +44,15 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             render: whether to render the environment
         """
         super().__init__(**kwargs)
-        self.save_hyperparameters()
         self.render = render > 0
-        self.buffer = ReplayBuffer[BaseData](buffer_size)
+        self.buffer = ReplayBuffer[Data](buffer_size)
         self.start_steps = start_steps
-        self.noise = noise
-        self.noise_clip = noise_clip
         self.early_stopping = early_stopping
         self.policy_delay = policy_delay
         self.delay_count = 0
         self.automatic_optimization = False
-        self.ac.critic2 = deepcopy(self.ac.critic)
-        self.ac_target = deepcopy(self.ac)
+        self.model.critic2 = deepcopy(self.model.critic)
+        self.ac_target = deepcopy(self.model)
 
         if pretrain:
             self.frozen_epochs = 100
@@ -68,21 +64,46 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def configure_optimizers(self):
         return (
             torch.optim.AdamW(
-                self.ac.actor.parameters(),
+                self.model.actor.parameters(),
                 lr=self.actor_lr,
                 weight_decay=self.weight_decay,
             ),
             torch.optim.AdamW(
-                self.ac.critic.parameters(),
+                self.model.critic.parameters(),
                 lr=self.critic_lr,
                 weight_decay=self.weight_decay,
             ),
             torch.optim.AdamW(
-                self.ac.critic2.parameters(),
+                self.model.critic2.parameters(),
                 lr=self.critic_lr,
                 weight_decay=self.weight_decay,
             ),
         )
+
+    def policy(
+        self,
+        mu: torch.Tensor,
+        action: Optional[torch.Tensor] = None,
+    ):
+        """
+        Sample from a Gaussian distribution.
+
+        Args:
+            mu: (batch_size, N) mean of the Gaussian distribution
+            sigma: (batch_size, N) standard deviation of the Gaussian distribution.
+            action: (batch_size, N) Optional action. If given returns tuple action, log_prob, entropy.
+
+        Returns:
+            action: (batch_size, N) sample action or given action.
+        """
+        if action is None:
+            eps = torch.randn_like(mu)
+            action = mu + sigma * eps
+            assert isinstance(action, torch.Tensor)
+            return action
+
+        dist = torch.distributions.Normal(mu, sigma)
+        return action, dist.log_prob(action), dist.entropy()
 
     def update_optimizers(self):
         opt_actor, opt_critic1, opt_critic2 = self.optimizers()
@@ -112,20 +133,28 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def critic_loss(
         self,
         state,
+        positions,
+        targets,
         action,
         reward,
         next_state,
+        next_positions,
+        next_targets,
         done,
         data,
     ):
-        q1 = self.ac.critic(state, action, data)
-        q2 = self.ac.critic2(state, action, data)  # type: ignore
+        # q1 = self.ac.critic(positions, targets, action, data)
+        # q2 = self.ac.critic2(positions, targets, action, data)
+        q1 = self.model.critic(state, action, data)
+        q2 = self.model.critic2(state, action, data)  # type: ignore
 
         with torch.no_grad():
             next_mu, _ = self.ac_target.actor(next_state, data)
             eps = torch.randn_like(next_mu) * self.noise
             next_action = next_mu + torch.clip(eps, -self.noise_clip, self.noise_clip)
             next_action = self.clip_action(next_action)
+            # q1_target = self.ac_target.critic(next_positions, targets, next_action, data)
+            # q2_target = self.ac_target.critic2(next_positions, targets, next_action, data)
             q1_target = self.ac_target.critic(next_state, next_action, data)
             q2_target = self.ac_target.critic2(next_state, next_action, data)  # type: ignore
 
@@ -142,8 +171,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         return loss1, loss2
 
-    def actor_loss(self, state, data):
-        action, _ = self.ac.actor(state, data)
+    def actor_loss(self, data):
+        action, _ = self.model.forward_actor(data)
         self.log(
             "vals/action_magnitude",
             torch.norm(action, dim=-1).mean(),
@@ -151,7 +180,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             batch_size=data.batch_size,
         )
         action = self.clip_action(action)
-        q = self.ac.critic(state, action, data)
+        # q = self.ac.critic(positions, targets, action, data)
+        q = self.model.critic(state, action, data)
         return -q.mean()
 
     def training_step(self, data, batch_idx):
@@ -161,9 +191,13 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         # Update the critic function
         loss_q1, loss_q2 = self.critic_loss(
             data.state,
+            data.positions,
+            data.targets,
             data.action,
             data.reward,
             data.next_state,
+            data.next_positions,
+            data.next_targets,
             data.done,
             data,
         )
@@ -176,8 +210,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         opt_critic1.zero_grad()
         self.manual_backward(loss_q1)
-        torch.nn.utils.clip_grad_norm_(self.ac.critic.parameters(), 1e-2)
-        for name, param in self.ac.critic.named_parameters():
+        torch.nn.utils.clip_grad_norm_(self.model.critic.parameters(), 1e-2)
+        for name, param in self.model.critic.named_parameters():
             self.log(
                 f"train/critic1_gradients/{name}",
                 param.grad.mean(),
@@ -187,8 +221,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         opt_critic2.zero_grad()
         self.manual_backward(loss_q2)
-        torch.nn.utils.clip_grad_norm_(self.ac.critic2.parameters(), 1e-2)
-        for name, param in self.ac.critic2.named_parameters():
+        torch.nn.utils.clip_grad_norm_(self.model.critic2.parameters(), 1e-2)
+        for name, param in self.model.critic2.named_parameters():
             self.log(
                 f"train/critic2_gradients/{name}",
                 param.grad.mean(),
@@ -203,18 +237,18 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             and self.current_epoch >= self.frozen_epochs
         ):
             # Freeze the critic network
-            for p in self.ac.critic.parameters():
+            for p in self.model.critic.parameters():
                 p.requires_grad = False
 
             # Update the actor function
-            loss_pi = self.actor_loss(data.state, data)
+            loss_pi = self.actor_loss(data.state, data.positions, targets, data)
             self.log(
                 "train/actor_loss", loss_pi, prog_bar=True, batch_size=data.batch_size
             )
             opt_actor.zero_grad()
             self.manual_backward(loss_pi)
-            torch.nn.utils.clip_grad_norm_(self.ac.actor.parameters(), 1e-2)
-            for name, param in self.ac.actor.named_parameters():
+            torch.nn.utils.clip_grad_norm_(self.model.actor.parameters(), 1e-2)
+            for name, param in self.model.actor.named_parameters():
                 if param.grad is None:
                     continue
                 self.log(
@@ -225,25 +259,31 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.step()
 
             # Unfreeze the critic network
-            for p in self.ac.critic.parameters():
+            for p in self.model.critic.parameters():
                 p.requires_grad = True
 
         # Perform polyak averaging to update the target actor-critic
         with torch.no_grad():
-            for p, p_target in zip(self.ac.parameters(), self.ac_target.parameters()):
+            for p, p_target in zip(
+                self.model.parameters(), self.ac_target.parameters()
+            ):
                 p_target.data.mul_(self.polyak)
                 p_target.data.add_((1 - self.polyak) * p.data)
 
     def validation_step(self, data, batch_idx):
         loss_q = self.critic_loss(
             data.state,
+            data.positions,
+            targets,
             data.action,
             data.reward,
             data.next_state,
+            data.next_positions,
+            targets,
             data.done,
             data,
         )
-        loss_pi = self.actor_loss(data.state, data)
+        loss_pi = self.actor_loss(data.state, data.positions, targets, data)
 
         self.log(
             "val/critic1_loss", loss_q[0], prog_bar=True, batch_size=data.batch_size
@@ -265,13 +305,17 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def test_step(self, data, batch_idx):
         loss_q = self.critic_loss(
             data.state,
+            data.positions,
+            targets,
             data.action,
             data.reward,
             data.next_state,
+            data.next_positions,
+            targets,
             data.done,
             data,
         )
-        loss_pi = self.actor_loss(data.state, data)
+        loss_pi = self.actor_loss(data.state, data.positions, targets, data)
 
         self.log("test/critic1_loss", loss_q[0], batch_size=data.batch_size)
         self.log("test/critic2_loss", loss_q[1], batch_size=data.batch_size)
@@ -280,10 +324,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         return loss_q, loss_pi
 
-    def rollout_step(
-        self,
-        data: BaseData,
-    ):
+    def rollout_action(self, data: Data):
         if self.training:
             # use actor policy
             eps = torch.randn_like(data.mu) * self.noise
@@ -292,57 +333,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         else:
             # use greedy policy
             data.action = data.mu
-
-        next_state, reward, done, _ = self.env.step(
-            data.action.detach().cpu().numpy()
-        )
-        coverage = self.env.coverage()
-        n_collisions = self.env.n_collisions(r=self.agent_radius)
-        return data, next_state, reward, done, coverage, n_collisions
-
-    @torch.no_grad()
-    def rollout(self, render=False) -> tuple[List[BaseData], List[np.ndarray]]:
-        self.rollout_start()
-        episode = []
-        observation = self.env.reset()
-        data = self.to_data(observation, 0, self.env.adjacency())
-        frames = []
-        for step in range(self.max_steps):
-            if render:
-                frames.append(self.env.render(mode="rgb_array"))
-
-            # sample action
-            data.mu, data.sigma = self.ac.actor(data.state, data)
-
-            # take step
-            (
-                data,
-                next_state,
-                reward,
-                done,
-                coverage,
-                n_collisions,
-            ) = self.rollout_step(data)
-
-            # add additional attributes
-            next_data = self.to_data(
-                next_state, step + 1, self.env.adjacency()
-            )
-            data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.coverage = torch.tensor([coverage]).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.n_collisions = torch.tensor([n_collisions]).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.next_state = next_data.state
-            data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
-
-            episode.append(data)
-            data = next_data
-            if done or (
-                len(episode) >= self.early_stopping
-                and episode[-1].reward.mean()
-                <= episode[-self.early_stopping].reward.mean()
-            ):
-                break
-        return episode, frames
+        return data
 
     def batch_generator(
         self, n_episodes=1, render=False, use_buffer=True, training=True

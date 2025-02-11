@@ -1,8 +1,6 @@
 import random
 
-import numpy as np
-
-from motion_planning.models.base import *
+from motion_planning.lightning.base import *
 from motion_planning.rl import ReplayBuffer
 
 
@@ -13,7 +11,8 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def __init__(
         self,
-        buffer_size: int = 100_000,
+        model: ActorCritic,
+        buffer_size: int = 10_000,
         target_policy: str = "c",
         expert_probability: float = 0.5,
         expert_probability_decay: float = 0.99,
@@ -24,44 +23,54 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         Args:
             buffer_size: size of the replay buffer
             target_policy: the target policy to use for the expert
+            target_policy_distance_squared: whether to use the squared distance assignment in the target policy
             expert_probability: probability of sampling from the expert
             render: whether to render the environment
         """
-        super().__init__(**kwargs)
-        self.save_hyperparameters()
+        super().__init__(model, **kwargs)
+        self.save_hyperparameters(ignore=["model"])
         self.target_policy = target_policy
         self.render = render > 0
-        self.buffer = ReplayBuffer[BaseData](buffer_size)
+        self.buffer = ReplayBuffer[tuple[Data, Data]](buffer_size)
         self.expert_probability = expert_probability
         self.expert_probability_decay = expert_probability_decay
         self.automatic_optimization = False
 
-    def training_step(self, data, batch_idx):
+    def training_step(self, data_pair, *args):
+        data, next_data = data_pair
         opt_actor, opt_critic = self.optimizers()
 
+        assert data.expert is not None
+
         # actor step
-        mu, _ = self.ac.actor.forward(data.state, data)
-        loss_pi = F.mse_loss(mu, data.expert)
-        self.log("train/mu_loss", loss_pi, prog_bar=True, batch_size=data.batch_size)
+        mu = self.model.forward_actor(data)
+        loss_actor = F.mse_loss(mu, data.expert)
+        self.log(
+            "train/actor_loss", loss_actor, prog_bar=True, batch_size=data.batch_size
+        )
         opt_actor.zero_grad()
-        self.manual_backward(loss_pi)
+        self.manual_backward(loss_actor)
         opt_actor.step()
 
         # critic step
-        # q = self.ac.critic.forward(data.centralized_state, data.action, data)
+        # q = self.model.forward_critic(data.action, data)
         # with torch.no_grad():
-        #     next_action, _ = self.ac.actor.forward(data.next_state, data)
-        #     qprime = self.ac.critic.forward(data.next_centralized_state, next_action, data)
-        # loss_q = self.critic_loss(q, qprime, data.reward, data.done)
-        # self.log("train/critic_loss", loss_q, prog_bar=True, batch_size=data.batch_size)
+        #     # we get the expected action, since we want the critic to predict the expected reward
+        #     next_action = self.model.forward_actor(next_data)
+        #     next_q = self.model.forward_critic(next_action, next_data)
+        # loss_critic = self.critic_loss(q, next_q, data.reward, data.done)
+        # self.log(
+        #     "train/critic_loss", loss_critic, prog_bar=True, batch_size=data.batch_size
+        # )
         # opt_critic.zero_grad()
-        # self.manual_backward(loss_q)
+        # self.manual_backward(loss_critic)
         # opt_critic.step()
 
-    def validation_step(self, data, batch_idx):
-        mu, _ = self.ac.actor.forward(data.state, data)
+    def validation_step(self, data_pair, *args):
+        data, next_data = data_pair
+        mu = self.model.forward_actor(data)
         loss = F.mse_loss(mu, data.expert)
-        self.log("val/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
+        self.log("val/actor_loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "val/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
@@ -72,10 +81,11 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
         return loss
 
-    def test_step(self, data, batch_idx):
-        mu, _ = self.ac.actor.forward(data.state, data)
+    def test_step(self, data_pair, *args):
+        data, next_data = data_pair
+        mu = self.model.forward_actor(data)
         loss = F.mse_loss(mu, data.expert)
-        self.log("test/mu_loss", loss, prog_bar=True, batch_size=data.batch_size)
+        self.log("test/actor_loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
             "test/reward", data.reward.mean(), prog_bar=True, batch_size=data.batch_size
         )
@@ -93,16 +103,13 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         else:
             self.use_expert = False
 
-    def rollout_step(
-        self,
-        data: BaseData,
-    ):
-        if self.target_policy == "c":
-            expert = self.env.centralized_policy()
+    def rollout_action(self, data: Data):
+        if self.target_policy in ["c", "c_sq"]:
+            expert = self.env.centralized_policy(self.target_policy == "c_sq")
         elif self.target_policy == "d0":
             expert = self.env.decentralized_policy(0)
-        elif self.target_policy == "d1":
-            expert = self.env.decentralized_policy(1)
+        elif self.target_policy in ["d1", "d1_sq"]:
+            expert = self.env.decentralized_policy(1, self.target_policy == "d1_sq")
         else:
             raise ValueError(f"Unknown target policy {self.target_policy}")
 
@@ -112,18 +119,13 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             # use expert policy
             data.action = data.expert
         elif self.training:
-            # use actor policy
-            data.action = self.ac.policy(data.mu, data.sigma)
+            # stochastic policy from actor for trai
+            mu = self.model.forward_actor(data)
+            data.action = self.policy(mu)
         else:
             # use greedy policy
-            data.action = data.mu
-
-        next_state, reward, done, _ = self.env.step(
-            data.action.detach().cpu().numpy()
-        )
-        coverage = self.env.coverage()
-        n_collisions = self.env.n_collisions(r=self.agent_radius)
-        return data, next_state, reward, done, coverage, n_collisions
+            data.action = self.model.forward_actor(data)
+        return data
 
     def batch_generator(
         self, n_episodes=1, render=False, use_buffer=True, training=True
