@@ -1,3 +1,4 @@
+import random
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
@@ -12,6 +13,39 @@ from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
 rng = np.random.default_rng()
+
+
+def init_uniform(n_samples, width, initial_separation):
+    return collision_free_sampling(
+        initial_separation,
+        lambda: rng.uniform(-width / 2, width / 2, (n_samples, 2)),
+    )
+
+
+def uniform_circle(n_samples, radius):
+    theta = rng.uniform(0, 2 * np.pi, n_samples)
+    r = rng.uniform(0, radius, n_samples)
+    return np.stack([r * np.cos(theta), r * np.sin(theta)], axis=-1)
+
+
+def init_clusters(n_samples, n_samples_per_cluster, width, initial_separation):
+    assert (
+        n_samples % n_samples_per_cluster == 0
+    ), f"n_samples={n_samples} must be divisible by n_samples_per_cluster={n_samples_per_cluster}"
+    n_clusters = n_samples // n_samples_per_cluster
+    if n_clusters == n_samples:
+        return init_uniform(n_samples, width, initial_separation)
+    cluster_radius = 5 * initial_separation * n_samples_per_cluster**0.5
+    cluster_centers = collision_free_sampling(
+        2 * cluster_radius,
+        lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 2)),
+    )
+    print(initial_separation, cluster_radius)
+    return collision_free_sampling(
+        initial_separation,
+        lambda: uniform_circle(n_samples, cluster_radius)
+        + cluster_centers.repeat(n_samples_per_cluster, axis=0),
+    )
 
 
 class MotionPlanningRender:
@@ -132,18 +166,17 @@ def index_to_coo(idx, mask=None):
     return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
 
 
-def collision_free_sampling(n: int, d: float, sampler: Callable[[int], np.ndarray]):
+def collision_free_sampling(d: float, sampler: Callable[[], np.ndarray]):
     """
     Sample n positions without collisions within a given radius r.
 
     Args:
-        n: The number of positions to sample.
         d: The minimum distance between positions.
         sampler: A function that samples positions given the number of positions to sample.
     """
     # set of indices of agents that were changed in this iteration
-    idx: np.ndarray = np.arange(n)
-    positions: np.ndarray = sampler(n)
+    positions: np.ndarray = sampler()
+    idx: np.ndarray = np.arange(positions.shape[0])
     while True:
         dist = cdist(positions, positions[idx])
         dist[idx, np.arange(len(idx))] = np.inf
@@ -153,7 +186,7 @@ def collision_free_sampling(n: int, d: float, sampler: Callable[[int], np.ndarra
         # find indices of agents that are too close and need to be changed
         # this set will be monotonically decreasing
         idx = idx[min_dist < d]
-        positions[idx] = sampler(idx.shape[0])
+        positions[idx] = sampler()[idx]
     return positions
 
 
@@ -183,6 +216,7 @@ class MotionPlanning(GraphEnv):
     scenarios = {
         "uniform",
         "gaussian_uniform",
+        "clusters",
         "circle",
         "two_lines",
         "icra",
@@ -438,25 +472,45 @@ class MotionPlanning(GraphEnv):
     def reset(self):
         self.state = np.zeros((self.n_agents, self.state_ndim))
         if self.scenario == "uniform":
-            sampler = lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2))
             self.targets = collision_free_sampling(
-                self.n_targets, self.initial_separation, sampler
+                self.initial_separation,
+                lambda: rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                ),
             )
             self.positions = collision_free_sampling(
-                self.n_agents, self.initial_separation, sampler
+                self.initial_separation,
+                lambda: rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_agents, 2)
+                ),
             )
         elif self.scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
             # targets are uniformly distributed
             self.targets = collision_free_sampling(
-                self.n_targets,
                 self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
+                lambda: rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                ),
             )
             self.positions = collision_free_sampling(
-                self.n_agents,
                 self.initial_separation,
-                lambda n: rng.normal(size=(n, 2)),
+                lambda: rng.normal(size=(self.n_agents, 2)),
+            )
+        elif self.scenario == "clusters":
+            n_targets_per_cluster = random.choice([1, 10, 25])
+            n_agents_per_cluster = random.choice([1, 10, 25])
+            self.targets = init_clusters(
+                self.n_targets,
+                n_targets_per_cluster,
+                self.width,
+                self.initial_separation,
+            )
+            self.positions = init_clusters(
+                self.n_agents,
+                n_agents_per_cluster,
+                self.width,
+                self.initial_separation,
             )
         elif self.scenario == "circle":
 
@@ -468,57 +522,41 @@ class MotionPlanning(GraphEnv):
                 )
 
             self.target_positions = collision_free_sampling(
-                self.n_targets,
                 self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
+                lambda: rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                ),
             )
             self.position = collision_free_sampling(
-                self.n_agents,
                 self.initial_separation,
-                lambda n: rng.normal(size=(n, 2)),
-            )
-        elif self.scenario == "circle":
-
-            def circ_sampler(n):
-                radius = rng.uniform(3 * self.width / 16, 5 * self.width / 16, (n, 1))
-                angle = rng.uniform(-np.pi, np.pi, (n, 1))
-                return np.concatenate(
-                    [radius * np.cos(angle), radius * np.sin(angle)], axis=1
-                )
-
-            self.target_positions = collision_free_sampling(
-                self.n_targets,
-                self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
-            )
-            self.position = collision_free_sampling(
-                self.n_agents, self.initial_separation, circ_sampler
+                lambda: circ_sampler(self.n_targets),
             )
         elif self.scenario == "two_lines":
             sampler = lambda x: (
-                lambda n: np.concatenate(
+                lambda: np.concatenate(
                     [
                         rng.uniform(
                             self.width / 4 if x == 0 else -3 * self.width / 8,
                             3 * self.width / 8 if x == 0 else -self.width / 4,
-                            (n, 1),
+                            (self.n_targets, 1),
                         ),
-                        rng.uniform(-self.width / 2, self.width / 2, (n, 1)),
+                        rng.uniform(
+                            -self.width / 2, self.width / 2, (self.n_targets, 1)
+                        ),
                     ],
                     axis=1,
                 )
             )
-            self.position = collision_free_sampling(
-                self.n_targets, self.initial_separation, sampler(1)
-            )
+            self.position = collision_free_sampling(self.initial_separation, sampler(1))
             self.target_positions = collision_free_sampling(
-                self.n_targets, self.initial_separation, sampler(0)
+                self.initial_separation, sampler(0)
             )
         elif self.scenario == "icra":
             self.position = collision_free_sampling(
-                self.n_targets,
                 self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
+                lambda: rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_agents, 2)
+                ),
             )
 
             i_points = []
@@ -687,9 +725,10 @@ class MotionPlanning(GraphEnv):
 
         elif self.scenario == "icra":
             self.position = collision_free_sampling(
-                self.n_targets,
                 self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
+                lambda: rng.uniform(
+                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                ),
             )
 
             i_points = []
@@ -854,18 +893,6 @@ class MotionPlanning(GraphEnv):
 
             self.target_positions = np.concatenate(
                 [i_points, c_points, r_points, a_points, others], axis=0
-            )
-        elif self.scenario == "q-scenario":
-            # collision free sampling
-            self.targets = collision_free_sampling(
-                self.n_targets,
-                self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
-            )
-            self.positions = collision_free_sampling(
-                self.n_agents,
-                self.initial_separation,
-                lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
             )
         else:
             raise ValueError(

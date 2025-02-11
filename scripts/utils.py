@@ -47,7 +47,7 @@ def simulation_args(parser: argparse.ArgumentParser):
         "--scenario",
         type=str,
         default="uniform",
-        choices=["uniform", "gaussian_uniform"],
+        choices=MotionPlanning.scenarios,
     )
     group.add_argument("--max_vel", type=float, default=10.0)
     group.add_argument("--dt", type=float, default=1.0)
