@@ -132,6 +132,7 @@ def make_trainer(
         max_epochs=params["max_epochs"],
         default_root_dir="logs/",
         check_val_every_n_epoch=1,
+        enable_progress_bar=params["progress_bar"],
     )
     return trainer
 
