@@ -121,8 +121,8 @@ def test(params):
     model = model.eval()
 
     @torch.no_grad()
-    def policy_fn(observation, positions, targets, graph, step):
-        data = model.to_data(observation, positions, targets, graph)
+    def policy_fn(observation, positions, targets, graph, components, step):
+        data = model.to_data(observation, positions, targets, graph, components)
         return model.model.forward_actor(data).detach().cpu().numpy()
 
     # can override the filename as an argument
@@ -235,13 +235,13 @@ class DelayedModel:
             batch_list.append(data)
         return typing.cast(Data, Batch.from_data_list(batch_list))
 
-    def __call__(self, state, positions, targets, graph, step: int):
+    def __call__(self, state, positions, targets, graph, components, step: int):
         with torch.no_grad():
             if self.comm_interval == 0:
-                data = self.model.to_data(state, positions, targets, graph)
+                data = self.model.to_data(state, positions, targets, graph, components)
                 return self.model.model.forward_actor(data).detach().cpu().numpy()
 
-            data = self.model.to_data(state, positions, targets, graph)
+            data = self.model.to_data(state, positions, targets, graph, components)
             if not self.initialized or step == 0:
                 self.lazy_init(data)
             self.update_buffer(data, step)

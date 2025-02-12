@@ -323,8 +323,7 @@ class MotionPlanning(GraphEnv):
         self.state[..., 2:4] = value
 
     def adjacency(self):
-        idx = argtopk(-self.dist_pp, self.comm_max_neighbors + 1, axis=1)
-        return index_to_coo(idx)
+        return self._adjacency
 
     def clip_action(self, action):
         """
@@ -417,6 +416,10 @@ class MotionPlanning(GraphEnv):
         self.dist_pp = cdist(self.positions, self.positions)
         self.dist_pt = cdist(self.positions, self.targets)
 
+    def _compute_adjacency(self):
+        idx = argtopk(-self.dist_pp, self.comm_max_neighbors + 1, axis=1)
+        self._adjacency = index_to_coo(idx)
+
     def n_collisions(self, threshold: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
         distances = self.dist_pp[x_idx, y_idx]
@@ -436,6 +439,15 @@ class MotionPlanning(GraphEnv):
         # the reward for each agent is the coverage reward minus the collision penalty
         reward = reward_coverage - penalty_collision
         return reward
+
+    def components(self) -> np.ndarray:
+        """
+        Returns an array representing the connected components of the graph. Each node is assigned a component id. Nodes with the same component id are connected.
+        """
+        _, component_ids = scipy.sparse.csgraph.connected_components(
+            self.adjacency(), directed=True, connection="weak", return_labels=True
+        )
+        return component_ids
 
     def coverage(self) -> float:
         return np.mean(np.any(self.dist_pt < self.coverage_cutoff, axis=0))
@@ -459,6 +471,7 @@ class MotionPlanning(GraphEnv):
         self.positions += self.velocity * self.dt
         self.t += self.dt
         self._compute_distances()
+        self._compute_adjacency()
         return (
             self._observation(),
             self.positions,
@@ -900,6 +913,7 @@ class MotionPlanning(GraphEnv):
 
         self.t = 0
         self._compute_distances()
+        self._compute_adjacency()
         if self.render_ is not None:
             self.render_.reset()
         return self._observation(), self.positions, self.targets

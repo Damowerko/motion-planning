@@ -156,6 +156,18 @@ class Transformer(nn.Module):
         encoding_frequencies: str = "linear",
         attention_window: float = 0.0,
     ):
+        """
+        Args:
+            n_layers: The number of transformer layers.
+            embed_dim: The dimensionality of the embedding. Must be divisible by n_heads.
+            n_heads: The number of attention heads. Each head will have dimension embed_dim // n_heads.
+            dropout: The dropout rate.
+            encoding_type: The type of positional encoding to use. Either "absolute", "rotary", "mlp" or None.
+            encoding_period: The period of the encoding. Only used for "absolute" and "rotary" encoding.
+            encoding_frequencies: The method to generate the frequencies. Either "linear" or "geometric". Only used for "absolute" and "rotary" encoding.
+            attention_window: When `attention_window > 0` the attention matrix will be zero between positions that are further apart than `attention_window`. If `attention_window == 0`, no mask is applied.
+        """
+
         super().__init__()
         self.n_layers = n_layers
         self.n_heads = n_heads
@@ -228,31 +240,50 @@ class Transformer(nn.Module):
         mask = distance <= attention_window / 2
         return mask.unsqueeze(1)
 
+    @staticmethod
+    def _connected_mask(components: torch.Tensor) -> torch.Tensor:
+        """
+        Compute a mask that is zero between positions that are not connected in the graph.
+
+        Args:
+            components: (B, N) tensor with integers representing the ID of connected components. If components[i] == components[j], then i and j are connected.
+
+        Returns:
+            A tensor of shape (B, 1, N, N) with the connected mask.
+        """
+        mask = components.unsqueeze(1) == components.unsqueeze(2)
+        return mask.unsqueeze(1)
+
     def forward(
         self,
         x: torch.Tensor,
         pos: torch.Tensor,
         padding_mask: torch.Tensor | None = None,
+        components: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
             x: The input tensor with shape (B, N, embed_dim).
             pos: The positions of the input tensor with shape (B, N, n_dimensions).
-            padding_mask: The padding mask with shape (B, N). If None, no mask is applied.
+            padding_mask: (Optional) The padding mask with shape (B, N). If None, no mask is applied.
+            components: (Optional) (B, N) tensor with IDs of connected components. If i and j are connected, then components[i] == components[j]. If provided, the attention matrix will be zero between different components.
         """
         B, N = x.shape[:2]
         if isinstance(self.encoding, (AbsolutePositionalEncoding, gnn.MLP)):
             x = x + self.encoding(pos)
 
-        attn_mask = (
-            self._window_mask(pos, self.attention_window)
-            if self.attention_window > 0
-            else None
-        )
+        # We need an attention mask if there is padding, windowing or we are masking by connected components.
+        attn_mask = None
         if padding_mask is not None:
-            # unsqueeze because padding mask has shape (B, N) and we need to be broadcastable with (B,...,N,N)
-            padding_mask = padding_mask.unsqueeze(1).unsqueeze(1)
-            attn_mask = padding_mask if attn_mask is None else attn_mask & padding_mask
+            attn_mask = padding_mask.unsqueeze(1).unsqueeze(1)
+        if components is not None:
+            connected_mask = self._connected_mask(components)
+            attn_mask = (
+                connected_mask if attn_mask is None else attn_mask & connected_mask
+            )
+        if self.attention_window > 0:
+            window_mask = self._window_mask(pos, self.attention_window)
+            attn_mask = window_mask if attn_mask is None else attn_mask & window_mask
 
         for i in range(self.n_layers):
             # using pre-norm transformer, so we apply layer norm before attention
@@ -299,12 +330,15 @@ class TransformerActor(nn.Module):
         encoding_period: float = 10.0,
         encoding_frequencies: str = "linear",
         attention_window: float = 0.0,
+        connected_mask: bool = False,
     ):
+
         super().__init__()
         self.state_ndim = 14
         self.action_ndim = 2
         self.embed_dim = n_channels * n_heads
         self.dropout = float(dropout)
+        self.connected_mask = connected_mask
 
         self.readin = gnn.MLP(
             [self.state_ndim, 2 * self.embed_dim, self.embed_dim],
@@ -338,7 +372,10 @@ class TransformerActor(nn.Module):
             if hasattr(data, "padding_mask")
             else None
         )
-        y = self.transformer(x, pos, padding_mask)
+        components = (
+            data.components.reshape(batch_size, -1) if self.connected_mask else None
+        )
+        y = self.transformer(x, pos, padding_mask, components)
         return self.readout(y).reshape(-1, self.action_ndim)
 
 
@@ -396,8 +433,21 @@ class TransformerActorCritic(ActorCritic):
         encoding_period: float = 10.0,
         encoding_frequencies: str = "linear",
         attention_window: float = 0.0,
+        connected_mask: bool = False,
         **kwargs,
     ):
+        """
+        Args:
+            n_layers: The number of transformer layers.
+            n_channels: The number of channels in the transformer. Must be divisible by n_heads.
+            n_heads: The number of attention heads. Each head will have dimension n_channels // n_heads.
+            dropout: The dropout rate.
+            encoding_type: The type of positional encoding to use. Either "absolute", "rotary", "mlp" or None.
+            encoding_period: The period of the encoding. Only used for "absolute" and "rotary" encoding.
+            encoding_frequencies: The method to generate the frequencies. Either "linear" or "geometric". Only used for "absolute" and "rotary" encoding.
+            attention_window: When `attention_window > 0` the attention matrix will be zero between positions that are further apart than `attention_window`. If `attention_window == 0`, no mask is applied.
+            connected_mask: If True, the attention matrix will be zero between positions that are not connected in the graph.
+        """
         actor = TransformerActor(
             n_layers,
             n_channels,
@@ -407,6 +457,7 @@ class TransformerActorCritic(ActorCritic):
             encoding_period=encoding_period,
             encoding_frequencies=encoding_frequencies,
             attention_window=attention_window,
+            connected_mask=connected_mask,
         )
         critic = TransformerCritic(
             n_layers,

@@ -120,11 +120,13 @@ class MotionPlanningActorCritic(pl.LightningModule):
             ),
         ]
 
-    def to_data(self, state, positions, targets, adjacency) -> Data:
+    def to_data(self, state, positions, targets, adjacency, components) -> Data:
         if isinstance(adjacency, list):
             data = []
             for i, adj in enumerate(adjacency):
-                data.append(self.to_data(state[i], positions[i], targets[i], adj))
+                data.append(
+                    self.to_data(state[i], positions[i], targets[i], adj, components)
+                )
             return Batch.from_data_list(data)  # type: ignore
         state = torch.from_numpy(state).to(
             dtype=self.dtype, device=self.device  # type: ignore
@@ -135,6 +137,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         targets = torch.from_numpy(targets).to(
             dtype=self.dtype, device=self.device  # type: ignore
         )
+        components = torch.from_numpy(components).to(
+            dtype=torch.long, device=self.device  # type: ignore
+        )
         # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
@@ -143,6 +148,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             state=state,
             positions=positions,
             targets=targets,
+            components=components,
             edge_index=edge_index,
             edge_attr=edge_weight,
             num_nodes=state.shape[0],
@@ -181,7 +187,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data.action.detach().cpu().numpy()  # type: ignore
         )
         next_data = self.to_data(
-            next_state, next_positions, next_targets, self.env.adjacency()
+            next_state,
+            next_positions,
+            next_targets,
+            self.env.adjacency(),
+            self.env.components(),
         )
         coverage = self.env.coverage()
         n_collisions = self.env.n_collisions(threshold=self.collision_distance)
@@ -199,7 +209,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.rollout_start()
         episode = []
         observation, positions, targets = self.env.reset()
-        data = self.to_data(observation, positions, targets, self.env.adjacency())
+        data = self.to_data(
+            observation, positions, targets, self.env.adjacency(), self.env.components()
+        )
         frames = []
         for step in range(self.max_steps):
             if render:

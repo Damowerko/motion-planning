@@ -216,7 +216,14 @@ def rollout(
         observation, positions, targets = env.reset()
         for step in range(params["max_steps"]):
             action = (
-                policy_fn(observation, positions, targets, env.adjacency(), step)
+                policy_fn(
+                    observation,
+                    positions,
+                    targets,
+                    env.adjacency(),
+                    env.components(),
+                    step,
+                )
                 if not baseline
                 else policy_fn(observation, env.adjacency())
             )
