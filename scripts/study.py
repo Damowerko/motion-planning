@@ -52,6 +52,7 @@ def parse_args():
     training_group.add_argument("--max_epochs", type=int, default=500)
     # disable early stopping by default (set to 10_000 epochs)
     training_group.add_argument("--patience", type=int, default=10_000)
+    training_group.add_argument("--no_bar", action="store_false", dest="progress_bar")
 
     # reinforcement learning specific args
     if operation in ("ddpg", "td3", "ppo"):
