@@ -127,7 +127,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             for i, adj in enumerate(adjacency):
                 data.append(
                     self.to_data(
-                        state[i], positions[i], targets[i], adj, components, time
+                        state[i], positions[i], targets[i], adj, components, time[i]
                     )
                 )
             return Batch.from_data_list(data)  # type: ignore
@@ -143,6 +143,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         components = torch.from_numpy(components).to(
             dtype=torch.long, device=self.device  # type: ignore
         )
+        time = torch.tensor([time], dtype=self.dtype, device=self.device)  # type: ignore
         # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
         edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
         edge_index = edge_index.to(dtype=torch.long, device=self.device)
