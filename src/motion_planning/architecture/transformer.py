@@ -364,7 +364,8 @@ class TransformerActor(nn.Module):
 
     def forward(self, data: Data) -> torch.Tensor:
         batch_size = data.batch_size if isinstance(data, Batch) else 1
-        x = self.readin(data.state).reshape(batch_size, -1, self.embed_dim)
+        state = data.state.reshape(batch_size, -1, self.state_ndim)
+        x = self.readin(state)
         pos = data.positions.reshape(batch_size, -1, 2)
         padding_mask = (
             data.padding_mask.reshape(batch_size, -1)
