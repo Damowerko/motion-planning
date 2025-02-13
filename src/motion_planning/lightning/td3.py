@@ -45,7 +45,9 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
                 for critic in self.critics
             ]
         )
-        self.actor_target = AveragedModel(self.model.actor)
+        self.actor_target = AveragedModel(
+            self.model.actor, multi_avg_fn=get_ema_multi_avg_fn(decay=polyak)
+        )
 
     def configure_optimizers(self):
         actor_optimizer = torch.optim.AdamW(
