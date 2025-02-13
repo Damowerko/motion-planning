@@ -37,7 +37,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         """
         super().__init__(model, **kwargs)
         self.policy_delay = policy_delay
-        self.warmup_epochs = warmup_epochs
+        self.actor_freeze_epochs = warmup_epochs // 2
+        self.actor_linear_epochs = warmup_epochs // 2
         self.automatic_optimization = False
         self.critics = nn.ModuleList([self.model.critic, deepcopy(self.model.critic)])
         self.critic_targets = typing.cast(
@@ -77,10 +78,10 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             [
                 torch.optim.lr_scheduler.LambdaLR(actor_optimizer, lambda _: 0.0),
                 torch.optim.lr_scheduler.LinearLR(
-                    actor_optimizer, 0.01, 1.0, self.warmup_epochs // 2
+                    actor_optimizer, 0.01, 1.0, self.actor_linear_epochs
                 ),
             ],
-            [self.warmup_epochs // 2],
+            [self.actor_linear_epochs],
         )
 
         return [actor_optimizer, critic_optimizer], [actor_scheduler]
@@ -135,8 +136,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.step()
             self.actor_target.update_parameters(self.model.actor)
 
-        self.lr_schedulers().step()  # type: ignore
-
         self.log(
             "train/critic_loss", critic_loss, prog_bar=True, batch_size=data.batch_size
         )
@@ -144,6 +143,16 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             "train/actor_loss", actor_loss, prog_bar=True, batch_size=data.batch_size
         )
         # do not log reward, coverage or n_collisions, since using a replay buffer
+
+    def on_train_epoch_end(self):
+        scheduler = typing.cast(
+            torch.optim.lr_scheduler.LRScheduler, self.lr_schedulers()
+        )
+        assert len(scheduler.get_last_lr()) == 1, "Expected only one parameter group"
+        self.log(
+            "train/actor_lr", scheduler.get_last_lr()[0], prog_bar=True, on_epoch=True
+        )
+        scheduler.step()
 
     def validation_step(self, data_pair):
         data, next_data = data_pair
