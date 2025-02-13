@@ -172,7 +172,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         if self.training:
             data.action = self.policy(data.mu)
         else:
-            data.action = data.mu
+            data.action = self.clip_action(data.mu)
         return data
 
     def rollout_step(self, data: Data):
@@ -250,6 +250,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self, n_episodes=1, render=False, use_buffer=True, training=True
     ):
         # set model to appropriate mode
+        _training = self.training
         self.train(training)
 
         data = []
@@ -259,6 +260,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
         if use_buffer:
             self.buffer.extend(data)
             data = self.buffer.collect(shuffle=True)
+
+        # reset model to original mode
+        self.train(_training)
+
         return iter(data)
 
     def _dataloader(self, **kwargs):
