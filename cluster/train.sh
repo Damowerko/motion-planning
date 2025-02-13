@@ -1,9 +1,16 @@
 #!/bin/bash
 set -e
-$(dirname "$0")/build.sh
-args="$@"
 IMAGE_NAME="motion-planning"
 DOCKER_USERNAME="damowerko"
+
+# comma separated list of arguments, printf adds an extra comma at the end, so we remove it
+printf -v args "\"%s\"," "$@"
+args=${args%,}
+
+# build first
+$(dirname "$0")/build.sh
+
+# create the job
 kubectl create -f - <<EOF
 apiVersion: batch/v1
 kind: Job
@@ -22,7 +29,7 @@ spec:
       - name: motion-planning-train
         image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME
         imagePullPolicy: Always
-        command: ["bash", "-c", "python -u scripts/train.py $args --no_bar && sleep 1"]
+        command: ["python", "-u", "scripts/train.py", $args, "--no_bar"]
         env:
         - name: WANDB_ENTITY
           value: damowerko-academic
