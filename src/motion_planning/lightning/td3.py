@@ -125,8 +125,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         opt_critic.zero_grad()
         self.manual_backward(critic_loss)
         opt_critic.step()
-        for critic, critic_target in zip(self.critics, self.critic_targets):
-            critic_target.update_parameters(critic)
 
         # actor update
         actor_loss = self.actor_loss(data)
@@ -134,7 +132,10 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.zero_grad()
             self.manual_backward(actor_loss)
             opt_actor.step()
+            # update the target networks
             self.actor_target.update_parameters(self.model.actor)
+            for critic, critic_target in zip(self.critics, self.critic_targets):
+                critic_target.update_parameters(critic)
 
         self.log(
             "train/critic_loss", critic_loss, prog_bar=True, batch_size=data.batch_size
