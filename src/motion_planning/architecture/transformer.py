@@ -393,8 +393,13 @@ class TransformerCritic(nn.Module):
         self.embed_dim = n_channels * n_heads
         self.dropout = float(dropout)
 
-        self.readin = gnn.MLP(
+        self.readin_agent = gnn.MLP(
             [4, 2 * self.embed_dim, self.embed_dim],
+            norm="layer_norm",
+            dropout=self.dropout,
+        )
+        self.readin_target = gnn.MLP(
+            [2, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
             dropout=self.dropout,
         )
@@ -416,21 +421,22 @@ class TransformerCritic(nn.Module):
     def forward(self, action: torch.Tensor, data: Data) -> torch.Tensor:
         batch_size = data.batch_size if isinstance(data, Batch) else 1
 
-        x_agent = torch.cat([data.positions, action], dim=-1)
+        action = action.reshape(batch_size, -1, 2)
+        positions = data.positions.reshape(batch_size, -1, 2)
+        x_agent = torch.cat([positions, action], dim=-1)
         x_agent = self.readin_agent(x_agent)
-        x_agent = x_agent.reshape(batch_size, -1, self.embed_dim)
         n_agents = x_agent.size(1)
 
-        x_targets = self.readin_target(data.targets)
-        x_targets = x_targets.reshape(batch_size, -1, self.embed_dim)
+        targets = data.targets.reshape(batch_size, -1, 2)
+        x_target = self.readin_target(targets)
 
         # concatenate the agent and target embeddings so now we have shape (B, n_agents + n_targets, embed_dim)
-        x = torch.cat([x_agent, x_targets], dim=1)
+        x = torch.cat([x_agent, x_target], dim=1)
         y = self.transformer(x, x)
         # get the outputs corresponding to the agents
         y_agent = y[:, :n_agents]
-        z = self.readout(y_agent.reshape(batch_size * n_agents, self.embed_dim))
-        return z.squeeze(1)
+        z = self.readout(y_agent).reshape(batch_size * n_agents)
+        return z
 
 
 class TransformerActorCritic(ActorCritic):
