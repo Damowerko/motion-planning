@@ -77,7 +77,7 @@ def main():
         # vary number of agents and density [agents / m^2]
         futures: List[Future] = []
         for n_agents, density in product(
-            [25, 50, 100, 200, 500, 1000],
+            [50, 100, 200, 500, 1000],
             [1e-4],
         ):
             width = (n_agents / density) ** 0.5
