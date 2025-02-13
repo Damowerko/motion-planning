@@ -270,7 +270,7 @@ class Transformer(nn.Module):
         """
         B, N = x.shape[:2]
         if isinstance(self.encoding, (AbsolutePositionalEncoding, gnn.MLP)):
-            x = x + self.encoding(pos)
+            x = x + self.encoding(pos.reshape(B * N, -1)).reshape(B, N, -1)
 
         # We need an attention mask if there is padding, windowing or we are masking by connected components.
         attn_mask = None
@@ -287,7 +287,7 @@ class Transformer(nn.Module):
 
         for i in range(self.n_layers):
             # using pre-norm transformer, so we apply layer norm before attention
-            x_norm = self.norm1[i](x)
+            x_norm = self.norm1[i](x.reshape(B * N, -1)).reshape(B, N, -1)
             q = self.Wq[i](x_norm)
             k = self.Wk[i](x_norm)
             v = self.Wv[i](x_norm)
@@ -312,7 +312,7 @@ class Transformer(nn.Module):
             x_attention = self.Wo[i](x_attention)
             x = x + x_attention
             # compute the feed forward layer and apply residual connection, as before
-            x_fc = self.norm1[i](x_attention)
+            x_fc = self.norm1[i](x_attention.reshape(B * N, -1)).reshape(B, N, -1)
             x_fc = self.linear1[i](x_fc).relu()
             x_fc = self.linear2[i](x_fc)
             x = x + x_fc
@@ -364,8 +364,7 @@ class TransformerActor(nn.Module):
 
     def forward(self, data: Data) -> torch.Tensor:
         batch_size = data.batch_size if isinstance(data, Batch) else 1
-        state = data.state.reshape(batch_size, -1, self.state_ndim)
-        x = self.readin(state)
+        x = self.readin(data.state).reshape(batch_size, -1, self.embed_dim)
         pos = data.positions.reshape(batch_size, -1, 2)
         padding_mask = (
             data.padding_mask.reshape(batch_size, -1)
@@ -375,8 +374,10 @@ class TransformerActor(nn.Module):
         components = (
             data.components.reshape(batch_size, -1) if self.connected_mask else None
         )
-        y = self.transformer(x, pos, padding_mask, components)
-        return self.readout(y).reshape(-1, self.action_ndim)
+        y = self.transformer(x, pos, padding_mask, components).reshape(
+            -1, self.embed_dim
+        )
+        return self.readout(y)
 
 
 class TransformerCritic(nn.Module):
@@ -408,23 +409,33 @@ class TransformerCritic(nn.Module):
             norm="batch_norm",
             dropout=self.dropout,
         )
-        self.transformer = nn.Transformer(
-            d_model=self.embed_dim,
-            nhead=n_heads,
-            num_encoder_layers=n_layers,
-            num_decoder_layers=n_layers,
-            batch_first=True,
-            dropout=self.dropout,
+        self.transformer = Transformer(
+            n_layers,
+            self.embed_dim,
+            n_heads,
+            self.dropout,
+            encoding_type=None,
+            attention_window=0,
         )
 
     def forward(self, action: torch.Tensor, data: Data) -> torch.Tensor:
         batch_size = data.batch_size if isinstance(data, Batch) else 1
-        positions = data.positions
-        x = torch.cat([positions, action], dim=-1).reshape(batch_size, -1, 4)
-        x = self.readin(x)
+
+        x_agent = torch.cat([data.positions, action], dim=-1)
+        x_agent = self.readin_agent(x_agent)
+        x_agent = x_agent.reshape(batch_size, -1, self.embed_dim)
+        n_agents = x_agent.size(1)
+
+        x_targets = self.readin_target(data.targets)
+        x_targets = x_targets.reshape(batch_size, -1, self.embed_dim)
+
+        # concatenate the agent and target embeddings so now we have shape (B, n_agents + n_targets, embed_dim)
+        x = torch.cat([x_agent, x_targets], dim=1)
         y = self.transformer(x, x)
-        z = self.readout(y).reshape(-1)
-        return z
+        # get the outputs corresponding to the agents
+        y_agent = y[:, :n_agents]
+        z = self.readout(y_agent.reshape(batch_size * n_agents, self.embed_dim))
+        return z.squeeze(1)
 
 
 class TransformerActorCritic(ActorCritic):
