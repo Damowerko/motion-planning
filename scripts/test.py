@@ -231,6 +231,9 @@ class DelayedModel:
             data = Data(
                 state=self.state_buffer[i],
                 positions=self.positions_buffer[i],
+                components=torch.zeros(
+                    self.n_agents, dtype=torch.long, device=self.device
+                ),  # by definition, all agents are in the same component
                 mask_self=mask_self,
                 num_nodes=self.n_agents,
             )
