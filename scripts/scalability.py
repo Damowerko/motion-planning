@@ -40,8 +40,8 @@ def evaluate(params: Parameters):
     )
 
     @torch.no_grad()
-    def policy_fn(observation, positions, targets, graph, components, step):
-        data = model.to_data(observation, positions, targets, graph, components)
+    def policy_fn(observation, positions, targets, graph, components, time):
+        data = model.to_data(observation, positions, targets, graph, components, time)
         return model.model.forward_actor(data).detach().cpu().numpy()
 
     data, _ = rollout(

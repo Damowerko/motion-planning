@@ -125,8 +125,8 @@ def test(params):
     model = model.eval()
 
     @torch.no_grad()
-    def policy_fn(observation, positions, targets, graph, components, step):
-        data = model.to_data(observation, positions, targets, graph, components)
+    def policy_fn(observation, positions, targets, graph, components, time):
+        data = model.to_data(observation, positions, targets, graph, components, time)
         return model.model.forward_actor(data).detach().cpu().numpy()
 
     # can override the filename as an argument
@@ -139,15 +139,13 @@ class DelayedModel:
     def __init__(
         self,
         model: MotionPlanningActorCritic,
-        comm_interval: int = 1,
-        comm_frequency: int = 1,
+        comm_interval: float = 1.0,
         padding_mask: bool = True,
     ):
         """
         Args:
             model (MotionPlanningActorCritic): The model to wrap.
-            comm_interval (int): Number of steps between information exchanges.
-            comm_frequency (int): Number of information exchanges per step.
+            comm_interval (float): Interval between communication exchanges.
             padding_mask (bool): If True, output subgraphs rather than zero padding.
 
         """
@@ -155,12 +153,7 @@ class DelayedModel:
         self.model = model
         self.initialized = False
         self.comm_interval = comm_interval
-        self.comm_frequency = comm_frequency
         self.padding_mask = padding_mask
-        if self.comm_interval != 1 and self.comm_frequency != 1:
-            raise ValueError(
-                f"Unexpected combination of {comm_interval=} and {comm_frequency=}"
-            )
 
     def lazy_init(self, data: Data):
         self.initialized = True
@@ -168,10 +161,11 @@ class DelayedModel:
         self.n_agents = state.size(0)
         self.n_features = state.size(1)
         self.device = data.state.device
+        self.comm_time = 0.0
 
         # time is an NxN array that stores the most recent time that agent i has received information about agent j
         # negative values indicate that agent i has not received any information about agent j
-        self.time = -torch.ones(self.n_agents, self.n_agents, device=self.device)
+        self.time_buffer = -torch.ones(self.n_agents, self.n_agents, device=self.device)
         # state_buffer is an NxNxF array that stores the most recent state of agent j that agent i has received
         self.state_buffer = torch.zeros(
             self.n_agents, self.n_agents, self.n_features, device=self.device
@@ -180,16 +174,17 @@ class DelayedModel:
             self.n_agents, self.n_agents, 2, device=self.device
         )
 
-    def update_buffer(self, data: Data, step):
-        self._update_self(data, step)
-        if step % self.comm_interval != 0:
-            return
-        for _ in range(self.comm_frequency):
+    def update_buffer(self, data: Data, time: float):
+        # locally we always have the most recent information
+        self._update_self(data, time)
+        # the robot simulation environment may be discretized at a different time step
+        while self.comm_time <= time:
+            self.comm_time += self.comm_interval
             self._simulate_communication(data)
 
-    def _update_self(self, data: Data, step: int):
+    def _update_self(self, data: Data, time: float):
         N = torch.arange(self.n_agents)
-        self.time.fill_diagonal_(step)
+        self.time_buffer.fill_diagonal_(time)
         self.state_buffer[N, N, :] = data.state
         self.positions_buffer[N, N, :] = data.positions
 
@@ -200,16 +195,16 @@ class DelayedModel:
         # time.shape == (n_agents, n_agents)
         # state_buffer.shape == (n_agents, n_agents, n_features)
         # 1. For each i in row, gather times from its neighbors col
-        time_neighbors = self.time[dst]  # (E, n_agents)
+        time_neighbors = self.time_buffer[dst]  # (E, n_agents)
         # 2. Find max times (and argmax inside each segment) for each i
         max_time, max_arg = torch_scatter.scatter_max(time_neighbors, src, dim=0)
         # 3. max_arg is the edge index, so convert to node index
         k = dst[max_arg]  # (n_agents, n_agents)
         # 4. Identify which j's should be updated
-        mask = max_time > self.time
+        mask = max_time > self.time_buffer
         # 5. Update buffers for all (i, j) where needed
         i, j = torch.nonzero(mask, as_tuple=True)
-        self.time[mask] = max_time[mask]
+        self.time_buffer[mask] = max_time[mask]
         self.state_buffer[i, j] = self.state_buffer[k[i, j], j]
         self.positions_buffer[i, j] = self.positions_buffer[k[i, j], j]
 
@@ -238,20 +233,24 @@ class DelayedModel:
                 num_nodes=self.n_agents,
             )
             if self.padding_mask:
-                data.padding_mask = self.time[i] > -1
+                data.padding_mask = self.time_buffer[i] > -1
             batch_list.append(data)
         return typing.cast(Data, Batch.from_data_list(batch_list))
 
-    def __call__(self, state, positions, targets, graph, components, step: int):
+    def __call__(self, state, positions, targets, graph, components, time: float):
         with torch.no_grad():
             if self.comm_interval == 0:
-                data = self.model.to_data(state, positions, targets, graph, components)
+                data = self.model.to_data(
+                    state, positions, targets, graph, components, time
+                )
                 return self.model.model.forward_actor(data).detach().cpu().numpy()
 
-            data = self.model.to_data(state, positions, targets, graph, components)
-            if not self.initialized or step == 0:
+            data = self.model.to_data(
+                state, positions, targets, graph, components, time
+            )
+            if not self.initialized or time == 0:
                 self.lazy_init(data)
-            self.update_buffer(data, step)
+            self.update_buffer(data, time)
             # create a batch of data objects with the state for each agent
             batch = self.delayed_data_batch()
             outputs = self.model.model.forward_actor(batch)[batch.mask_self]

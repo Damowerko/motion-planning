@@ -911,7 +911,7 @@ class MotionPlanning(GraphEnv):
                 f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."
             )
 
-        self.t = 0
+        self.t = 0.0
         self._compute_distances()
         self._compute_adjacency()
         if self.render_ is not None:

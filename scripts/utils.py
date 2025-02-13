@@ -223,7 +223,7 @@ def rollout(
                     targets,
                     env.adjacency(),
                     env.components(),
-                    step,
+                    env.t,
                 )
                 if not baseline
                 else policy_fn(observation, env.adjacency())

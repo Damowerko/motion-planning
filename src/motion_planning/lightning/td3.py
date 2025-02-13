@@ -78,10 +78,14 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             [
                 torch.optim.lr_scheduler.LambdaLR(actor_optimizer, lambda _: 0.0),
                 torch.optim.lr_scheduler.LinearLR(
-                    actor_optimizer, 0.01, 1.0, self.actor_linear_epochs + 1
+                    actor_optimizer, 1e-16, 1.0, self.actor_linear_epochs + 1
                 ),
+                torch.optim.lr_scheduler.LambdaLR(actor_optimizer, lambda _: 1.0),
             ],
-            [self.actor_freeze_epochs],
+            [
+                self.actor_freeze_epochs,
+                self.actor_freeze_epochs + self.actor_linear_epochs,
+            ],
         )
 
         return [actor_optimizer, critic_optimizer], [actor_scheduler]
