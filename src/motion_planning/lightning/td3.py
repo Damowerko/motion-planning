@@ -126,7 +126,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             "train/critic_loss", critic_loss, prog_bar=True, batch_size=data.batch_size
         )
         self.log(
-            "train/actor_loss", critic_loss, prog_bar=True, batch_size=data.batch_size
+            "train/actor_loss", actor_loss, prog_bar=True, batch_size=data.batch_size
         )
         # do not log reward, coverage or n_collisions, since using a replay buffer
 
