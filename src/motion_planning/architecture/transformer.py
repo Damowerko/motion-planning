@@ -191,10 +191,10 @@ class Transformer(nn.Module):
         )
 
         self.norm1 = nn.ModuleList(
-            [nn.BatchNorm1d(self.embed_dim) for _ in range(n_layers)]
+            [nn.LayerNorm(self.embed_dim) for _ in range(n_layers)]
         )
         self.norm2 = nn.ModuleList(
-            [nn.BatchNorm1d(self.embed_dim) for _ in range(n_layers)]
+            [nn.LayerNorm(self.embed_dim) for _ in range(n_layers)]
         )
         self.linear1 = nn.ModuleList(
             [nn.Linear(self.embed_dim, 2 * self.embed_dim) for _ in range(n_layers)]
@@ -216,7 +216,7 @@ class Transformer(nn.Module):
         elif encoding_type == "mlp":
             self.encoding = gnn.MLP(
                 [2, 2 * self.embed_dim, self.embed_dim],
-                norm="batch_norm",
+                norm="layer_norm",
                 dropout=self.dropout,
             )
         else:
@@ -342,13 +342,13 @@ class TransformerActor(nn.Module):
 
         self.readin = gnn.MLP(
             [self.state_ndim, 2 * self.embed_dim, self.embed_dim],
-            norm="batch_norm",
+            norm="layer_norm",
             dropout=self.dropout,
         )
         self.readout = gnn.MLP(
             [self.embed_dim, 2 * self.embed_dim, self.action_ndim],
             plain_last=True,
-            norm="batch_norm",
+            norm="layer_norm",
             dropout=self.dropout,
         )
         self.transformer = Transformer(
@@ -393,20 +393,15 @@ class TransformerCritic(nn.Module):
         self.embed_dim = n_channels * n_heads
         self.dropout = float(dropout)
 
-        self.readin_agent = gnn.MLP(
+        self.readin = gnn.MLP(
             [4, 2 * self.embed_dim, self.embed_dim],
-            norm="batch_norm",
-            dropout=self.dropout,
-        )
-        self.readin_target = gnn.MLP(
-            [2, 2 * self.embed_dim, self.embed_dim],
-            norm="batch_norm",
+            norm="layer_norm",
             dropout=self.dropout,
         )
         self.readout = gnn.MLP(
             [self.embed_dim, 2 * self.embed_dim, 1],
             plain_last=True,
-            norm="batch_norm",
+            norm="layer_norm",
             dropout=self.dropout,
         )
         self.transformer = Transformer(
