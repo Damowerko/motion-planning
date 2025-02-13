@@ -26,7 +26,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         actor_lr: float = 0.0001,
         critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
-        batch_size: int = 32,
+        batch_size: int = 100,
         gamma=0.99,
         max_steps=200,
         buffer_size: int = 10_000,
