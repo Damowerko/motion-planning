@@ -83,12 +83,16 @@ def baseline(params: dict):
         coverage_cutoff=params["coverage_cutoff"],
         reward_sigma=params["reward_sigma"],
     )
-    if params["policy"] == "c":
-        policy_fn = lambda o, g: env.centralized_policy()
+    if params["policy"] in ["c", "c_sq"]:
+        policy_fn = lambda o, g: env.centralized_policy(
+            distance_squared=params["policy"].endswith("sq")
+        )
+    elif params["policy"] in ["d1", "d1_sq"]:
+        policy_fn = lambda o, g: env.decentralized_policy(
+            1, distance_squared=params["policy"].endswith("sq")
+        )
     elif params["policy"] == "d0":
         policy_fn = lambda o, g: env.decentralized_policy(0)
-    elif params["policy"] == "d1":
-        policy_fn = lambda o, g: env.decentralized_policy(1)
     elif params["policy"] == "capt":
         policy_fn = lambda o, g: env.capt_policy()
     else:
