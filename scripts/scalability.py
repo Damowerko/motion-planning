@@ -20,7 +20,7 @@ class Parameters:
     width: int = 1000
     collision_distance: float = 2.5
     initial_separation: float = 5.0
-    scenario: str = "uniform"
+    scenario: str = "clusters"
     checkpoint: str = "wandb://damowerko-academic/motion-planning/jwtdsmlx"
     n_trials: int = 5
     max_steps: int = 200
