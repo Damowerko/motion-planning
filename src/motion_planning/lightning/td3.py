@@ -1,3 +1,4 @@
+import typing
 from copy import deepcopy
 from itertools import chain
 
@@ -39,14 +40,23 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.warmup_epochs = warmup_epochs
         self.automatic_optimization = False
         self.critics = nn.ModuleList([self.model.critic, deepcopy(self.model.critic)])
-        self.critic_targets = nn.ModuleList(
-            [
-                AveragedModel(critic, multi_avg_fn=get_ema_multi_avg_fn(decay=polyak))
-                for critic in self.critics
-            ]
+        self.critic_targets = typing.cast(
+            list[AveragedModel],
+            nn.ModuleList(
+                [
+                    AveragedModel(
+                        critic,
+                        multi_avg_fn=get_ema_multi_avg_fn(decay=polyak),
+                        use_buffers=True,
+                    )
+                    for critic in self.critics
+                ]
+            ),
         )
         self.actor_target = AveragedModel(
-            self.model.actor, multi_avg_fn=get_ema_multi_avg_fn(decay=polyak)
+            self.model.actor,
+            multi_avg_fn=get_ema_multi_avg_fn(decay=polyak),
+            use_buffers=True,
         )
 
     def configure_optimizers(self):
@@ -114,6 +124,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         opt_critic.zero_grad()
         self.manual_backward(critic_loss)
         opt_critic.step()
+        for critic, critic_target in zip(self.critics, self.critic_targets):
+            critic_target.update_parameters(critic)
 
         # actor update
         actor_loss = self.actor_loss(data)
@@ -121,6 +133,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.zero_grad()
             self.manual_backward(actor_loss)
             opt_actor.step()
+            self.actor_target.update_parameters(self.model.actor)
 
         self.lr_schedulers().step()  # type: ignore
 
