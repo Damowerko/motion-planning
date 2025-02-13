@@ -1,4 +1,4 @@
-from typing import Iterator, List
+from typing import List
 
 import lightning.pytorch as pl
 import numpy as np
@@ -12,7 +12,7 @@ from torchcps.utils import add_model_specific_args
 
 from motion_planning.architecture.base import ActorCritic
 from motion_planning.envs.motion_planning import MotionPlanning
-from motion_planning.rl import ExperienceSourceDataset
+from motion_planning.rl import ExperienceSourceDataset, ReplayBuffer
 
 
 class MotionPlanningActorCritic(pl.LightningModule):
@@ -29,6 +29,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         batch_size: int = 32,
         gamma=0.99,
         max_steps=200,
+        buffer_size: int = 10_000,
         # MotionPlanning environment parameters
         n_agents: int = 100,
         width: float = 1000.0,
@@ -56,7 +57,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.collision_coefficient = collision_coefficient
         self.noise = noise
         self.noise_clip = noise_clip
-
+        self.buffer = ReplayBuffer[tuple[Data, Data]](buffer_size)
         self.env = MotionPlanning(
             n_agents=n_agents,
             width=width,
@@ -71,7 +72,6 @@ class MotionPlanningActorCritic(pl.LightningModule):
         Sample policy from a normal distribution centered at mu and with standard devation `self.noise`.
         Noise will be clipped to `self.noise_clip` and the action will be clipped to the unit ball.
         """
-
         sigma = torch.ones_like(mu) * self.noise
         noise = torch.normal(0, sigma).clip(-self.noise_clip, self.noise_clip)
         action = mu + noise
@@ -95,7 +95,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         """
         magnitude = torch.norm(action, dim=-1)
         mask = magnitude > 1.0
-        action[mask, :] = action[mask, :] / magnitude[mask][..., None]
+        # need to use torch.where to avoid in-place operations
+        action = torch.where(mask[..., None], action / magnitude[..., None], action)
         return action
 
     def optimizers(self):
@@ -168,7 +169,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
             Modified data with data.action set to the action. Can set other fields as well.
         """
         data.mu = self.model.forward_actor(data)
-        data.action = self.policy(data.mu)
+        if self.training:
+            data.action = self.policy(data.mu)
+        else:
+            data.action = data.mu
         return data
 
     def rollout_step(self, data: Data):
@@ -242,16 +246,20 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
         return episode, frames
 
-    def batch_generator(self, *args, **kwargs) -> Iterator:
-        """
-        Generate batches of data.
+    def batch_generator(
+        self, n_episodes=1, render=False, use_buffer=True, training=True
+    ):
+        # set model to appropriate mode
+        self.train(training)
 
-        Args:
-            n_episodes: Number of new episodes to generate. Can be zero.
-            render: Whether to render the environment as we generate samples.
-            use_buffer: Whether to use a replay buffer to generate samples.
-        """
-        raise NotImplementedError("Should be overriden by subclasses.")
+        data = []
+        for _ in range(n_episodes):
+            episode, frames = self.rollout(render=render)
+            data.extend(episode)
+        if use_buffer:
+            self.buffer.extend(data)
+            data = self.buffer.collect(shuffle=True)
+        return iter(data)
 
     def _dataloader(self, **kwargs):
         return DataLoader(
@@ -259,77 +267,17 @@ class MotionPlanningActorCritic(pl.LightningModule):
             batch_size=self.batch_size,
         )
 
+    def train_dataloader(self):
+        return self._dataloader(
+            n_episodes=10, render=False, use_buffer=True, training=True
+        )
 
-# class TransformerLayer(gnn.MessagePassing):
-#     def __init__(
-#         self,
-#         n_channels: int = 512,
-#         n_heads: int = 8,
-#     ):
-#         super().__init__(aggr="add")
-#         self.head_dim = n_channels // n_heads
-#         self.mlp_pos_query = gnn.MLP(
-#             in_channels=2,
-#             hidden_channels=2 * n_channels,
-#             out_channels=n_channels,
-#         )
-#         self.mlp_pos_value = gnn.MLP(
-#             in_channels=2,
-#             hidden_channels=2 * n_channels,
-#             out_channels=n_channels,
-#         )
-#         self.mlp = gnn.MLP(
-#             in_channels=n_channels,
-#             hidden_channels=2 * n_channels,
-#             out_channels=n_channels,
-#             num_layers=2,
-#             norm=None,
-#         )
+    def val_dataloader(self):
+        return self._dataloader(
+            n_episodes=1, render=False, use_buffer=False, training=False
+        )
 
-#         self.out
-#         self.lin_q = nn.Linear(n_channels, n_channels)
-#         self.lin_k = nn.Linear(n_channels, n_channels)
-#         self.lin_v = nn.Linear(n_channels, n_channels)
-
-#         self.linear1 = nn.Linear(n_channels, n_channels)
-#         self.linear2 = nn.Linear(n_channels, n_channels)
-
-#         self.norm_attention = nn.LayerNorm(n_channels)
-#         self.norm_mlp = nn.LayerNorm(n_channels)
-
-#     def forward(
-#         self,
-#         x: Tensor | PairTensor,
-#         pos: Tensor | PairTensor,
-#         edge_index: torch.Tensor,
-#     ):
-#         x_src, x_dst = (x, x) if isinstance(x, Tensor) else x
-#         pos = (pos, pos) if isinstance(pos, Tensor) else pos
-#         query = self.lin_q(x_dst).view(-1, self.n_heads, self.head_dim)
-#         key = self.lin_k(x_src).view(-1, self.n_heads, self.head_dim)
-#         value = self.lin_v(x_src).view(-1, self.n_heads, self.head_dim)
-#         y = self.propagate(edge_index, query=query, key=key, value=value, pos=pos)
-#         y = self.norm_attention(x_dst + y)
-#         z = self.linear2(self.linear1(y).relu())
-#         z = self.norm_mlp(y + z)
-#         return z
-
-#     def message(
-#         self,
-#         pos_i: Tensor,
-#         pos_j: Tensor,
-#         query_i: Tensor,
-#         key_j: Tensor,
-#         value_j: Tensor,
-#         index: Tensor,
-#         ptr: OptTensor,
-#         size_i: Optional[int],
-#     ):
-#         delta_pos = pos_i - pos_j
-#         pos_query = self.embedding_mlp(delta_pos)
-#         pos_value = self.embedding_mlp(delta_pos)
-#         # compute attention
-#         alpha = ((query_i + pos_query) * key_j).sum(dim=-1) / self.head_dim**0.5
-#         alpha = softmax(alpha, index, ptr, size_i)
-#         out = alpha.view(-1, 1) * (value_j + pos_value)
-#         return out
+    def test_dataloader(self):
+        return self._dataloader(
+            n_episodes=100, render=False, use_buffer=False, training=False
+        )

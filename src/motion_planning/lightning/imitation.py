@@ -12,11 +12,9 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
     def __init__(
         self,
         model: ActorCritic,
-        buffer_size: int = 10_000,
         target_policy: str = "c",
         expert_probability: float = 0.5,
         expert_probability_decay: float = 0.99,
-        render: bool = False,
         **kwargs,
     ):
         """
@@ -30,8 +28,6 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         super().__init__(model, **kwargs)
         self.save_hyperparameters(ignore=["model"])
         self.target_policy = target_policy
-        self.render = render > 0
-        self.buffer = ReplayBuffer[tuple[Data, Data]](buffer_size)
         self.expert_probability = expert_probability
         self.expert_probability_decay = expert_probability_decay
         self.automatic_optimization = False
@@ -126,33 +122,3 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             # use greedy policy
             data.action = self.model.forward_actor(data)
         return data
-
-    def batch_generator(
-        self, n_episodes=1, render=False, use_buffer=True, training=True
-    ):
-        # set model to appropriate mode
-        self.train(training)
-
-        data = []
-        for _ in range(n_episodes):
-            episode, frames = self.rollout(render=render)
-            data.extend(episode)
-        if use_buffer:
-            self.buffer.extend(data)
-            data = self.buffer.collect(shuffle=True)
-        return iter(data)
-
-    def train_dataloader(self):
-        return self._dataloader(
-            n_episodes=10, render=False, use_buffer=True, training=True
-        )
-
-    def val_dataloader(self):
-        return self._dataloader(
-            n_episodes=1, render=self.render, use_buffer=False, training=False
-        )
-
-    def test_dataloader(self):
-        return self._dataloader(
-            n_episodes=100, render=self.render, use_buffer=False, training=False
-        )

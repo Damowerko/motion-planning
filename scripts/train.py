@@ -1,12 +1,14 @@
 import argparse
+import logging
 import os
 import sys
-from copy import deepcopy
 
 import torch
 from utils import get_architecture_cls, get_operation_cls, load_model, make_trainer
 
 from motion_planning.lightning.imitation import MotionPlanningImitation
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -82,15 +84,15 @@ def reinforce(params: dict):
 
     if params["checkpoint"]:
         params["pretrain"] = True
-        print("Resuming from pretraining.")
-        imitation, _ = load_model(params["checkpoint"])
-        model = get_operation_cls(params["operation"])(**params)
-        model.model.actor = imitation.model.actor
-        model.ac_target = deepcopy(model.model)
+        logger.info("Resuming from pretraining.")
+        lightning_module, _ = load_model(params["checkpoint"])
+        model = lightning_module.model
     else:
         params["pretrain"] = False
-        print("Did not find a pretrain checkpoint.")
-        model = get_operation_cls(params["operation"])(**params)
+        logger.info("Training from scratch. Pretrained checkpoint was not provided.")
+        model = get_architecture_cls(params["architecture"])(**params)
+
+    model = get_operation_cls(params["operation"])(model, **params)
 
     # check if checkpoint exists
     ckpt_path = "./train/checkpoints/last.ckpt"
