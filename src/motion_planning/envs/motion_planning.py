@@ -9,6 +9,7 @@ import numpy as np
 import scipy.sparse
 from gym import spaces
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
@@ -322,7 +323,7 @@ class MotionPlanning(GraphEnv):
     def velocity(self, value):
         self.state[..., 2:4] = value
 
-    def adjacency(self):
+    def adjacency(self) -> scipy.sparse.coo_matrix:
         return self._adjacency
 
     def clip_action(self, action):
@@ -336,6 +337,18 @@ class MotionPlanning(GraphEnv):
         to_clip = magnitude > self.max_vel
         action[to_clip] = action[to_clip] / magnitude[to_clip, None] * self.max_vel
         return action
+
+    def baseline_policy(self, name: str) -> NDArray:
+        if name in ["c", "c_sq"]:
+            return self.centralized_policy(distance_squared=name == "c_sq")
+        elif name in ["d1", "d1_sq"]:
+            return self.decentralized_policy(distance_squared=name == "d_sq")
+        elif name == "d0":
+            return self.decentralized_policy(hops=0)
+        elif name == "capt":
+            return self.capt_policy()
+        else:
+            raise ValueError(f"Unknown policy {name}.")
 
     def centralized_policy(self, distance_squared=False):
         cost = self.dist_pt**2 if distance_squared else self.dist_pt
