@@ -6,9 +6,9 @@ from functools import partial
 import optuna
 import torch
 from lightning.pytorch.loggers import WandbLogger
-from utils import get_architecture_cls, get_operation_cls, make_trainer
 
 from motion_planning.lightning.imitation import MotionPlanningImitation
+from motion_planning.utils import get_architecture_cls, get_operation_cls, make_trainer
 
 
 def parse_args():

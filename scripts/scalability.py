@@ -9,9 +9,10 @@ from typing import List
 import pandas as pd
 import torch
 from tqdm import tqdm
-from utils import load_model, load_model_name, rollout
+from utils import rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.utils import load_model, load_model_name
 
 
 @dataclass

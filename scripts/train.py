@@ -4,9 +4,14 @@ import os
 import sys
 
 import torch
-from utils import get_architecture_cls, get_operation_cls, load_model, make_trainer
 
 from motion_planning.lightning.imitation import MotionPlanningImitation
+from motion_planning.utils import (
+    get_architecture_cls,
+    get_operation_cls,
+    load_model,
+    make_trainer,
+)
 
 logger = logging.getLogger(__name__)
 

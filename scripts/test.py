@@ -13,10 +13,11 @@ import torch_scatter
 import tqdm
 from matplotlib import pyplot as plt
 from torch_geometric.data import Batch, Data
-from utils import compute_width, load_model, rollout, simulation_args
+from utils import rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.lightning.base import MotionPlanningActorCritic
+from motion_planning.utils import compute_width, load_model, simulation_args
 
 
 def main():
