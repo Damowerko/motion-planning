@@ -120,5 +120,5 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             data.action = self.policy(mu)
         else:
             # use greedy policy
-            data.action = self.model.forward_actor(data)
+            data.action = self.clip_action(self.model.forward_actor(data))
         return data
