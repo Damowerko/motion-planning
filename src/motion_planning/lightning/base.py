@@ -147,13 +147,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
     def clip_action(self, action: torch.Tensor) -> torch.Tensor:
         """
-        Clip action to the unit ball.
+        Clip action to [-1,1].
         """
-        magnitude = torch.norm(action, dim=-1)
-        mask = magnitude > 1.0
-        # need to use torch.where to avoid in-place operations
-        action = torch.where(mask[..., None], action / magnitude[..., None], action)
-        return action
+        return action.clip(-1, 1)
 
     def optimizers(self):
         opts = super().optimizers()
