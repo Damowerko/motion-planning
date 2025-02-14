@@ -4,7 +4,9 @@ import lightning.pytorch as pl
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch_geometric.data import Batch, Data
+from numpy.typing import NDArray
+from scipy.sparse import coo_matrix
+from torch_geometric.data import Data
 from torch_geometric.data.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
@@ -13,6 +15,60 @@ from torchcps.utils import add_model_specific_args
 from motion_planning.architecture.base import ActorCritic
 from motion_planning.envs.motion_planning import MotionPlanning
 from motion_planning.rl import ExperienceSourceDataset, ReplayBuffer
+
+
+def to_data(
+    state: NDArray,
+    positions: NDArray,
+    targets: NDArray,
+    adjacency: coo_matrix,
+    components: NDArray,
+    time: NDArray,
+    device: torch.device | str,
+    dtype: torch.dtype | str,
+) -> Data:
+    """
+    Construct a PyTorch Geometric Data object to be used in the model.
+    """
+    if isinstance(adjacency, list):
+        data = []
+        for i, adj in enumerate(adjacency):
+            data.append(
+                to_data(
+                    state[i],
+                    positions[i],
+                    targets[i],
+                    adj,
+                    components,
+                    time[i],
+                    device,
+                    dtype,
+                )
+            )
+        return Batch.from_data_list(data)  # type: ignore
+    state_tensor = torch.from_numpy(state).to(dtype=dtype, device=device)  # type: ignore
+    positions_tensor = torch.from_numpy(positions).to(
+        dtype=dtype, device=device  # type: ignore
+    )
+    targets_tensor = torch.from_numpy(targets).to(dtype=dtype, device=device)  # type: ignore
+    components_tensor = torch.from_numpy(components).to(
+        dtype=torch.long, device=device  # type: ignore
+    )
+    time_tensor = torch.tensor([time], dtype=dtype, device=device)  # type: ignore
+    # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
+    edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
+    edge_index = edge_index.to(dtype=torch.long, device=device)
+    edge_weight = edge_weight.to(dtype=dtype, device=device)  # type: ignore
+    return Data(
+        state=state_tensor,
+        positions=positions_tensor,
+        targets=targets_tensor,
+        components=components_tensor,
+        time=time_tensor,
+        edge_index=edge_index,
+        edge_attr=edge_weight,
+        num_nodes=state.shape[0],
+    )
 
 
 class MotionPlanningActorCritic(pl.LightningModule):
@@ -122,41 +178,15 @@ class MotionPlanningActorCritic(pl.LightningModule):
         ]
 
     def to_data(self, state, positions, targets, adjacency, components, time) -> Data:
-        if isinstance(adjacency, list):
-            data = []
-            for i, adj in enumerate(adjacency):
-                data.append(
-                    self.to_data(
-                        state[i], positions[i], targets[i], adj, components, time[i]
-                    )
-                )
-            return Batch.from_data_list(data)  # type: ignore
-        state = torch.from_numpy(state).to(
-            dtype=self.dtype, device=self.device  # type: ignore
-        )
-        positions = torch.from_numpy(positions).to(
-            dtype=self.dtype, device=self.device  # type: ignore
-        )
-        targets = torch.from_numpy(targets).to(
-            dtype=self.dtype, device=self.device  # type: ignore
-        )
-        components = torch.from_numpy(components).to(
-            dtype=torch.long, device=self.device  # type: ignore
-        )
-        time = torch.tensor([time], dtype=self.dtype, device=self.device)  # type: ignore
-        # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
-        edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
-        edge_index = edge_index.to(dtype=torch.long, device=self.device)
-        edge_weight = edge_weight.to(dtype=self.dtype, device=self.device)  # type: ignore
-        return Data(
-            state=state,
-            positions=positions,
-            targets=targets,
-            components=components,
-            time=time,
-            edge_index=edge_index,
-            edge_attr=edge_weight,
-            num_nodes=state.shape[0],
+        return to_data(
+            state,
+            positions,
+            targets,
+            adjacency,
+            components,
+            time,
+            self.device,
+            self.dtype,
         )
 
     def rollout_start(self):
