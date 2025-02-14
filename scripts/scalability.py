@@ -67,6 +67,7 @@ def main():
         type=str,
         default="wandb://damowerko-academic/motion-planning/jwtdsmlx",
     )
+    parser.add_argument("--scenario", type=str, default="clusters")
     args = parser.parse_args()
 
     model_name = load_model_name(args.checkpoint)
@@ -85,7 +86,10 @@ def main():
                 e.submit(
                     evaluate,
                     Parameters(
-                        n_agents=n_agents, width=width, checkpoint=args.checkpoint
+                        n_agents=n_agents,
+                        width=width,
+                        checkpoint=args.checkpoint,
+                        scenario=args.scenario,
                     ),
                 )
             )
