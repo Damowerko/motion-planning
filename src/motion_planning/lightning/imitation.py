@@ -100,17 +100,8 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             self.use_expert = False
 
     def rollout_action(self, data: Data):
-        if self.target_policy in ["c", "c_sq"]:
-            expert = self.env.centralized_policy(self.target_policy == "c_sq")
-        elif self.target_policy == "d0":
-            expert = self.env.decentralized_policy(0)
-        elif self.target_policy in ["d1", "d1_sq"]:
-            expert = self.env.decentralized_policy(1, self.target_policy == "d1_sq")
-        else:
-            raise ValueError(f"Unknown target policy {self.target_policy}")
-
+        expert = self.env.baseline_policy(self.target_policy)
         data.expert = torch.as_tensor(expert, dtype=self.dtype, device=self.device)  # type: ignore
-
         if self.use_expert:
             # use expert policy
             data.action = data.expert
