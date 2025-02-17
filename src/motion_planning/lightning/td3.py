@@ -110,7 +110,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         # do not need to sample stochastic policy, since the critic is differentiable
         action = self.model.forward_actor(self.model.actor, data)
         action = self.clip_action(action)
-        q = self.model.forward_critic(self.modeel.critic, action, data)
+        q = self.model.forward_critic(self.model.critic, action, data)
         return -q.mean()
 
     def training_step(self, data_pair):
