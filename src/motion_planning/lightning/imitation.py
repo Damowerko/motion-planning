@@ -39,7 +39,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         assert data.expert is not None
 
         # actor step
-        mu = self.model.forward_actor(data)
+        mu = self.model.forward_actor(self.model.actor, data)
         loss_actor = F.mse_loss(mu, data.expert)
         self.log(
             "train/actor_loss", loss_actor, prog_bar=True, batch_size=data.batch_size
@@ -48,23 +48,9 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.manual_backward(loss_actor)
         opt_actor.step()
 
-        # critic step
-        # q = self.model.forward_critic(data.action, data)
-        # with torch.no_grad():
-        #     # we get the expected action, since we want the critic to predict the expected reward
-        #     next_action = self.model.forward_actor(next_data)
-        #     next_q = self.model.forward_critic(next_action, next_data)
-        # loss_critic = self.critic_loss(q, next_q, data.reward, data.done)
-        # self.log(
-        #     "train/critic_loss", loss_critic, prog_bar=True, batch_size=data.batch_size
-        # )
-        # opt_critic.zero_grad()
-        # self.manual_backward(loss_critic)
-        # opt_critic.step()
-
     def validation_step(self, data_pair, *args):
         data, next_data = data_pair
-        mu = self.model.forward_actor(data)
+        mu = self.model.forward_actor(self.model.actor, data)
         loss = F.mse_loss(mu, data.expert)
         self.log("val/actor_loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
@@ -79,7 +65,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
 
     def test_step(self, data_pair, *args):
         data, next_data = data_pair
-        mu = self.model.forward_actor(data)
+        mu = self.model.forward_actor(self.model.actor, data)
         loss = F.mse_loss(mu, data.expert)
         self.log("test/actor_loss", loss, prog_bar=True, batch_size=data.batch_size)
         self.log(
@@ -107,9 +93,11 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
             data.action = data.expert
         elif self.training:
             # stochastic policy from actor for trai
-            mu = self.model.forward_actor(data)
+            mu = self.model.forward_actor(self.model.actor, data)
             data.action = self.policy(mu)
         else:
             # use greedy policy
-            data.action = self.clip_action(self.model.forward_actor(data))
+            data.action = self.clip_action(
+                self.model.forward_actor(self.model.actor, data)
+            )
         return data

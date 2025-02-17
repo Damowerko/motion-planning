@@ -9,9 +9,9 @@ from typing import List
 import pandas as pd
 import torch
 from tqdm import tqdm
-from utils import rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.evaluate.rollout import rollout
 from motion_planning.utils import load_model, load_model_name
 
 
@@ -43,7 +43,7 @@ def evaluate(params: Parameters):
     @torch.no_grad()
     def policy_fn(observation, positions, targets, graph, components, time):
         data = model.to_data(observation, positions, targets, graph, components, time)
-        return model.model.forward_actor(data).detach().cpu().numpy()
+        return model.model.forward_actor(model.model.actor, data).detach().cpu().numpy()
 
     data, _ = rollout(
         env,
