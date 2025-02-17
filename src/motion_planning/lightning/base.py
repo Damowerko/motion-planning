@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import List
 
 import lightning.pytorch as pl
@@ -83,11 +84,13 @@ class MotionPlanningActorCritic(pl.LightningModule):
         critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
         batch_size: int = 100,
-        gamma=0.99,
+        gamma: float = 0.99,
+        reward_sigma: float = 10.0,
         max_steps=200,
         buffer_size: int = 10_000,
         # MotionPlanning environment parameters
         n_agents: int = 100,
+        max_vel: float = 5.0,
         width: float = 1000.0,
         scenario: str = "uniform",
         collision_distance: float = 2.5,
@@ -118,9 +121,11 @@ class MotionPlanningActorCritic(pl.LightningModule):
             n_agents=n_agents,
             width=width,
             scenario=scenario,
-            collision_distance=collision_distance,
             initial_separation=initial_separation,
+            max_vel=max_vel,
+            collision_distance=collision_distance,
             collision_coefficient=collision_coefficient,
+            reward_sigma=reward_sigma,
         )
 
     def policy(self, mu: torch.Tensor):
@@ -128,10 +133,10 @@ class MotionPlanningActorCritic(pl.LightningModule):
         Sample policy from a normal distribution centered at mu and with standard devation `self.noise`.
         Noise will be clipped to `self.noise_clip` and the action will be clipped to the unit ball.
         """
-        sigma = torch.ones_like(mu) * self.noise
-        noise = torch.normal(0, sigma).clip(-self.noise_clip, self.noise_clip)
-        action = mu + noise
-        return self.clip_action(action)
+        eps = torch.randn_like(mu) * self.noise
+        action = mu + torch.clip(eps, -self.noise_clip, self.noise_clip)
+        action = self.clip_action(action)
+        return action
 
     def critic_loss(
         self,
@@ -198,7 +203,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         Returns:
             Modified data with data.action set to the action. Can set other fields as well.
         """
-        data.mu = self.model.forward_actor(data)
+        data.mu = self.model.forward_actor(self.model.actor, data)
         if self.training:
             data.action = self.policy(data.mu)
         else:
@@ -257,6 +262,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             if render:
                 frames.append(self.env.render(mode="rgb_array"))
 
+            data = deepcopy(data)
             # take step
             (
                 data,
@@ -268,7 +274,6 @@ class MotionPlanningActorCritic(pl.LightningModule):
             ) = self.rollout_step(data)
 
             # add additional attributes
-            data = data.clone()
             data.step = step
             data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
             data.coverage = torch.tensor([coverage]).to(device=self.device, dtype=self.dtype)  # type: ignore
@@ -276,7 +281,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
 
             episode.append((data, next_data))
-            data = next_data.clone()
+            data = next_data
             if done:
                 break
 

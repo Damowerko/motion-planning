@@ -4,14 +4,6 @@ from torch_geometric.data import Data
 from torchcps.utils import add_model_specific_args
 
 
-def forward_actor(actor: nn.Module, data: Data) -> torch.Tensor:
-    return actor(data).tanh()
-
-
-def forward_critic(critic: nn.Module, action: torch.Tensor, data: Data) -> torch.Tensor:
-    return critic(action, data)
-
-
 class ActorCritic(nn.Module):
     @classmethod
     def add_model_specific_args(cls, group):
@@ -37,11 +29,15 @@ class ActorCritic(nn.Module):
         self.actor = torch.compile(self.actor, dynamic=False, disable=not compile)  # type: ignore
         self.critic = torch.compile(self.critic, dynamic=False, disable=not compile)  # type: ignore
 
-    def forward_actor(self, data: Data) -> torch.Tensor:
+    @staticmethod
+    def forward_actor(actor: nn.Module, data: Data) -> torch.Tensor:
         """
         Returns normalized action within the range [-1, 1].
         """
-        return forward_actor(self.actor, data)
+        return actor(data).tanh()
 
-    def forward_critic(self, action: torch.Tensor, data: Data) -> torch.Tensor:
-        return forward_critic(self.critic, action, data)
+    @staticmethod
+    def forward_critic(
+        critic: nn.Module, action: torch.Tensor, data: Data
+    ) -> torch.Tensor:
+        return critic(action, data)

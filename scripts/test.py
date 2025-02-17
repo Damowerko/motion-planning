@@ -12,10 +12,11 @@ import torch
 import torch_scatter
 import tqdm
 from matplotlib import pyplot as plt
+from numpy.typing import NDArray
 from torch_geometric.data import Batch, Data
-from utils import rollout
 
 from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.evaluate.rollout import ActorCriticPolicy, BaselinePolicy, rollout
 from motion_planning.lightning.base import MotionPlanningActorCritic
 from motion_planning.utils import compute_width, load_model, simulation_args
 
@@ -62,16 +63,16 @@ def main():
         params["width"] = compute_width(params["n_agents"], params["density"])
 
     if params["operation"] == "test":
-        test(params)
+        test(params, baseline=False)
     elif params["operation"] == "baseline":
-        baseline(params)
+        test(params, baseline=True)
     elif params["operation"] == "delay":
         delay(params)
     else:
         raise ValueError(f"Invalid operation {params['operation']}.")
 
 
-def baseline(params: dict):
+def test(params, baseline=False):
     env = MotionPlanning(
         n_agents=params["n_agents"],
         width=params["width"],
@@ -84,55 +85,18 @@ def baseline(params: dict):
         coverage_cutoff=params["coverage_cutoff"],
         reward_sigma=params["reward_sigma"],
     )
-    if params["policy"] in ["c", "c_sq"]:
-        policy_fn = lambda o, g: env.centralized_policy(
-            distance_squared=params["policy"].endswith("sq")
-        )
-    elif params["policy"] in ["d1", "d1_sq"]:
-        policy_fn = lambda o, g: env.decentralized_policy(
-            1, distance_squared=params["policy"].endswith("sq")
-        )
-    elif params["policy"] == "d0":
-        policy_fn = lambda o, g: env.decentralized_policy(0)
-    elif params["policy"] == "capt":
-        policy_fn = lambda o, g: env.capt_policy()
+    if baseline:
+        policy = BaselinePolicy(env, params["policy"])
     else:
-        raise ValueError(f"Invalid policy {params['policy']}.")
-
-    data, frames = rollout(env, policy_fn, params, baseline=True)
-    save_results(
-        params["policy"],
-        Path("data") / "test_results" / params["policy"],
-        data,
-        frames,
-        output_images=False,
-    )
-
-
-def test(params):
-    env = MotionPlanning(
-        n_agents=params["n_agents"],
-        width=params["width"],
-        initial_separation=params["initial_separation"],
-        scenario=params["scenario"],
-        max_vel=params["max_vel"],
-        dt=params["dt"],
-        collision_distance=params["collision_distance"],
-        collision_coefficient=params["collision_coefficient"],
-        coverage_cutoff=params["coverage_cutoff"],
-        reward_sigma=params["reward_sigma"],
-    )
-    model, name = load_model(params["checkpoint"])
-    model = model.eval()
-
-    @torch.no_grad()
-    def policy_fn(observation, positions, targets, graph, components, time):
-        data = model.to_data(observation, positions, targets, graph, components, time)
-        return model.model.forward_actor(data).detach().cpu().numpy()
+        model, name = load_model(params["checkpoint"])
+        model = model.eval()
+        policy = ActorCriticPolicy(model)
 
     # can override the filename as an argument
     filename = name if params["name"] is None else params["name"]
-    data, frames = rollout(env, policy_fn, params)
+    data, frames = rollout(
+        env, policy, params["n_trials"], params["max_steps"], render=True
+    )
     save_results(filename, Path("data") / "test_results" / filename, data, frames)
 
 
@@ -244,7 +208,12 @@ class DelayedModel:
                 data = self.model.to_data(
                     state, positions, targets, graph, components, time
                 )
-                return self.model.model.forward_actor(data).detach().cpu().numpy()
+                return (
+                    self.model.model.forward_actor(self.model.model.actor, data)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
 
             data = self.model.to_data(
                 state, positions, targets, graph, components, time
@@ -254,7 +223,9 @@ class DelayedModel:
             self.update_buffer(data, time)
             # create a batch of data objects with the state for each agent
             batch = self.delayed_data_batch()
-            outputs = self.model.model.forward_actor(batch)[batch.mask_self]
+            outputs = self.model.model.forward_actor(self.model.model.actor, batch)[
+                batch.mask_self
+            ]
             assert (
                 batch.batch is not None
                 and (
@@ -295,7 +266,11 @@ def delay(params):
 
 
 def save_results(
-    name: str, path: Path, data: pd.DataFrame, frames: np.ndarray, output_images=False
+    name: str,
+    path: Path,
+    data: pd.DataFrame,
+    frames: list[list[NDArray]],
+    output_images=False,
 ):
     """
     Args:
@@ -329,14 +304,17 @@ def save_results(
     with open(path / f"{name}.json", "w") as f:
         json.dump(metrics, f)
 
+    # convert to array
+    frames_array = np.asarray(frames)
+
     if not output_images:
         # make a single video of all trials
-        iio.imwrite(path / f"{name}.mp4", np.concatenate(frames, axis=0), fps=10)
+        iio.imwrite(path / f"{name}.mp4", np.concatenate(frames_array, axis=0), fps=10)
     else:
         # save the frames as individual .png files
         frames_path = path / f"{name}"
         frames_path.mkdir(parents=True)
-        for i, frame in enumerate(itertools.chain(*frames)):
+        for i, frame in enumerate(itertools.chain(*frames_array)):
             iio.imwrite(frames_path / f"{i}.png", frame)
 
 

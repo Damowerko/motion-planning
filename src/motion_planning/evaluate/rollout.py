@@ -36,7 +36,7 @@ class BaselinePolicy(Policy):
 
 class ActorCriticPolicy(Policy):
     def __init__(self, model: MotionPlanningActorCritic):
-        self.model = model
+        self.model = model.eval()
 
     def __call__(
         self,
@@ -51,7 +51,12 @@ class ActorCriticPolicy(Policy):
             data = self.model.to_data(
                 state, positions, targets, graph, components, time
             )
-            return self.model.model.forward_actor(data).detach().cpu().numpy()
+            return (
+                self.model.model.forward_actor(self.model.model.actor, data)
+                .detach()
+                .cpu()
+                .numpy()
+            )
 
 
 def rollout_trial(

@@ -361,12 +361,16 @@ class GNNActorCritic(ActorCritic):
         )
         super().__init__(actor, critic)
 
-    def forward_actor(self, data: Data) -> torch.Tensor:
+    @staticmethod
+    def forward_actor(actor: nn.Module, data: Data) -> torch.Tensor:
         """
         Returns normalized action within the range [-1, 1].
         """
-        return self.actor(data.state, data.edge_index).tanh()
+        return actor(data.state, data.edge_index).tanh()
 
-    def forward_critic(self, action: torch.Tensor, data: Data) -> torch.Tensor:
+    @staticmethod
+    def forward_critic(
+        critic: nn.Module, action: torch.Tensor, data: Data
+    ) -> torch.Tensor:
         x = torch.cat([data.state, action], dim=-1)
-        return self.critic(x, data.edge_index)
+        return critic(x, data.edge_index)
