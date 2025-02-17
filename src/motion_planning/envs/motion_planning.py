@@ -523,8 +523,8 @@ class MotionPlanning(GraphEnv):
                 lambda: rng.normal(size=(self.n_agents, 2)),
             )
         elif self.scenario == "clusters":
-            n_targets_per_cluster = random.choice([1, 10, 25])
-            n_agents_per_cluster = random.choice([1, 10, 25])
+            n_targets_per_cluster = random.choice([1, 5, 10])
+            n_agents_per_cluster = random.choice([1, 5, 10])
             self.targets = init_clusters(
                 self.n_targets,
                 n_targets_per_cluster,
