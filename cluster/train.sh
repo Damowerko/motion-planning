@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 IMAGE_NAME="motion-planning"
-DOCKER_USERNAME="damowerko"
+DOCKER_USERNAME="shreyasmuthusamy"
 
 # comma separated list of arguments, printf adds an extra comma at the end, so we remove it
 printf -v args "\"%s\"," "$@"
@@ -16,7 +16,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   generateName: motion-planning-train-
-  namespace: owerko
+  namespace: muthurak
 spec:
   completions: 1
   parallelism: 1
@@ -34,7 +34,7 @@ spec:
         - name: WANDB_ENTITY
           value: damowerko-academic
         - name: WANDB_USERNAME
-          value: damowerko
+          value: shreyas-muthusamy
         - name: WANDB_PROJECT
           value: motion-planning
         - name: WANDB_API_KEY

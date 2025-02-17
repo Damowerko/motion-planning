@@ -6,6 +6,7 @@
 /out
 /models
 /checkpoints
+/cluster
 
 ## PYTHON
 # Byte-compiled / optimized / DLL files
