@@ -87,6 +87,7 @@ def test(params, baseline=False):
     )
     if baseline:
         policy = BaselinePolicy(env, params["policy"])
+        name = params["policy"]
     else:
         model, name = load_model(params["checkpoint"])
         model = model.eval()
