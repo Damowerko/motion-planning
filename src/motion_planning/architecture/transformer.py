@@ -393,9 +393,10 @@ class TransformerCritic(nn.Module):
 
         self.embed_dim = n_channels * n_heads
         self.dropout = float(dropout)
+        self.state_ndim = 14
 
         self.readin_agent = gnn.MLP(
-            [4, 2 * self.embed_dim, self.embed_dim],
+            [self.state_ndim + 4, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
             dropout=self.dropout,
         )
@@ -422,9 +423,10 @@ class TransformerCritic(nn.Module):
     def forward(self, action: torch.Tensor, data: Data) -> torch.Tensor:
         batch_size = data.batch_size if isinstance(data, Batch) else 1
 
+        state = data.state.reshape(batch_size, -1, self.state_ndim)
         action = action.reshape(batch_size, -1, 2)
         positions = data.positions.reshape(batch_size, -1, 2)
-        x_agent = torch.cat([positions, action], dim=-1)
+        x_agent = torch.cat([state, positions, action], dim=-1)
         x_agent = self.readin_agent(x_agent)
         n_agents = x_agent.size(1)
 
