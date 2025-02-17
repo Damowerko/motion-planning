@@ -229,7 +229,7 @@ class MotionPlanning(GraphEnv):
         width: float = 1000.0,
         initial_separation: float = 5.0,
         scenario: str = "uniform",
-        max_vel: float = 10.0,
+        max_vel: float = 5.0,
         dt: float = 1.0,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
@@ -552,7 +552,7 @@ class MotionPlanning(GraphEnv):
                     -self.width / 2, self.width / 2, (self.n_targets, 2)
                 ),
             )
-            self.position = collision_free_sampling(
+            self.positions = collision_free_sampling(
                 self.initial_separation,
                 lambda: circ_sampler(self.n_targets),
             )
@@ -572,14 +572,13 @@ class MotionPlanning(GraphEnv):
                     axis=1,
                 )
             )
-            self.position = collision_free_sampling(self.initial_separation, sampler(1))
+            self.positions = collision_free_sampling(
+                self.initial_separation, sampler(1)
+            )
             self.targets = collision_free_sampling(self.initial_separation, sampler(0))
         elif self.scenario == "icra":
-            self.position = collision_free_sampling(
-                self.initial_separation,
-                lambda: rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_agents, 2)
-                ),
+            self.positions = init_uniform(
+                self.n_agents, self.width, self.initial_separation
             )
 
             i_points = []
@@ -745,177 +744,7 @@ class MotionPlanning(GraphEnv):
             self.targets = np.concatenate(
                 [i_points, c_points, r_points, a_points, others], axis=0
             )
-
-        elif self.scenario == "icra":
-            self.position = collision_free_sampling(
-                self.initial_separation,
-                lambda: rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_targets, 2)
-                ),
-            )
-
-            i_points = []
-            for row in range(8):
-                for col in range(2):
-                    i_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16 - self.width / 2,
-                            ]
-                        )
-                    )
-            i_points = np.array(i_points)
-
-            c_points = []
-            for row in range(2):
-                for col in range(4):
-                    c_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16 - 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(4):
-                for col in range(2):
-                    c_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 8,
-                                col * self.width / 16 - 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(4):
-                    c_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 + self.width / 8,
-                                col * self.width / 16 - 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            c_points = np.array(c_points)
-
-            r_points = []
-            for row in range(2):
-                for col in range(4):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(2):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 8,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(1):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 8,
-                                col * self.width / 16 + 3 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(4):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 16,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for col in range(3):
-                r_points.append(np.array([self.width / 16, col * self.width / 16]))
-            for row in range(2):
-                for col in range(2):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 + self.width / 8,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(1):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 + self.width / 8,
-                                col * self.width / 16 + 3 * self.width / 16,
-                            ]
-                        )
-                    )
-
-            a_points = []
-            for row in range(2):
-                for col in range(4):
-                    a_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16 + 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                a_points.append(
-                    np.array(
-                        [row * self.width / 16 - self.width / 8, 5 * self.width / 16]
-                    )
-                )
-            for row in range(2):
-                a_points.append(
-                    np.array([row * self.width / 16 - self.width / 8, self.width / 2])
-                )
-            for row in range(2):
-                for col in range(4):
-                    a_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 16,
-                                col * self.width / 16 + 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(3):
-                a_points.append(
-                    np.array(
-                        [row * self.width / 16 + self.width / 16, 5 * self.width / 16]
-                    )
-                )
-            for row in range(3):
-                a_points.append(
-                    np.array([row * self.width / 16 + self.width / 16, self.width / 2])
-                )
-
-            others = np.array(
-                [
-                    [3 * self.width / 8, -self.width / 4],
-                    [3 * self.width / 8, 0],
-                    [3 * self.width / 8, self.width / 4],
-                ]
-            )
-            self.targets = np.concatenate(
-                [i_points, c_points, r_points, a_points, others], axis=0
-            )
+            self.targets = np.flip(self.targets, axis=1).copy() * 0.8
         else:
             raise ValueError(
                 f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."

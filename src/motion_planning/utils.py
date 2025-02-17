@@ -184,7 +184,7 @@ def simulation_args(parser: argparse.ArgumentParser):
         default="uniform",
         choices=MotionPlanning.scenarios,
     )
-    group.add_argument("--max_vel", type=float, default=10.0)
+    group.add_argument("--max_vel", type=float, default=5.0)
     group.add_argument("--dt", type=float, default=1.0)
     group.add_argument("--collision_distance", type=float, default=2.5)
     group.add_argument("--collision_coefficient", type=float, default=5.0)

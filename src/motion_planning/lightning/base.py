@@ -90,6 +90,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         buffer_size: int = 10_000,
         # MotionPlanning environment parameters
         n_agents: int = 100,
+        max_vel: float = 5.0,
         width: float = 1000.0,
         scenario: str = "uniform",
         collision_distance: float = 2.5,
@@ -120,8 +121,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
             n_agents=n_agents,
             width=width,
             scenario=scenario,
-            collision_distance=collision_distance,
             initial_separation=initial_separation,
+            max_vel=max_vel,
+            collision_distance=collision_distance,
             collision_coefficient=collision_coefficient,
             reward_sigma=reward_sigma,
         )
