@@ -546,7 +546,7 @@ class MotionPlanning(GraphEnv):
                     [radius * np.cos(angle), radius * np.sin(angle)], axis=1
                 )
 
-            self.target_positions = collision_free_sampling(
+            self.targets = collision_free_sampling(
                 self.initial_separation,
                 lambda: rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_targets, 2)
@@ -573,9 +573,7 @@ class MotionPlanning(GraphEnv):
                 )
             )
             self.position = collision_free_sampling(self.initial_separation, sampler(1))
-            self.target_positions = collision_free_sampling(
-                self.initial_separation, sampler(0)
-            )
+            self.targets = collision_free_sampling(self.initial_separation, sampler(0))
         elif self.scenario == "icra":
             self.position = collision_free_sampling(
                 self.initial_separation,
@@ -744,7 +742,7 @@ class MotionPlanning(GraphEnv):
                 ]
             )
 
-            self.target_positions = np.concatenate(
+            self.targets = np.concatenate(
                 [i_points, c_points, r_points, a_points, others], axis=0
             )
 
@@ -915,8 +913,7 @@ class MotionPlanning(GraphEnv):
                     [3 * self.width / 8, self.width / 4],
                 ]
             )
-
-            self.target_positions = np.concatenate(
+            self.targets = np.concatenate(
                 [i_points, c_points, r_points, a_points, others], axis=0
             )
         else:
