@@ -1,26 +1,74 @@
-[tool.poetry]
+[project]
 name = "motion_planning"
 version = "0.1.0"
 description = "Constrained reinforcement learning."
-authors = ["Damian Owerko <damowerko@gmail.com>"]
+authors = [{name="Damian Owerko", email="damowerko@gmail.com"}]
 license = "MIT"
 readme = "README.md"
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "numpy>=1.21.1,<2.0.0",
+    "matplotlib>=3.8.3,<4.0.0",
+    "gym>=0.26.2,<0.27.0",
+    "scipy>=1.8.0,<2.0.0",
+    "networkx>=2.7.1,<3.0.0",
+    "numba>=0.55.1",
+    "imageio[ffmpeg]>=2.34.0,<3.0.0",
+    "pyarrow>=17.0.0,<18.0.0",
+    "scienceplots>=2.1.1,<3.0.0",
+    "optuna>=4.1.0,<5.0.0",
+    "psycopg2-binary>=2.9.10,<3.0.0",
+    "optuna-integration>=4.1.0,<5.0.0",
+    "torchrl==0.6.*"
+]
+
+[project.optional-dependencies]
+cpu = [
+    "torchcps[cpu] @ git+https://github.com/Damowerko/torchcps",
+    "pyg-lib (==0.4.0)",
+    "torch-scatter (==2.1.2)",
+    "torch-sparse (==0.6.18)",
+    "torch-cluster (==1.6.3)",
+    "torch-spline-conv (==1.2.2)",
+]
+cuda = [
+    "torchcps[cuda] @ git+https://github.com/Damowerko/torchcps",
+    "pyg-lib (>=0.4.0+pt25cu124,<0.5.0)",
+    "torch-scatter (>=2.1.2+pt25cu124,<2.2.0)",
+    "torch-sparse (>=0.6.18+pt25cu124,<0.7.0)",
+    "torch-cluster (>=1.6.3+pt25cu124,<1.7.0)",
+    "torch-spline-conv (>=1.2.2+pt25cu124,<1.3.0)",
+]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.12"
-numpy = "^1.21.1"
-matplotlib = "^3.8.3"
-gym = "^0.26.2"
-scipy = "^1.8.0"
-networkx = "^2.7.1"
-numba = ">=0.55.1"
-torchcps = {git = "https://github.com/Damowerko/torchcps"}
-imageio = {extras = ["ffmpeg"], version = "^2.34.0"}
-pyarrow = "^17.0.0"
-scienceplots = "^2.1.1"
-optuna = "^4.1.0"
-psycopg2-binary = "^2.9.10"
-optuna-integration = "^4.1.0"
+torchcps = [
+    { markers = "extra == 'cpu' and extra != 'cuda'" },
+    { markers = "extra == 'cuda' and extra != 'cpu'" },
+]
+torch = [
+    { markers = "extra == 'cpu' and extra != 'cuda'", source = "torch-cpu" },
+    { markers = "extra == 'cuda' and extra != 'cpu'", source = "torch-cuda" },
+]
+pyg-lib = [
+    { markers = "extra == 'cpu' and extra != 'cuda'", source = "pyg-cpu" },
+    { markers = "extra == 'cuda' and extra != 'cpu'", source = "pyg-cuda" },
+]
+torch-scatter = [
+    { markers = "extra == 'cpu' and extra != 'cuda'", source = "pyg-cpu" },
+    { markers = "extra == 'cuda' and extra != 'cpu'", source = "pyg-cuda" },
+]
+torch-sparse = [
+    { markers = "extra == 'cpu' and extra != 'cuda'", source = "pyg-cpu" },
+    { markers = "extra == 'cuda' and extra != 'cpu'", source = "pyg-cuda" },
+]
+torch-cluster = [
+    { markers = "extra == 'cpu' and extra != 'cuda'", source = "pyg-cpu" },
+    { markers = "extra == 'cuda' and extra != 'cpu'", source = "pyg-cuda" },
+]
+torch-spline-conv = [
+    { markers = "extra == 'cpu' and extra != 'cuda'", source = "pyg-cpu" },
+    { markers = "extra == 'cuda' and extra != 'cpu'", source = "pyg-cuda" },
+]
 
 [tool.poetry.group.dev.dependencies]
 black = "^21.12-beta.0"
@@ -35,13 +83,24 @@ vl-convert-python = "^1.2.4"
 seaborn = "^0.13.2"
 
 [[tool.poetry.source]]
-name = "PyPI"
-priority = "supplemental"
+name = "torch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
 
 [[tool.poetry.source]]
-name = "pyg"
+name = "torch-cuda"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "explicit"
+
+[[tool.poetry.source]]
+name = "pyg-cpu"
+url = "https://data.pyg.org/whl/torch-2.5.0+cpu.html"
+priority = "explicit"
+
+[[tool.poetry.source]]
+name = "pyg-cuda"
 url = "https://data.pyg.org/whl/torch-2.5.0+cu124.html"
-priority = "primary"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core"]
