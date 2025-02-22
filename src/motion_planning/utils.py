@@ -113,6 +113,8 @@ def make_trainer(
             config=params,
             log_model=True,
             notes=params.get("notes", None),
+            group=params.get("group", None),
+            tags=params.get("tags", None),
             **wandb_kwargs,
         )
         logger.log_hyperparams(params)
