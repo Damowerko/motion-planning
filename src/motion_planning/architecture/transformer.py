@@ -331,6 +331,7 @@ class TransformerActor(nn.Module):
         encoding_frequencies: str = "linear",
         attention_window: float = 0.0,
         connected_mask: bool = False,
+        omniscient: bool = False,
     ):
 
         super().__init__()
@@ -339,11 +340,14 @@ class TransformerActor(nn.Module):
         self.embed_dim = n_channels * n_heads
         self.dropout = float(dropout)
         self.connected_mask = connected_mask
-
+        self.omniscient = omniscient
         self.readin = gnn.MLP(
             [self.state_ndim, 2 * self.embed_dim, self.embed_dim],
             norm="layer_norm",
             dropout=self.dropout,
+        )
+        self.target_embedding = (
+            torch.nn.Parameter(torch.randn(self.embed_dim)) if omniscient else None
         )
         self.readout = gnn.MLP(
             [self.embed_dim, 2 * self.embed_dim, self.action_ndim],
@@ -370,8 +374,36 @@ class TransformerActor(nn.Module):
         padding_mask: torch.Tensor | None = None,
         components: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """
+        Args:
+            observation: (B, N, state_ndim) tensor with the observation of the agents.
+            positions: (B, N, 2) tensor with the positions of the agents.
+            targets: (B, N, 2) tensor with the positions of the targets.
+            padding_mask: (B, N) tensor with the padding mask.
+            components: (B, N) tensor with the components of the agents.
+        """
+        n_agents = observation.size(1)
         x = self.readin(observation)
-        y = self.transformer(x, positions, padding_mask, components)
+        pos = positions
+
+        if not self.connected_mask:
+            components = None
+
+        if self.omniscient:
+            if padding_mask is not None or components is not None:
+                raise ValueError(
+                    "Omniscient model does not currently support padding mask or connected mask"
+                )
+            if self.target_embedding is None:
+                raise ValueError("Omniscient model requires a target embedding")
+            x_target = self.target_embedding[None, None, :].expand(
+                targets.size(0), targets.size(1), -1
+            )
+            x = torch.cat([x, x_target], dim=1)
+            pos = torch.cat([positions, targets], dim=1)
+
+        y = self.transformer(x, pos, padding_mask, components)
+        y = y[:, :n_agents]
         action = self.readout(y).tanh()
         return action
 
@@ -476,6 +508,7 @@ class TransformerActorCritic(ActorCriticWrapper):
         attention_window: float = 0.0,
         connected_mask: bool = False,
         compile: bool = True,
+        omniscient: bool = False,
         **kwargs,
     ):
         """
@@ -501,6 +534,7 @@ class TransformerActorCritic(ActorCriticWrapper):
             encoding_frequencies=encoding_frequencies,
             attention_window=attention_window,
             connected_mask=connected_mask,
+            omniscient=omniscient,
         ).to_tensordict_module()
         critic = TransformerCritic(
             n_layers,
