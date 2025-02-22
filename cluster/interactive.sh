@@ -1,11 +1,17 @@
+#! /bin/bash
+set -e
 IMAGE_NAME="motion-planning"
-DOCKER_USERNAME="damowerko"
+K8S_NAMESPACE=${K8S_NAMESPACE:-$(kubectl config get-contexts | grep '*' | awk '{print $5}')}
+if [ -z "$DOCKER_USERNAME" ]; then
+    echo "Error: DOCKER_USERNAME environment variable is not set"
+    exit 1
+fi
 template=$(cat << EOF
 apiVersion: v1
 kind: Pod
 metadata:
   name: motion-planning-interactive
-  namespace: owerko
+  namespace: $K8S_NAMESPACE
 spec:
   containers:
   - name: motion-planning-shell
@@ -33,3 +39,5 @@ spec:
 EOF
 )
 echo "$template" | kubectl create -f -
+kubectl wait --for=condition=Ready pod/motion-planning-interactive --namespace=$K8S_NAMESPACE --timeout=300s
+kubectl exec -it motion-planning-interactive --namespace=$K8S_NAMESPACE -- /bin/bash

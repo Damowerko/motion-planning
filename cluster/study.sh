@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 completions="$1"
 shift
 if ! [[ "$completions" =~ ^[0-9]+$ ]]; then
@@ -7,13 +8,18 @@ if ! [[ "$completions" =~ ^[0-9]+$ ]]; then
 fi
 args="$@"
 IMAGE_NAME="motion-planning"
-DOCKER_USERNAME="damowerko"
+K8S_NAMESPACE=${K8S_NAMESPACE:-$(kubectl config get-contexts | grep '*' | awk '{print $5}')}
+if [ -z "$DOCKER_USERNAME" ]; then
+    echo "Error: DOCKER_USERNAME environment variable is not set"
+    exit 1
+fi
+
 template=$(cat << EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
   generateName: motion-planning-optuna-
-  namespace: owerko
+  namespace: $K8S_NAMESPACE
 spec:
   completions: $completions
   parallelism: 8

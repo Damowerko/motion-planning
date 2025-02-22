@@ -1,7 +1,12 @@
 #!/bin/bash
 set -e
 IMAGE_NAME="motion-planning"
-DOCKER_USERNAME="shreyasmuthusamy"
+K8S_NAMESPACE=${K8S_NAMESPACE:-$(kubectl config get-contexts | grep '*' | awk '{print $5}')}
+if [ -z "$DOCKER_USERNAME" ]; then
+    echo "Error: DOCKER_USERNAME environment variable is not set"
+    exit 1
+fi
+
 
 # comma separated list of arguments, printf adds an extra comma at the end, so we remove it
 printf -v args "\"%s\"," "$@"
@@ -16,7 +21,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   generateName: motion-planning-train-
-  namespace: muthurak
+  namespace: $K8S_NAMESPACE
 spec:
   completions: 1
   parallelism: 1
