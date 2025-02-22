@@ -1,63 +1,26 @@
-import random
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
-import gym
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 import scipy.sparse
-from gym import spaces
+import torch
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
-
-rng = np.random.default_rng()
-
-
-def init_uniform(n_samples, width, initial_separation):
-    return collision_free_sampling(
-        initial_separation,
-        lambda: rng.uniform(-width / 2, width / 2, (n_samples, 2)),
-    )
-
-
-def uniform_circle(n_samples, radius):
-    theta = rng.uniform(0, 2 * np.pi, n_samples)
-    r = rng.uniform(0, radius, n_samples)
-    return np.stack([r * np.cos(theta), r * np.sin(theta)], axis=-1)
-
-
-def init_clusters(n_samples, n_samples_per_cluster, width, initial_separation):
-    assert (
-        n_samples % n_samples_per_cluster == 0
-    ), f"n_samples={n_samples} must be divisible by n_samples_per_cluster={n_samples_per_cluster}"
-    n_clusters = n_samples // n_samples_per_cluster
-    if n_clusters == n_samples:
-        return init_uniform(n_samples, width, initial_separation)
-    cluster_radius = 5 * initial_separation * n_samples_per_cluster**0.5
-    cluster_centers = collision_free_sampling(
-        2 * cluster_radius,
-        lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 2)),
-    )
-    return collision_free_sampling(
-        initial_separation,
-        lambda: uniform_circle(n_samples, cluster_radius)
-        + cluster_centers.repeat(n_samples_per_cluster, axis=0),
-    )
+from tensordict import TensorDict, TensorDictBase
+from torchrl.data.tensor_specs import Bounded, Categorical, Composite, Unbounded
+from torchrl.envs import EnvBase
 
 
 class MotionPlanningRender:
-    def __init__(self, width, state_ndim, mode="human"):
+    def __init__(self, width, state_ndim):
         self.positions = []
         self.width = width
         self.state_ndim = state_ndim
-        self.mode = mode
-        if mode == "human":
-            plt.ion()
-        else:
-            plt.ioff()
+        plt.ioff()
         self.fig = plt.figure()
         self.ax = plt.axes()
         self.reset()
@@ -69,12 +32,12 @@ class MotionPlanningRender:
 
     def render(
         self,
-        goal_positions,
-        agent_positions,
-        reward,
-        coverage,
-        observed_targets,
-        adjacency,
+        goal_positions: NDArray,
+        agent_positions: NDArray,
+        reward: float,
+        coverage: float,
+        observed_targets: NDArray,
+        edge_index: NDArray,
     ):
         """
         Renders the environment with the given parameters.
@@ -84,7 +47,7 @@ class MotionPlanningRender:
             agent_positions (array-like): The positions of the agents.
             reward (float): The reward value.
             observed_targets (array-like): The observed targets.
-            adjacency (scipy.sparse.csr_matrix): The adjacency matrix.
+            aedge_index (array-like): The (2, M) edge index for the graph.
 
         Returns:
             matplotlib.figure.Figure: The rendered figure.
@@ -108,30 +71,27 @@ class MotionPlanningRender:
         self.ax.set_xlim(-self.width / 2, self.width / 2)
         self.ax.set_ylim(-self.width / 2, self.width / 2)
 
+        n_agents = agent_positions.shape[1]
+        data = np.ones(edge_index.shape[1], dtype="d")
+        adjacency = scipy.sparse.coo_matrix(
+            (data, edge_index),
+            shape=(n_agents, n_agents),
+        )
         G = nx.from_scipy_sparse_array(adjacency)
         G.remove_edges_from(nx.selfloop_edges(G))
-        nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)
+        nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)  # type: ignore
 
         targets = (observed_targets + agent_positions.T[:, np.newaxis, :]).reshape(
             -1, 2
         )
         self.ax.plot(*targets.T, "y^", markersize=markersize)
 
-        reward = reward.mean()
         self.ax.set_title(f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%")
 
         self.agent_scatter.set_data(*agent_positions)
 
-        if self.mode == "human":
-            self.fig.canvas.flush_events()
-            self.fig.canvas.draw_idle()
-        elif self.mode == "rgb_array":
-            self.fig.canvas.draw()
-            return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].copy()
-        else:
-            raise ValueError(
-                "Unknown mode: {self.mode}. Should be one of ['human', 'rgb_array']."
-            )
+        self.fig.canvas.draw()
+        return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].copy()
 
 
 def argtopk(X, K, axis=-1):
@@ -190,37 +150,16 @@ def collision_free_sampling(d: float, sampler: Callable[[], np.ndarray]):
     return positions
 
 
-class GraphEnv(gym.Env, ABC):
-    @property
-    @abstractmethod
-    def n_nodes(self):
-        pass
-
-    @property
-    @abstractmethod
-    def action_ndim(self) -> int:
-        pass
-
-    @property
-    @abstractmethod
-    def observation_ndim(self) -> int:
-        pass
-
-    @abstractmethod
-    def adjacency(self) -> scipy.sparse.coo_matrix:
-        pass
-
-
-class MotionPlanning(GraphEnv):
-    metadata = {"render.modes": ["human"]}
+# apparently the index method of tensorspecs are not implemented, ignoring and hoping it will work
+# pyright: reportAbstractUsage=none
+class MotionPlanningEnv(EnvBase):
     scenarios = {
         "uniform",
-        "gaussian_uniform",
         "clusters",
+        "gaussian_uniform",
         "circle",
         "two_lines",
         "icra",
-        "q-scenario",
     }
 
     def __init__(
@@ -235,77 +174,87 @@ class MotionPlanning(GraphEnv):
         collision_coefficient: float = 5.0,
         coverage_cutoff: float = 5.0,
         reward_sigma: float = 10.0,
+        expert_policy: str | None = None,
     ):
-        self.n_agents = n_agents
-        self.n_targets = n_agents
-        self.n_obstacles = int(n_agents / 10)
-
+        super().__init__(device="cpu", batch_size=torch.Size([]))
         if scenario not in self.scenarios:
             raise ValueError(
                 f"Scenario {scenario} is not a valid scenario. Possibilities {self.scenarios}."
             )
+        self.n_agents = n_agents
+        self.n_targets = n_agents
+        self.expert_policy = expert_policy
         self.scenario = scenario
-
-        # Since space is 2D scale is inversely proportional to sqrt of the number of agents
-
         self.dt = dt
         self.width = width
         self.initial_separation = initial_separation
         self.coverage_cutoff = coverage_cutoff
         self.reward_sigma = reward_sigma
         self.collision_coefficient = collision_coefficient
-
         # agent properties
         self.max_vel = max_vel
         self.collision_distance = collision_distance
-
         self.observe_max_agents = 3
         self.observe_max_targets = 3
-
         # comm graph properties
         self.comm_max_neighbors = 3
 
-        self._n_nodes = self.n_agents
-
-        self._action_ndim = 2
-        self.action_space = spaces.Box(
-            low=-1,
-            high=1,
-            shape=(
-                self.n_agents,
-                self.action_ndim,
-            ),
-        )
-
+        self.action_ndim = 2
         self.state_ndim = 4
-        self._observation_ndim = int(
-            self.state_ndim / 2
-            + self.observe_max_targets * 2
-            + self.observe_max_agents * 2
+        self.observation_ndim = int(
+            2 + self.observe_max_targets * 2 + self.observe_max_agents * 2
         )
-        self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(
-                self.n_agents,
-                self.observation_ndim,
+
+        self._render: Optional[MotionPlanningRender] = None
+        self._make_spec()
+        self._set_seed()
+        self._reset()
+
+    def _make_spec(self):
+        self.action_spec = Bounded(
+            -1, 1, torch.Size((self.n_agents, 2)), dtype=torch.float32
+        )
+        self.observation_spec = Composite(
+            observation=Unbounded(
+                # -self.width / 2,
+                # self.width / 2,
+                shape=torch.Size((self.n_agents, self.observation_ndim)),
+                dtype=torch.float32,
             ),
+            positions=Unbounded(
+                # -self.width / 2,
+                # self.width / 2,
+                torch.Size((self.n_agents, 2)),
+                dtype=torch.float32,
+            ),
+            targets=Unbounded(
+                # -self.width / 2,
+                # self.width / 2,
+                torch.Size((self.n_targets, 2)),
+                dtype=torch.float32,
+            ),
+            edge_index=Bounded(
+                0,
+                self.n_agents,
+                torch.Size((2, 4 * self.n_agents)),
+                dtype=torch.long,
+            ),
+            components=Bounded(
+                0, self.n_agents, torch.Size((self.n_agents,)), dtype=torch.long
+            ),
+            n_collisions=Bounded(0, self.n_agents, torch.Size(()), dtype=torch.long),
+            coverage=Bounded(0, 1, torch.Size(()), dtype=torch.float32),
+            time=Bounded(0, float("inf"), torch.Size(()), dtype=torch.float32),
+            shape=torch.Size(()),
         )
+        if self.expert_policy is not None:
+            self.observation_spec["expert"] = self.action_spec.clone()
+        self.observation_spec
+        self.reward_spec = Unbounded(shape=torch.Size((1,)), dtype=torch.float32)
+        self.done_spec = Categorical(2, torch.Size((1,)), dtype=torch.bool)
 
-        self.render_: Optional[MotionPlanningRender] = None
-        self.reset()
-
-    @property
-    def n_nodes(self):
-        return self._n_nodes
-
-    @property
-    def action_ndim(self):
-        return self._action_ndim
-
-    @property
-    def observation_ndim(self):
-        return self._observation_ndim
+    def _set_seed(self, seed: int | None = None):
+        self.rng = np.random.default_rng(seed)
 
     @property
     def positions(self):
@@ -322,9 +271,6 @@ class MotionPlanning(GraphEnv):
     @velocity.setter
     def velocity(self, value):
         self.state[..., 2:4] = value
-
-    def adjacency(self) -> scipy.sparse.coo_matrix:
-        return self._adjacency
 
     def clip_action(self, action):
         """
@@ -353,10 +299,8 @@ class MotionPlanning(GraphEnv):
     def centralized_policy(self, distance_squared=False):
         cost = self.dist_pt**2 if distance_squared else self.dist_pt
         row_idx, col_idx = linear_sum_assignment(cost)
-        assert (row_idx == np.arange(self.n_agents)).all()
         action = self.targets[col_idx] - self.positions[row_idx]
         action = self.clip_action(action)
-        assert action.shape == self.action_space.shape  # type: ignore
         return action / self.max_vel
 
     def decentralized_policy(self, hops=0, distance_squared=False):
@@ -384,7 +328,6 @@ class MotionPlanning(GraphEnv):
         else:
             raise NotImplementedError("Hops > 1 not implemented.")
         action = self.clip_action(action)
-        assert action.shape == self.action_space.shape  # type: ignore
         return action / self.max_vel
 
     def capt_policy(self):
@@ -414,24 +357,14 @@ class MotionPlanning(GraphEnv):
         observed_positions = self.targets[idx, :] - self.positions[:, np.newaxis, :]
         return observed_positions
 
-    def _observation(self):
-        tgt = self._observed_targets().reshape(self.n_agents, -1)
-        agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.velocity / self.max_vel, tgt, agt), axis=1)
-        assert obs.shape == self.observation_space.shape  # type: ignore
-        return obs
-
-    def _done(self) -> bool:
-        too_far_gone = (np.abs(self.positions) > self.width).any(axis=1).all(axis=0)
-        return too_far_gone
-
     def _compute_distances(self):
         self.dist_pp = cdist(self.positions, self.positions)
         self.dist_pt = cdist(self.positions, self.targets)
 
-    def _compute_adjacency(self):
+    def _compute_graph(self):
         idx = argtopk(-self.dist_pp, self.comm_max_neighbors + 1, axis=1)
-        self._adjacency = index_to_coo(idx)
+        coo = index_to_coo(idx)
+        self.edge_index = np.stack((coo.row, coo.col), axis=0)
 
     def n_collisions(self, threshold: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
@@ -451,61 +384,87 @@ class MotionPlanning(GraphEnv):
         penalty_collision = self.collision_coefficient * n_collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
         reward = reward_coverage - penalty_collision
-        return reward
+        return reward.mean()
 
     def components(self) -> np.ndarray:
         """
         Returns an array representing the connected components of the graph. Each node is assigned a component id. Nodes with the same component id are connected.
         """
+        edge_index = self.edge_index
+        edge_weight = np.ones(edge_index.shape[1], dtype="d")
+        coo = scipy.sparse.coo_matrix(
+            (edge_weight, edge_index), shape=(self.n_agents, self.n_agents)
+        )
         _, component_ids = scipy.sparse.csgraph.connected_components(
-            self.adjacency(), directed=True, connection="weak", return_labels=True
+            coo, directed=True, connection="weak", return_labels=True
         )
         return component_ids
 
     def coverage(self) -> float:
         return np.mean(np.any(self.dist_pt < self.coverage_cutoff, axis=0))
 
-    def step(self, action):
+    def _make_output(self) -> TensorDictBase:
+        observed_targets = self._observed_targets().reshape(self.n_agents, -1)
+        observed_agents = self._observed_agents().reshape(self.n_agents, -1)
+        observation = np.concatenate(
+            (self.velocity / self.max_vel, observed_targets, observed_agents), axis=1
+        )
+        output = TensorDict(
+            {
+                "observation": torch.from_numpy(observation).float(),
+                "positions": torch.from_numpy(self.positions).float(),
+                "targets": torch.from_numpy(self.targets).float(),
+                "edge_index": torch.from_numpy(self.edge_index).long(),
+                "components": torch.from_numpy(self.components()).long(),
+                "n_collisions": torch.as_tensor(
+                    self.n_collisions(self.collision_distance)
+                ).long(),
+                "coverage": torch.as_tensor(self.coverage()).float(),
+                "time": torch.as_tensor(self.time).float(),
+            }
+        )
+        if self.expert_policy is not None:
+            output["expert"] = torch.from_numpy(
+                self.baseline_policy(self.expert_policy)
+            )
+        return output
+
+    def _step(self, input: TensorDictBase) -> TensorDictBase:
         """
         Args:
             action (np.ndarray): The action to take. Normalized to a unit ball. Will be multipled by self.max_vel to get the actual velocity command.
 
         Returns:
-            observation (np.ndarray): The observation of the environment.
-            agent_positions (np.ndarray): The position of the agents.
-            target_positions (np.ndarray): The position of the targets.
+            observation (dict): The observation of the environment. Keys are "observation", "positions", and "targets".
             reward (float): The reward of the environment.
-            done (bool): Whether the episode is done.
-            info (dict): Additional information.
+            terminated (bool): Whether the episode is terminated.
+            truncated (bool): Whether the episode is truncated.
+            info (dict): Additional information. Keys are "edge_index", "components", "n_collisions", "coverage", and "time".
         """
-        assert action.shape == self.action_space.shape  # type: ignore
+        action = input["action"].detach().cpu().numpy()
         action = self.clip_action(action * self.max_vel)
         self.velocity = action
         self.positions += self.velocity * self.dt
-        self.t += self.dt
+        self.time += self.dt
         self._compute_distances()
-        self._compute_adjacency()
-        return (
-            self._observation(),
-            self.positions,
-            self.targets,
-            self._reward(),
-            self._done(),
-            {},
-        )
+        self._compute_graph()
+        output = self._make_output()
+        output["reward"] = (torch.as_tensor(self._reward()).float(),)
+        output["done"] = (torch.as_tensor(False),)
+        return output
 
-    def reset(self):
+    def _reset(self, *args) -> TensorDictBase:
         self.state = np.zeros((self.n_agents, self.state_ndim))
         if self.scenario == "uniform":
             self.targets = collision_free_sampling(
                 self.initial_separation,
-                lambda: rng.uniform(
+                lambda: self.rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_targets, 2)
                 ),
             )
             self.positions = collision_free_sampling(
                 self.initial_separation,
-                lambda: rng.uniform(
+                lambda: self.rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_agents, 2)
                 ),
             )
@@ -514,41 +473,45 @@ class MotionPlanning(GraphEnv):
             # targets are uniformly distributed
             self.targets = collision_free_sampling(
                 self.initial_separation,
-                lambda: rng.uniform(
+                lambda: self.rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_targets, 2)
                 ),
             )
             self.positions = collision_free_sampling(
                 self.initial_separation,
-                lambda: rng.normal(size=(self.n_agents, 2)),
+                lambda: self.rng.normal(size=(self.n_agents, 2)),
             )
         elif self.scenario == "clusters":
-            n_targets_per_cluster = random.choice([1, 5, 10])
-            n_agents_per_cluster = random.choice([1, 5, 10])
+            n_targets_per_cluster = self.rng.choice([1, 5, 10])
+            n_agents_per_cluster = self.rng.choice([1, 5, 10])
             self.targets = init_clusters(
                 self.n_targets,
                 n_targets_per_cluster,
                 self.width,
                 self.initial_separation,
+                self.rng,
             )
             self.positions = init_clusters(
                 self.n_agents,
                 n_agents_per_cluster,
                 self.width,
                 self.initial_separation,
+                self.rng,
             )
         elif self.scenario == "circle":
 
             def circ_sampler(n):
-                radius = rng.uniform(3 * self.width / 16, 5 * self.width / 16, (n, 1))
-                angle = rng.uniform(-np.pi, np.pi, (n, 1))
+                radius = self.rng.uniform(
+                    3 * self.width / 16, 5 * self.width / 16, (n, 1)
+                )
+                angle = self.rng.uniform(-np.pi, np.pi, (n, 1))
                 return np.concatenate(
                     [radius * np.cos(angle), radius * np.sin(angle)], axis=1
                 )
 
             self.targets = collision_free_sampling(
                 self.initial_separation,
-                lambda: rng.uniform(
+                lambda: self.rng.uniform(
                     -self.width / 2, self.width / 2, (self.n_targets, 2)
                 ),
             )
@@ -560,12 +523,12 @@ class MotionPlanning(GraphEnv):
             sampler = lambda x: (
                 lambda: np.concatenate(
                     [
-                        rng.uniform(
+                        self.rng.uniform(
                             self.width / 4 if x == 0 else -3 * self.width / 8,
                             3 * self.width / 8 if x == 0 else -self.width / 4,
                             (self.n_targets, 1),
                         ),
-                        rng.uniform(
+                        self.rng.uniform(
                             -self.width / 2, self.width / 2, (self.n_targets, 1)
                         ),
                     ],
@@ -578,213 +541,217 @@ class MotionPlanning(GraphEnv):
             self.targets = collision_free_sampling(self.initial_separation, sampler(0))
         elif self.scenario == "icra":
             self.positions = init_uniform(
-                self.n_agents, self.width, self.initial_separation
+                self.n_agents, self.width, self.initial_separation, self.rng
             )
-
-            i_points = []
-            for row in range(8):
-                for col in range(2):
-                    i_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16 - self.width / 2,
-                            ]
-                        )
-                    )
-            i_points = np.array(i_points)
-
-            c_points = []
-            for row in range(2):
-                for col in range(4):
-                    c_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16 - 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(4):
-                for col in range(2):
-                    c_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 8,
-                                col * self.width / 16 - 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(4):
-                    c_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 + self.width / 8,
-                                col * self.width / 16 - 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            c_points = np.array(c_points)
-
-            r_points = []
-            for row in range(2):
-                for col in range(4):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(2):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 8,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(1):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 8,
-                                col * self.width / 16 + 3 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(4):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 16,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for col in range(3):
-                r_points.append(np.array([self.width / 16, col * self.width / 16]))
-            for row in range(2):
-                for col in range(2):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 + self.width / 8,
-                                col * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                for col in range(1):
-                    r_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 + self.width / 8,
-                                col * self.width / 16 + 3 * self.width / 16,
-                            ]
-                        )
-                    )
-
-            a_points = []
-            for row in range(2):
-                for col in range(4):
-                    a_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 4,
-                                col * self.width / 16 + 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(2):
-                a_points.append(
-                    np.array(
-                        [row * self.width / 16 - self.width / 8, 5 * self.width / 16]
-                    )
-                )
-            for row in range(2):
-                a_points.append(
-                    np.array([row * self.width / 16 - self.width / 8, self.width / 2])
-                )
-            for row in range(2):
-                for col in range(4):
-                    a_points.append(
-                        np.array(
-                            [
-                                row * self.width / 16 - self.width / 16,
-                                col * self.width / 16 + 5 * self.width / 16,
-                            ]
-                        )
-                    )
-            for row in range(3):
-                a_points.append(
-                    np.array(
-                        [row * self.width / 16 + self.width / 16, 5 * self.width / 16]
-                    )
-                )
-            for row in range(3):
-                a_points.append(
-                    np.array([row * self.width / 16 + self.width / 16, self.width / 2])
-                )
-
-            others = np.array(
-                [
-                    [3 * self.width / 8, -self.width / 4],
-                    [3 * self.width / 8, 0],
-                    [3 * self.width / 8, self.width / 4],
-                ]
-            )
-
-            self.targets = np.concatenate(
-                [i_points, c_points, r_points, a_points, others], axis=0
-            )
-            self.targets = np.flip(self.targets, axis=1).copy() * 0.8
+            self.targets = init_icra(self.n_targets, self.width)
         else:
             raise ValueError(
                 f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."
             )
 
-        self.t = 0.0
+        self.time = 0.0
         self._compute_distances()
-        self._compute_adjacency()
-        if self.render_ is not None:
-            self.render_.reset()
-        return self._observation(), self.positions, self.targets
+        self._compute_graph()
+        if self._render is not None:
+            self._render.reset()
+        return self._make_output()
 
-    def render(self, mode="human"):
-        if self.render_ is None or self.render_.mode != mode:
-            self.render_ = MotionPlanningRender(self.width, self.state_ndim, mode=mode)
+    def render(self):
+        if self._render is None:
+            self._render = MotionPlanningRender(self.width, self.state_ndim)
 
-        return self.render_.render(
+        return self._render.render(
             self.targets.T,
             self.positions.T,
             self._reward(),
             self.coverage(),
             self._observed_targets(),
-            self.adjacency(),
+            self.edge_index,
         )
 
-    def close(self):
-        pass
 
-
-if __name__ == "__main__":
-    env = MotionPlanning(
-        scenario="uniform", n_agents=100, width=10, collision_distance=0.1
+def init_uniform(n_samples, width, initial_separation, rng):
+    return collision_free_sampling(
+        initial_separation,
+        lambda: rng.uniform(-width / 2, width / 2, (n_samples, 2)),
     )
-    n_steps = 200
-    for i in range(100):
-        env.reset()
-        for i in range(n_steps):
-            action = env.centralized_policy()
-            _, _, _, _, done, _ = env.step(action)
-            adj = env.adjacency()
-            env.render()
-            if done:
-                break
+
+
+def uniform_circle(n_samples, radius, rng):
+    theta = rng.uniform(0, 2 * np.pi, n_samples)
+    r = rng.uniform(0, radius, n_samples)
+    return np.stack([r * np.cos(theta), r * np.sin(theta)], axis=-1)
+
+
+def init_clusters(n_samples, n_samples_per_cluster, width, initial_separation, rng):
+    assert (
+        n_samples % n_samples_per_cluster == 0
+    ), f"n_samples={n_samples} must be divisible by n_samples_per_cluster={n_samples_per_cluster}"
+    n_clusters = n_samples // n_samples_per_cluster
+    if n_clusters == n_samples:
+        return init_uniform(n_samples, width, initial_separation, rng)
+    cluster_radius = 5 * initial_separation * n_samples_per_cluster**0.5
+    cluster_centers = collision_free_sampling(
+        2 * cluster_radius,
+        lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 2)),
+    )
+    return collision_free_sampling(
+        initial_separation,
+        lambda: uniform_circle(n_samples, cluster_radius, rng)
+        + cluster_centers.repeat(n_samples_per_cluster, axis=0),
+    )
+
+
+def init_icra(n_samples, width):
+    if n_samples != 100:
+        raise ValueError("ICRA scenario only supports 100 agents.")
+    i_points = []
+    for row in range(8):
+        for col in range(2):
+            i_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 4,
+                        col * width / 16 - width / 2,
+                    ]
+                )
+            )
+    i_points = np.array(i_points)
+
+    c_points = []
+    for row in range(2):
+        for col in range(4):
+            c_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 4,
+                        col * width / 16 - 5 * width / 16,
+                    ]
+                )
+            )
+    for row in range(4):
+        for col in range(2):
+            c_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 8,
+                        col * width / 16 - 5 * width / 16,
+                    ]
+                )
+            )
+    for row in range(2):
+        for col in range(4):
+            c_points.append(
+                np.array(
+                    [
+                        row * width / 16 + width / 8,
+                        col * width / 16 - 5 * width / 16,
+                    ]
+                )
+            )
+    c_points = np.array(c_points)
+
+    r_points = []
+    for row in range(2):
+        for col in range(4):
+            r_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 4,
+                        col * width / 16,
+                    ]
+                )
+            )
+    for row in range(2):
+        for col in range(2):
+            r_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 8,
+                        col * width / 16,
+                    ]
+                )
+            )
+    for row in range(2):
+        for col in range(1):
+            r_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 8,
+                        col * width / 16 + 3 * width / 16,
+                    ]
+                )
+            )
+    for row in range(2):
+        for col in range(4):
+            r_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 16,
+                        col * width / 16,
+                    ]
+                )
+            )
+    for col in range(3):
+        r_points.append(np.array([width / 16, col * width / 16]))
+    for row in range(2):
+        for col in range(2):
+            r_points.append(
+                np.array(
+                    [
+                        row * width / 16 + width / 8,
+                        col * width / 16,
+                    ]
+                )
+            )
+    for row in range(2):
+        for col in range(1):
+            r_points.append(
+                np.array(
+                    [
+                        row * width / 16 + width / 8,
+                        col * width / 16 + 3 * width / 16,
+                    ]
+                )
+            )
+
+    a_points = []
+    for row in range(2):
+        for col in range(4):
+            a_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 4,
+                        col * width / 16 + 5 * width / 16,
+                    ]
+                )
+            )
+    for row in range(2):
+        a_points.append(np.array([row * width / 16 - width / 8, 5 * width / 16]))
+    for row in range(2):
+        a_points.append(np.array([row * width / 16 - width / 8, width / 2]))
+    for row in range(2):
+        for col in range(4):
+            a_points.append(
+                np.array(
+                    [
+                        row * width / 16 - width / 16,
+                        col * width / 16 + 5 * width / 16,
+                    ]
+                )
+            )
+    for row in range(3):
+        a_points.append(np.array([row * width / 16 + width / 16, 5 * width / 16]))
+    for row in range(3):
+        a_points.append(np.array([row * width / 16 + width / 16, width / 2]))
+
+    others = np.array(
+        [
+            [3 * width / 8, -width / 4],
+            [3 * width / 8, 0],
+            [3 * width / 8, width / 4],
+        ]
+    )
+
+    targets = np.concatenate([i_points, c_points, r_points, a_points, others], axis=0)
+    return targets

@@ -1,38 +1,13 @@
 import torch
 from tensordict import TensorDictBase
-from tensordict.nn import TensorDictModule, TensorDictParams
 from torchcps.utils import add_model_specific_args
 from torchrl.modules import ActorCriticWrapper
-from torchrl.objectives import SoftUpdate
-from torchrl.objectives import TD3Loss as _TD3Loss
+from torchrl.objectives import DDPGLoss, SoftUpdate
 
 from motion_planning.lightning.base import MotionPlanningActorCritic
 
 
-class TD3Loss(_TD3Loss):
-    """
-    Hacked TD3Loss that does not use vmap.
-    """
-
-    actor_network: TensorDictModule
-    qvalue_network: TensorDictModule
-    actor_network_params: TensorDictParams
-    qvalue_network_params: TensorDictParams
-    target_actor_network_params: TensorDictParams
-    target_qvalue_network_params: TensorDictParams
-
-    def _make_vmap(self):
-        self._vmap_qvalue_network00 = self.critic_loop
-
-    def critic_loop(self, td, parameters):
-        outputs = []
-        for i in range(self.num_qvalue_nets):
-            with parameters[i].to_module(self.qvalue_network):
-                outputs.append(self.qvalue_network(td[i]))
-        return torch.stack(outputs, dim=0)
-
-
-class MotionPlanningTD3(MotionPlanningActorCritic):
+class MotionPlanningDDPG(MotionPlanningActorCritic):
     @classmethod
     def add_model_specific_args(cls, group):
         return add_model_specific_args(cls, group)
@@ -56,16 +31,12 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.policy_delay = policy_delay
         self.warmup_epochs = warmup_epochs
         self.automatic_optimization = False
-        self.loss = TD3Loss(
+        self.loss = DDPGLoss(
             self.model.get_policy_operator(),
             self.model.get_value_operator(),
-            loss_function="smooth_l1",
-            bounds=(-1, 1),  # type: ignore
-            policy_noise=self.noise,
-            noise_clip=self.noise_clip,
         )
         self.loss.make_value_estimator(
-            TD3Loss.default_value_estimator, gamma=self.gamma
+            DDPGLoss.default_value_estimator, gamma=self.gamma
         )
         self.target_net_updater = SoftUpdate(self.loss, eps=polyak)
 
@@ -77,7 +48,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             fused=True,
         )
         critic_optimizer = torch.optim.AdamW(
-            self.loss.qvalue_network_params.flatten_keys().values(),
+            self.loss.value_network_params.flatten_keys().values(),
             lr=self.critic_lr,
             weight_decay=self.weight_decay,
             fused=True,
@@ -96,7 +67,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.step()
         # critic update
         opt_critic.step()
-        self.manual_backward(loss_vals["loss_qvalue"])
+        self.manual_backward(loss_vals["loss_value"])
         opt_critic.step()
 
         self.target_net_updater.step()
@@ -109,7 +80,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         )
         self.log(
             "train/critic_loss",
-            loss_vals["loss_qvalue"],
+            loss_vals["loss_value"],
             prog_bar=True,
             batch_size=self.batch_size,
         )
@@ -125,7 +96,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         )
         self.log(
             "val/critic_loss",
-            loss_vals["loss_qvalue"],
+            loss_vals["loss_value"],
             prog_bar=True,
             batch_size=self.batch_size,
         )
@@ -156,7 +127,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         )
         self.log(
             "test/critic_loss",
-            loss_vals["loss_qvalue"],
+            loss_vals["loss_value"],
             batch_size=self.batch_size,
         )
         self.log(

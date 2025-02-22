@@ -24,10 +24,7 @@ def main():
         "operation",
         type=str,
         default="imitation",
-        choices=[
-            "imitation",
-            "td3",
-        ],
+        choices=["imitation", "ddpg", "td3"],
         help="The operation to perform.",
     )
     parser.add_argument(
@@ -62,11 +59,11 @@ def main():
     group.add_argument("--no_bar", action="store_false", dest="progress_bar")
 
     # reinforcement learning specific args
-    if operation in ("ddpg", "td3", "ppo"):
+    if operation in ("ddpg", "td3"):
         group.add_argument("--checkpoint", type=str)
 
     params = vars(parser.parse_args())
-    if operation in ("ddpg", "td3", "ppo"):
+    if operation in ("ddpg", "td3"):
         reinforce(params)
     elif operation == "imitation":
         imitate(params)

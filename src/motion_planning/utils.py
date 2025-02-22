@@ -11,16 +11,16 @@ from lightning.pytorch.loggers import WandbLogger
 from wandb.sdk.wandb_run import Run
 
 from motion_planning.architecture import GNNActorCritic, TransformerActorCritic
-from motion_planning.architecture.base import ActorCritic
-from motion_planning.envs.motion_planning import MotionPlanning
+from motion_planning.envs.motion_planning import MotionPlanningEnv
 from motion_planning.lightning import (
     MotionPlanningActorCritic,
+    MotionPlanningDDPG,
     MotionPlanningImitation,
     MotionPlanningTD3,
 )
 
 
-def get_architecture_cls(model_str) -> typing.Type[ActorCritic]:
+def get_architecture_cls(model_str):
     if model_str == "transformer":
         return TransformerActorCritic
     elif model_str == "gnn":
@@ -48,6 +48,8 @@ def load_model_name(uri: str) -> str:
 def get_operation_cls(operation_str) -> typing.Type[MotionPlanningActorCritic]:
     if operation_str == "imitation":
         return MotionPlanningImitation
+    elif operation_str == "ddpg":
+        return MotionPlanningDDPG
     elif operation_str == "td3":
         return MotionPlanningTD3
     raise ValueError(f"Invalid operation {operation_str}.")
@@ -182,7 +184,7 @@ def simulation_args(parser: argparse.ArgumentParser):
         "--scenario",
         type=str,
         default="uniform",
-        choices=MotionPlanning.scenarios,
+        choices=MotionPlanningEnv.scenarios,
     )
     group.add_argument("--max_vel", type=float, default=5.0)
     group.add_argument("--dt", type=float, default=1.0)

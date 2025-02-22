@@ -1,30 +1,40 @@
-from copy import deepcopy
-from typing import List
+import logging
+from functools import partial
 
 import lightning.pytorch as pl
-import numpy as np
 import torch
 import torch.nn.functional as F
-from numpy.typing import NDArray
-from scipy.sparse import coo_matrix
-from torch_geometric.data import Data
-from torch_geometric.data.data import Data
-from torch_geometric.loader import DataLoader
+from tensordict import TensorDictBase
+from torch_geometric.data import Batch, Data
 from torch_geometric.utils.convert import from_scipy_sparse_matrix
 from torchcps.utils import add_model_specific_args
+from torchrl.collectors import SyncDataCollector
+from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
+from torchrl.envs import ParallelEnv
+from torchrl.modules import ActorCriticWrapper
 
-from motion_planning.architecture.base import ActorCritic
-from motion_planning.envs.motion_planning import MotionPlanning
-from motion_planning.rl import ExperienceSourceDataset, ReplayBuffer
+from motion_planning.envs import MotionPlanningEnv
+from motion_planning.rl import ExperienceSourceDataset
+
+logger = logging.getLogger(__name__)
+
+
+def info_dict_reader(info, td):
+    td["edge_index"] = torch.from_numpy(info["edge_index"]).long()
+    td["components"] = torch.from_numpy(info["components"]).long()
+    td["n_collisions"] = info["n_collisions"]
+    td["coverage"] = info["coverage"]
+    td["time"] = info["time"]
+    return td
 
 
 def to_data(
-    state: NDArray,
-    positions: NDArray,
-    targets: NDArray,
-    adjacency: coo_matrix,
-    components: NDArray,
-    time: NDArray,
+    state: torch.Tensor,
+    positions: torch.Tensor,
+    targets: torch.Tensor,
+    adjacency: torch.Tensor,
+    components: torch.Tensor,
+    time: torch.Tensor,
     device: torch.device | str,
     dtype: torch.dtype | str,
 ) -> Data:
@@ -79,15 +89,14 @@ class MotionPlanningActorCritic(pl.LightningModule):
 
     def __init__(
         self,
-        model: ActorCritic,
+        model: ActorCriticWrapper,
         actor_lr: float = 0.0001,
         critic_lr: float = 0.0001,
         weight_decay: float = 0.0,
-        batch_size: int = 100,
-        gamma: float = 0.99,
-        reward_sigma: float = 10.0,
-        max_steps=200,
-        buffer_size: int = 10_000,
+        batch_size: int = 128,
+        gamma: float = 0.95,
+        max_steps: int = 200,
+        buffer_size: int = 20_000,
         # MotionPlanning environment parameters
         n_agents: int = 100,
         max_vel: float = 5.0,
@@ -96,6 +105,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         collision_distance: float = 2.5,
         initial_separation: float = 5.0,
         collision_coefficient: float = 5.0,
+        reward_sigma: float = 10.0,
+        num_workers: int = 32,
         # Noise parameters
         noise: float = 0.05,
         noise_clip: float = 0.1,
@@ -103,7 +114,6 @@ class MotionPlanningActorCritic(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model", "kwargs"])
-
         self.model = model
         self.actor_lr = actor_lr
         self.critic_lr = critic_lr
@@ -111,22 +121,61 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.batch_size = batch_size
         self.gamma = gamma
         self.max_steps = max_steps
+        self.buffer_size = buffer_size
+        # MotionPlanning environment parameters
+        self.n_agents = n_agents
+        self.max_vel = max_vel
+        self.width = width
+        self.scenario = scenario
         self.collision_distance = collision_distance
         self.initial_separation = initial_separation
         self.collision_coefficient = collision_coefficient
+        self.reward_sigma = reward_sigma
+        self.num_workers = num_workers
+        self.expert_policy = None
+        # Noise parameters
         self.noise = noise
         self.noise_clip = noise_clip
-        self.buffer = ReplayBuffer[tuple[Data, Data]](buffer_size)
-        self.env = MotionPlanning(
-            n_agents=n_agents,
-            width=width,
-            scenario=scenario,
-            initial_separation=initial_separation,
-            max_vel=max_vel,
-            collision_distance=collision_distance,
-            collision_coefficient=collision_coefficient,
-            reward_sigma=reward_sigma,
+
+    def setup(self, stage: str):
+        self._init_torchrl()
+        self.populate()
+
+    def _init_torchrl(self):
+        self.model.to(self.device)
+        make_env = partial(
+            MotionPlanningEnv,
+            n_agents=self.n_agents,
+            width=self.width,
+            scenario=self.scenario,
+            initial_separation=self.initial_separation,
+            max_vel=self.max_vel,
+            collision_distance=self.collision_distance,
+            collision_coefficient=self.collision_coefficient,
+            reward_sigma=self.reward_sigma,
+            expert_policy=self.expert_policy,
         )
+        self.env = ParallelEnv(self.num_workers, make_env, device=self.device)
+        self.buffer = TensorDictReplayBuffer(
+            storage=LazyTensorStorage(self.buffer_size, device=self.device),
+            batch_size=self.batch_size,
+            priority_key="priority",
+        )
+        self.collector = SyncDataCollector(
+            self.env,
+            self.rollout_action,
+            frames_per_batch=self.num_workers,
+            max_frames_per_traj=self.max_steps,
+            postproc=lambda td: td.reshape(-1),
+            device=self.device,
+            trust_policy=True,
+        )
+
+    def state_dict(self, *args, **kwargs):
+        return self.model.state_dict(*args, **kwargs)
+
+    def load_state_dict(self, state_dict, *args, **kwargs):
+        self.model.load_state_dict(state_dict, *args, **kwargs)
 
     def policy(self, mu: torch.Tensor):
         """
@@ -167,28 +216,27 @@ class MotionPlanningActorCritic(pl.LightningModule):
     def configure_optimizers(self):
         return [
             torch.optim.AdamW(
-                self.model.actor.parameters(),
+                self.model.get_policy_operator().parameters(),
                 lr=self.actor_lr,
                 weight_decay=self.weight_decay,
             ),
             torch.optim.AdamW(
-                self.model.critic.parameters(),
+                self.model.get_value_operator().parameters(),
                 lr=self.critic_lr,
                 weight_decay=self.weight_decay,
             ),
         ]
 
-    def to_data(self, state, positions, targets, adjacency, components, time) -> Data:
-        return to_data(
-            state,
-            positions,
-            targets,
-            adjacency,
-            components,
-            time,
-            self.device,
-            self.dtype,
-        )
+    def to_data(
+        self,
+        state: torch.Tensor,
+        positions: torch.Tensor,
+        targets: torch.Tensor,
+        edge_index: torch.Tensor,
+        components: torch.Tensor,
+        time: torch.Tensor,
+    ) -> Data:
+        return to_data(state, positions, targets, edge_index, components, time, self.device, self.dtype)  # type: ignore
 
     def rollout_start(self):
         """
@@ -196,134 +244,53 @@ class MotionPlanningActorCritic(pl.LightningModule):
         """
         return None
 
-    def rollout_action(self, data: Data):
+    def rollout_action(self, td: TensorDictBase) -> TensorDictBase:
         """
         Choose an action to take in a rollout step.
 
         Returns:
             Modified data with data.action set to the action. Can set other fields as well.
         """
-        data.mu = self.model.forward_actor(self.model.actor, data)
-        if self.training:
-            data.action = self.policy(data.mu)
-        else:
-            data.action = self.clip_action(data.mu)
-        return data
+        with torch.no_grad():
+            td = self.model.get_policy_operator()(td)
+            if self.training:
+                td["action"] = self.policy(td["action"])
+            else:
+                td["action"] = self.clip_action(td["action"])
+            return td
 
-    def rollout_step(self, data: Data):
-        """
-        Take a step in the environment.
-
-        Returns:
-            next_data: The next data.
-            reward: The reward.
-            done: Whether the episode is done.
-            coverage: The coverage.
-            n_collisions: The number of collisions.
-        """
-        data = self.rollout_action(data)
-        next_state, next_positions, next_targets, reward, done, _ = self.env.step(
-            data.action.detach().cpu().numpy()  # type: ignore
-        )
-        next_data = self.to_data(
-            next_state,
-            next_positions,
-            next_targets,
-            self.env.adjacency(),
-            self.env.components(),
-            self.env.t,
-        )
-        coverage = self.env.coverage()
-        n_collisions = self.env.n_collisions(threshold=self.collision_distance)
-        return (
-            data,
-            next_data,
-            reward,
-            done,
-            coverage,
-            n_collisions,
-        )
-
-    @torch.no_grad()
-    def rollout(self, render=False) -> tuple[List[Data], List[np.ndarray]]:
-        self.rollout_start()
-        episode = []
-        observation, positions, targets = self.env.reset()
-        data = self.to_data(
-            observation,
-            positions,
-            targets,
-            self.env.adjacency(),
-            self.env.components(),
-            self.env.t,
-        )
-        frames = []
-        for step in range(self.max_steps):
-            if render:
-                frames.append(self.env.render(mode="rgb_array"))
-
-            data = deepcopy(data)
-            # take step
-            (
-                data,
-                next_data,
-                reward,
-                done,
-                coverage,
-                n_collisions,
-            ) = self.rollout_step(data)
-
-            # add additional attributes
-            data.step = step
-            data.reward = torch.as_tensor(reward).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.coverage = torch.tensor([coverage]).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.n_collisions = torch.tensor([n_collisions]).to(device=self.device, dtype=self.dtype)  # type: ignore
-            data.done = torch.tensor(done, dtype=torch.bool, device=self.device)  # type: ignore
-
-            episode.append((data, next_data))
-            data = next_data
-            if done:
+    def populate(self):
+        # populate replay buffer with initial data
+        logger.info("Populating replay buffer with one rollout.")
+        for i, data in enumerate(self.collector):
+            if i >= self.max_steps:
                 break
-
-        return episode, frames
-
-    def batch_generator(
-        self, n_episodes=1, render=False, use_buffer=True, training=True
-    ):
-        # set model to appropriate mode
-        _training = self.training
-        self.train(training)
-
-        data = []
-        for _ in range(n_episodes):
-            episode, frames = self.rollout(render=render)
-            data.extend(episode)
-        if use_buffer:
             self.buffer.extend(data)
-            data = self.buffer.collect(shuffle=True)
 
-        # reset model to original mode
+    def train_generator(self):
+        _training = self.training
+        self.train(True)
+        self.rollout_start()
+        for i, data in enumerate(self.collector):
+            if i >= self.max_steps:
+                break
+            self.buffer.extend(data)
+            yield self.buffer.sample()
         self.train(_training)
 
-        return iter(data)
-
-    def _dataloader(self, **kwargs):
-        return DataLoader(
-            ExperienceSourceDataset(self.batch_generator, **kwargs),  # type: ignore
-            batch_size=self.batch_size,
-        )
+    def test_generator(self):
+        _training = self.training
+        self.train(False)
+        self.rollout_start()
+        self.collector.reset()
+        for i, data in enumerate(self.collector):
+            if i >= self.max_steps:
+                break
+            yield data
+        self.train(_training)
 
     def train_dataloader(self):
-        return self._dataloader(
-            n_episodes=10, render=False, use_buffer=True, training=True
-        )
+        return ExperienceSourceDataset(self.train_generator, length=self.max_steps)
 
     def val_dataloader(self):
-        return self._dataloader(
-            n_episodes=1, render=False, use_buffer=False, training=False
-        )
-
-    def test_dataloader(self):
-        return self._dataloader(
-            n_episodes=100, render=False, use_buffer=False, training=False
-        )
+        return ExperienceSourceDataset(self.test_generator, length=self.max_steps)

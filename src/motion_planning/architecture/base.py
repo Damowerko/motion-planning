@@ -1,18 +1,20 @@
 import torch
 import torch.nn as nn
-from torch_geometric.data import Data
+from tensordict import TensorDictBase
+from tensordict.nn import TensorDictModule
 from torchcps.utils import add_model_specific_args
+from torchrl.modules import ActorCriticWrapper
 
 
-class ActorCritic(nn.Module):
+class ActorCritic(ActorCriticWrapper):
     @classmethod
     def add_model_specific_args(cls, group):
         return add_model_specific_args(cls, group)
 
     def __init__(
         self,
-        actor: nn.Module,
-        critic: nn.Module,
+        actor: TensorDictModule,
+        critic: TensorDictModule,
         compile: bool = True,
         **_,
     ):
@@ -22,22 +24,8 @@ class ActorCritic(nn.Module):
             critic: Critic network, no activation function at last layer.
             compile: Weather to compile the models.
         """
-        super().__init__()
-        self.actor: nn.Module = actor
-        self.critic: nn.Module = critic
-
+        super().__init__(actor, critic)
+        self.actor: TensorDictModule = actor
+        self.critic: TensorDictModule = critic
         self.actor = torch.compile(self.actor, dynamic=False, disable=not compile)  # type: ignore
         self.critic = torch.compile(self.critic, dynamic=False, disable=not compile)  # type: ignore
-
-    @staticmethod
-    def forward_actor(actor: nn.Module, data: Data) -> torch.Tensor:
-        """
-        Returns normalized action within the range [-1, 1].
-        """
-        return actor(data).tanh()
-
-    @staticmethod
-    def forward_critic(
-        critic: nn.Module, action: torch.Tensor, data: Data
-    ) -> torch.Tensor:
-        return critic(action, data)

@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as gnn
-from torch_geometric.data import Batch, Data
-
-from motion_planning.architecture.base import ActorCritic
+from tensordict.nn import TensorDictModule
+from torchcps.utils import add_model_specific_args
+from torchrl.modules import ActorCriticWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -362,23 +362,31 @@ class TransformerActor(nn.Module):
             attention_window=attention_window,
         )
 
-    def forward(self, data: Data) -> torch.Tensor:
-        batch_size = data.batch_size if isinstance(data, Batch) else 1
-        state = data.state.reshape(batch_size, -1, self.state_ndim)
-        x = self.readin(state)
-        pos = data.positions.reshape(batch_size, -1, 2)
-        padding_mask = (
-            data.padding_mask.reshape(batch_size, -1)
-            if hasattr(data, "padding_mask")
-            else None
+    def forward(
+        self,
+        observation: torch.Tensor,
+        positions: torch.Tensor,
+        targets: torch.Tensor,
+        padding_mask: torch.Tensor | None = None,
+        components: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        x = self.readin(observation)
+        y = self.transformer(x, positions, padding_mask, components)
+        action = self.readout(y).tanh()
+        return action
+
+    def to_tensordict_module(self) -> TensorDictModule:
+        return TensorDictModule(
+            self,
+            in_keys=[
+                "observation",
+                "positions",
+                "targets",
+                "padding_mask",
+                "components",
+            ],
+            out_keys=["action"],
         )
-        components = (
-            data.components.reshape(batch_size, -1) if self.connected_mask else None
-        )
-        y = self.transformer(x, pos, padding_mask, components).reshape(
-            -1, self.embed_dim
-        )
-        return self.readout(y)
 
 
 class TransformerCritic(nn.Module):
@@ -388,6 +396,7 @@ class TransformerCritic(nn.Module):
         n_channels: int = 32,
         n_heads: int = 8,
         dropout: float = 0.0,
+        attention_window: float = 0.0,
     ):
         super().__init__()
 
@@ -417,32 +426,44 @@ class TransformerCritic(nn.Module):
             n_heads,
             self.dropout,
             encoding_type=None,
-            attention_window=0,
+            attention_window=attention_window,
         )
 
-    def forward(self, action: torch.Tensor, data: Data) -> torch.Tensor:
-        batch_size = data.batch_size if isinstance(data, Batch) else 1
-
-        state = data.state.reshape(batch_size, -1, self.state_ndim)
-        action = action.reshape(batch_size, -1, 2)
-        positions = data.positions.reshape(batch_size, -1, 2)
-        x_agent = torch.cat([state, positions, action], dim=-1)
+    def forward(
+        self,
+        action: torch.Tensor,
+        observation: torch.Tensor,
+        positions: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> torch.Tensor:
+        x_agent = torch.cat([observation, positions, action], dim=-1)
         x_agent = self.readin_agent(x_agent)
         n_agents = x_agent.size(1)
 
-        targets = data.targets.reshape(batch_size, -1, 2)
         x_target = self.readin_target(targets)
 
         # concatenate the agent and target embeddings so now we have shape (B, n_agents + n_targets, embed_dim)
         x = torch.cat([x_agent, x_target], dim=1)
-        y = self.transformer(x, x)
+        pos = torch.cat([positions, targets], dim=1)
+        y = self.transformer(x, pos)
         # get the outputs corresponding to the agents
         y_agent = y[:, :n_agents]
-        z = self.readout(y_agent).reshape(batch_size * n_agents)
-        return z
+        state_action_value = self.readout(y_agent).sum(-2)
+        return state_action_value
+
+    def to_tensordict_module(self) -> TensorDictModule:
+        return TensorDictModule(
+            self,
+            in_keys=["action", "observation", "positions", "targets"],
+            out_keys=["state_action_value"],
+        )
 
 
-class TransformerActorCritic(ActorCritic):
+class TransformerActorCritic(ActorCriticWrapper):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
     def __init__(
         self,
         n_layers: int = 2,
@@ -454,6 +475,7 @@ class TransformerActorCritic(ActorCritic):
         encoding_frequencies: str = "linear",
         attention_window: float = 0.0,
         connected_mask: bool = False,
+        compile: bool = True,
         **kwargs,
     ):
         """
@@ -467,6 +489,7 @@ class TransformerActorCritic(ActorCritic):
             encoding_frequencies: The method to generate the frequencies. Either "linear" or "geometric". Only used for "absolute" and "rotary" encoding.
             attention_window: When `attention_window > 0` the attention matrix will be zero between positions that are further apart than `attention_window`. If `attention_window == 0`, no mask is applied.
             connected_mask: If True, the attention matrix will be zero between positions that are not connected in the graph.
+
         """
         actor = TransformerActor(
             n_layers,
@@ -478,11 +501,15 @@ class TransformerActorCritic(ActorCritic):
             encoding_frequencies=encoding_frequencies,
             attention_window=attention_window,
             connected_mask=connected_mask,
-        )
+        ).to_tensordict_module()
         critic = TransformerCritic(
             n_layers,
             n_channels,
             n_heads,
             dropout,
-        )
-        super().__init__(actor, critic, **kwargs)
+            attention_window=0,
+        ).to_tensordict_module()
+        if compile:
+            actor.compile()
+            critic.compile()
+        super().__init__(actor, critic)

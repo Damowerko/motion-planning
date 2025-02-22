@@ -5,10 +5,11 @@ from typing import Callable, Type
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
+from tensordict.nn import TensorDictModule
 from torch_geometric.data import Data
 from torch_geometric.typing import Adj, OptPairTensor, OptTensor, Size
-
-from motion_planning.architecture.base import ActorCritic
+from torchcps.utils import add_model_specific_args
+from torchrl.modules import ActorCriticWrapper
 
 activation_choices: typing.Dict[str, Type[nn.Module]] = {
     "tanh": nn.Tanh,
@@ -320,7 +321,51 @@ class GCN(nn.Module):
         return x
 
 
-class GNNActorCritic(ActorCritic):
+def batch_graph(x: torch.Tensor, edge_index: torch.Tensor):
+    batch_size = edge_index.size(0)
+    n_nodes = x.size(1)
+    node_offset = n_nodes * torch.arange(
+        batch_size, device=edge_index.device, dtype=edge_index.dtype
+    )
+    edge_index = edge_index + node_offset[:, None, None]
+    edge_index = edge_index.transpose(0, 1).reshape(2, -1)
+    # now we batch the nodes
+    x = x.view(batch_size * n_nodes, -1)
+    return x, edge_index
+
+
+class GNNActorWrapper(nn.Module):
+    def __init__(self, gcn: GCN):
+        super().__init__()
+        self.gcn = gcn
+
+    def forward(
+        self, observation: torch.Tensor, edge_index: torch.Tensor
+    ) -> torch.Tensor:
+        y = self.gcn(*batch_graph(observation, edge_index))
+        y = y.reshape(observation.size(0), observation.size(1), -1)
+        return y
+
+
+class GNNCriticWrapper(nn.Module):
+    def __init__(self, gcn: GCN):
+        super().__init__()
+        self.gcn = gcn
+
+    def forward(
+        self, observation: torch.Tensor, action: torch.Tensor, edge_index: torch.Tensor
+    ) -> torch.Tensor:
+        x = torch.cat([observation, action], dim=-1)
+        y = self.gcn(*batch_graph(x, edge_index))
+        y = y.reshape(x.size(0), x.size(1), 1).sum(1)
+        return y
+
+
+class GNNActorCritic(ActorCriticWrapper):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
     def __init__(
         self,
         state_ndim: int = 14,
@@ -335,7 +380,7 @@ class GNNActorCritic(ActorCritic):
         dropout: float = 0.0,
         **kwargs,
     ):
-        actor = GCN(
+        actor_module = GCN(
             state_ndim,
             action_ndim,
             n_taps,
@@ -347,7 +392,7 @@ class GNNActorCritic(ActorCritic):
             mlp_hidden_channels,
             dropout,
         )
-        critic = GCN(
+        critic_module = GCN(
             state_ndim + action_ndim,
             1,
             n_taps,
@@ -359,18 +404,14 @@ class GNNActorCritic(ActorCritic):
             mlp_hidden_channels,
             dropout,
         )
+        actor = TensorDictModule(
+            GNNActorWrapper(actor_module),
+            in_keys=["observation", "edge_index"],
+            out_keys=["action"],
+        )
+        critic = TensorDictModule(
+            GNNCriticWrapper(critic_module),
+            in_keys=["observation", "action", "edge_index"],
+            out_keys=["state_action_value"],
+        )
         super().__init__(actor, critic)
-
-    @staticmethod
-    def forward_actor(actor: nn.Module, data: Data) -> torch.Tensor:
-        """
-        Returns normalized action within the range [-1, 1].
-        """
-        return actor(data.state, data.edge_index).tanh()
-
-    @staticmethod
-    def forward_critic(
-        critic: nn.Module, action: torch.Tensor, data: Data
-    ) -> torch.Tensor:
-        x = torch.cat([data.state, action], dim=-1)
-        return critic(x, data.edge_index)
