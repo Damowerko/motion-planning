@@ -19,69 +19,6 @@ from motion_planning.rl import ExperienceSourceDataset
 logger = logging.getLogger(__name__)
 
 
-def info_dict_reader(info, td):
-    td["edge_index"] = torch.from_numpy(info["edge_index"]).long()
-    td["components"] = torch.from_numpy(info["components"]).long()
-    td["n_collisions"] = info["n_collisions"]
-    td["coverage"] = info["coverage"]
-    td["time"] = info["time"]
-    return td
-
-
-def to_data(
-    state: torch.Tensor,
-    positions: torch.Tensor,
-    targets: torch.Tensor,
-    adjacency: torch.Tensor,
-    components: torch.Tensor,
-    time: torch.Tensor,
-    device: torch.device | str,
-    dtype: torch.dtype | str,
-) -> Data:
-    """
-    Construct a PyTorch Geometric Data object to be used in the model.
-    """
-    if isinstance(adjacency, list):
-        data = []
-        for i, adj in enumerate(adjacency):
-            data.append(
-                to_data(
-                    state[i],
-                    positions[i],
-                    targets[i],
-                    adj,
-                    components,
-                    time[i],
-                    device,
-                    dtype,
-                )
-            )
-        return Batch.from_data_list(data)  # type: ignore
-    state_tensor = torch.from_numpy(state).to(dtype=dtype, device=device)  # type: ignore
-    positions_tensor = torch.from_numpy(positions).to(
-        dtype=dtype, device=device  # type: ignore
-    )
-    targets_tensor = torch.from_numpy(targets).to(dtype=dtype, device=device)  # type: ignore
-    components_tensor = torch.from_numpy(components).to(
-        dtype=torch.long, device=device  # type: ignore
-    )
-    time_tensor = torch.tensor([time], dtype=dtype, device=device)  # type: ignore
-    # assert state.shape == (self.env.n_nodes, self.env.observation_ndim)
-    edge_index, edge_weight = from_scipy_sparse_matrix(adjacency)
-    edge_index = edge_index.to(dtype=torch.long, device=device)
-    edge_weight = edge_weight.to(dtype=dtype, device=device)  # type: ignore
-    return Data(
-        state=state_tensor,
-        positions=positions_tensor,
-        targets=targets_tensor,
-        components=components_tensor,
-        time=time_tensor,
-        edge_index=edge_index,
-        edge_attr=edge_weight,
-        num_nodes=state.shape[0],
-    )
-
-
 class MotionPlanningActorCritic(pl.LightningModule):
     @classmethod
     def add_model_specific_args(cls, group):

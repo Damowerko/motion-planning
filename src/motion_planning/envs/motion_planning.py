@@ -103,7 +103,7 @@ class MotionPlanningEnv(EnvBase):
             components=Bounded(
                 0, self.n_agents, torch.Size((self.n_agents,)), dtype=torch.long
             ),
-            n_collisions=Bounded(0, self.n_agents, torch.Size(()), dtype=torch.long),
+            collisions=Bounded(0, self.n_agents, torch.Size(()), dtype=torch.long),
             coverage=Bounded(0, 1, torch.Size(()), dtype=torch.float32),
             time=Bounded(0, float("inf"), torch.Size(()), dtype=torch.float32),
             shape=torch.Size(()),
@@ -227,7 +227,7 @@ class MotionPlanningEnv(EnvBase):
         coo = index_to_coo(idx)
         self.edge_index = np.stack((coo.row, coo.col), axis=0)
 
-    def n_collisions(self, threshold: float) -> int:
+    def collisions(self, threshold: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
         distances = self.dist_pp[x_idx, y_idx]
         return np.sum((distances < threshold).astype(int))
@@ -239,10 +239,10 @@ class MotionPlanningEnv(EnvBase):
         distances = self.dist_pt[row_idx, col_idx]
         reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
         # count the number of collisions per agent
-        n_collisions_per_agent = (
+        collisions_per_agent = (
             np.sum(self.dist_pp < self.collision_distance, axis=1) - 1
         )
-        penalty_collision = self.collision_coefficient * n_collisions_per_agent
+        penalty_collision = self.collision_coefficient * collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
         reward = reward_coverage - penalty_collision
         return reward.mean()
@@ -277,8 +277,8 @@ class MotionPlanningEnv(EnvBase):
                 "targets": torch.from_numpy(self.targets).float(),
                 "edge_index": torch.from_numpy(self.edge_index).long(),
                 "components": torch.from_numpy(self.components()).long(),
-                "n_collisions": torch.as_tensor(
-                    self.n_collisions(self.collision_distance)
+                "collisions": torch.as_tensor(
+                    self.collisions(self.collision_distance)
                 ).long(),
                 "coverage": torch.as_tensor(self.coverage()).float(),
                 "time": torch.as_tensor(self.time).float(),
@@ -300,7 +300,7 @@ class MotionPlanningEnv(EnvBase):
             reward (float): The reward of the environment.
             terminated (bool): Whether the episode is terminated.
             truncated (bool): Whether the episode is truncated.
-            info (dict): Additional information. Keys are "edge_index", "components", "n_collisions", "coverage", and "time".
+            info (dict): Additional information. Keys are "edge_index", "components", "collisions", "coverage", and "time".
         """
         action = input["action"].detach().cpu().numpy()
         action = self.clip_action(action * self.max_vel)

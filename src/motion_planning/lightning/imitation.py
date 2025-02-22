@@ -58,7 +58,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         self.log("val/actor_loss", loss_actor)
         self.log("val/coverage", td["coverage"].mean(), prog_bar=True)
         self.log("val/reward", td["next", "reward"].mean())
-        self.log("val/n_collisions", td["n_collisions"].float().mean())
+        self.log("val/collisions", td["collisions"].float().mean())
 
     def rollout_start(self):
         # decide if expert will be used for rollout

@@ -113,7 +113,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             prog_bar=True,
             batch_size=self.batch_size,
         )
-        # do not log reward, coverage or n_collisions, since using a replay buffer
+        # do not log reward, coverage or collisions, since using a replay buffer
 
     def validation_step(self, td: TensorDictBase):
         loss_vals = self.loss(td.clone())
@@ -142,8 +142,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             batch_size=self.batch_size,
         )
         self.log(
-            "val/n_collisions",
-            td["n_collisions"].float().mean(),
+            "val/collisions",
+            td["collisions"].float().mean(),
             batch_size=self.batch_size,
         )
 
@@ -166,7 +166,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         )
         self.log("test/coverage", td["coverage"].mean(), batch_size=self.batch_size)
         self.log(
-            "test/n_collisions",
-            td["n_collisions"].float().mean(),
+            "test/collisions",
+            td["collisions"].float().mean(),
             batch_size=self.batch_size,
         )
