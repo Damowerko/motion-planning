@@ -1,12 +1,8 @@
-from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
 import scipy.sparse
 import torch
-from matplotlib.backends.backend_agg import FigureCanvasAgg
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
@@ -14,144 +10,9 @@ from tensordict import TensorDict, TensorDictBase
 from torchrl.data.tensor_specs import Bounded, Categorical, Composite, Unbounded
 from torchrl.envs import EnvBase
 
-
-class MotionPlanningRender:
-    def __init__(self, width, state_ndim):
-        self.positions = []
-        self.width = width
-        self.state_ndim = state_ndim
-        plt.ioff()
-        self.fig = plt.figure()
-        self.ax = plt.axes()
-        self.reset()
-
-    def reset(self):
-        self.ax.clear()
-        self.target_scatter = None
-        self.agent_scatter = None
-
-    def render(
-        self,
-        goal_positions: NDArray,
-        agent_positions: NDArray,
-        reward: float,
-        coverage: float,
-        observed_targets: NDArray,
-        edge_index: NDArray,
-    ):
-        """
-        Renders the environment with the given parameters.
-
-        Args:
-            goal_positions (array-like): The positions of the goal targets.
-            agent_positions (array-like): The positions of the agents.
-            reward (float): The reward value.
-            observed_targets (array-like): The observed targets.
-            aedge_index (array-like): The (2, M) edge index for the graph.
-
-        Returns:
-            matplotlib.figure.Figure: The rendered figure.
-        """
-        self.reset()
-        if not isinstance(self.fig.canvas, FigureCanvasAgg):
-            raise ValueError("Only agg matplotlib backend is supported.")
-
-        markersize = 6.0 * (1000 / self.width)
-
-        if self.target_scatter is None:
-            self.target_scatter = self.ax.plot(
-                *goal_positions, "rx", markersize=markersize
-            )[0]
-
-        if self.agent_scatter is None:
-            self.agent_scatter = self.ax.plot(
-                *agent_positions, "bo", markersize=markersize
-            )[0]
-
-        self.ax.set_xlim(-self.width / 2, self.width / 2)
-        self.ax.set_ylim(-self.width / 2, self.width / 2)
-
-        n_agents = agent_positions.shape[1]
-        data = np.ones(edge_index.shape[1], dtype="d")
-        adjacency = scipy.sparse.coo_matrix(
-            (data, edge_index),
-            shape=(n_agents, n_agents),
-        )
-        G = nx.from_scipy_sparse_array(adjacency)
-        G.remove_edges_from(nx.selfloop_edges(G))
-        nx.draw_networkx_edges(G, pos=agent_positions.T, ax=self.ax)  # type: ignore
-
-        targets = (observed_targets + agent_positions.T[:, np.newaxis, :]).reshape(
-            -1, 2
-        )
-        self.ax.plot(*targets.T, "y^", markersize=markersize)
-
-        self.ax.set_title(f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%")
-
-        self.agent_scatter.set_data(*agent_positions)
-
-        self.fig.canvas.draw()
-        return np.asarray(self.fig.canvas.buffer_rgba())[..., :3].copy()
+from motion_planning.envs.render_matplotlib import MotionPlanningRender
 
 
-def argtopk(X, K, axis=-1):
-    """
-    Return the indices of the top K largest elements along an axis in descending order.
-    """
-    r = range(K)
-    idx = np.argpartition(-X, r, axis=axis)
-    return idx.take(r, axis=axis)
-
-
-def index_to_coo(idx, mask=None):
-    """
-    Create an scipy coo_matrix from an index array.
-
-    Args:
-        idx: An array of shape (N, M) that represents a matrix A[i, idx[i, j]] = 1 for i,j.
-        mask: A boolean array of shape (N, M) that represents the mask of the matrix.
-
-    Returns:
-        A scipy coo_matrix of shape (N, N)
-    """
-    N = idx.shape[0]
-    M = idx.shape[1]
-    i = np.repeat(np.arange(N), M)
-    j = np.ravel(idx, order="C")
-    if mask is not None:
-        mask = np.ravel(mask, order="C")
-        i = i[mask]
-        j = j[mask]
-    data = np.ones_like(i)
-    return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
-
-
-def collision_free_sampling(d: float, sampler: Callable[[], np.ndarray]):
-    """
-    Sample n positions without collisions within a given radius r.
-
-    Args:
-        d: The minimum distance between positions.
-        sampler: A function that samples positions given the number of positions to sample.
-    """
-    # set of indices of agents that were changed in this iteration
-    positions: np.ndarray = sampler()
-    idx: np.ndarray = np.arange(positions.shape[0])
-    while True:
-        dist = cdist(positions, positions[idx])
-        dist[idx, np.arange(len(idx))] = np.inf
-        min_dist = dist.min(axis=0)
-        if (min_dist >= d).all():
-            break
-        # find indices of agents that are too close and need to be changed
-        # this set will be monotonically decreasing
-        idx = idx[min_dist < d]
-        positions[idx] = sampler()[idx]
-    return positions
-
-
-# apparently the index method of tensorspecs are not implemented, ignoring and hoping it will work
-# pyright: reportAbstractUsage=none
 class MotionPlanningEnv(EnvBase):
     scenarios = {
         "uniform",
@@ -561,12 +422,12 @@ class MotionPlanningEnv(EnvBase):
             self._render = MotionPlanningRender(self.width, self.state_ndim)
 
         return self._render.render(
-            self.targets.T,
-            self.positions.T,
+            self.targets,
+            self.positions,
             self._reward(),
             self.coverage(),
-            self._observed_targets(),
             self.edge_index,
+            self._observed_targets(),
         )
 
 
@@ -755,3 +616,59 @@ def init_icra(n_samples, width):
 
     targets = np.concatenate([i_points, c_points, r_points, a_points, others], axis=0)
     return targets
+
+
+def argtopk(X, K, axis=-1):
+    """
+    Return the indices of the top K largest elements along an axis in descending order.
+    """
+    r = range(K)
+    idx = np.argpartition(-X, r, axis=axis)
+    return idx.take(r, axis=axis)
+
+
+def index_to_coo(idx, mask=None):
+    """
+    Create an scipy coo_matrix from an index array.
+
+    Args:
+        idx: An array of shape (N, M) that represents a matrix A[i, idx[i, j]] = 1 for i,j.
+        mask: A boolean array of shape (N, M) that represents the mask of the matrix.
+
+    Returns:
+        A scipy coo_matrix of shape (N, N)
+    """
+    N = idx.shape[0]
+    M = idx.shape[1]
+    i = np.repeat(np.arange(N), M)
+    j = np.ravel(idx, order="C")
+    if mask is not None:
+        mask = np.ravel(mask, order="C")
+        i = i[mask]
+        j = j[mask]
+    data = np.ones_like(i)
+    return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
+
+
+def collision_free_sampling(d: float, sampler: Callable[[], np.ndarray]):
+    """
+    Sample n positions without collisions within a given radius r.
+
+    Args:
+        d: The minimum distance between positions.
+        sampler: A function that samples positions given the number of positions to sample.
+    """
+    # set of indices of agents that were changed in this iteration
+    positions: np.ndarray = sampler()
+    idx: np.ndarray = np.arange(positions.shape[0])
+    while True:
+        dist = cdist(positions, positions[idx])
+        dist[idx, np.arange(len(idx))] = np.inf
+        min_dist = dist.min(axis=0)
+        if (min_dist >= d).all():
+            break
+        # find indices of agents that are too close and need to be changed
+        # this set will be monotonically decreasing
+        idx = idx[min_dist < d]
+        positions[idx] = sampler()[idx]
+    return positions
