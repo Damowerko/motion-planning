@@ -7,13 +7,9 @@ if [ -z "$DOCKER_USERNAME" ]; then
     exit 1
 fi
 
-
 # comma separated list of arguments, printf adds an extra comma at the end, so we remove it
 printf -v args "\"%s\"," "$@"
 args=${args%,}
-
-# build first
-$(dirname "$0")/build.sh
 
 # create the job
 kubectl create -f - <<EOF
@@ -34,7 +30,7 @@ spec:
       - name: motion-planning-train
         image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME
         imagePullPolicy: Always
-        command: ["python", "-u", "scripts/train.py", $args, "--no_bar"]
+        command: ["python", "-u", "scripts/train.py", $args, "--simple_progress"]
         env:
         - name: WANDB_ENTITY
           value: damowerko-academic
