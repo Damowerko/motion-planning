@@ -5382,7 +5382,7 @@ wandb = ">=0.19.7,<0.20.0"
 type = "git"
 url = "https://github.com/Damowerko/torchcps"
 reference = "HEAD"
-resolved_reference = "9f682ec4ee4dd4110c521c0a98bd54d54b25c5dc"
+resolved_reference = "4f457b3166f785007bfe32820e108b58d2811ccd"
 
 [[package]]
 name = "torchmetrics"
