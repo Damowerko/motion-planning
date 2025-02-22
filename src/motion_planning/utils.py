@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import typing
 from pathlib import Path
@@ -6,8 +7,9 @@ from tempfile import TemporaryDirectory
 
 import lightning.pytorch as pl
 import yaml
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, ProgressBar
 from lightning.pytorch.loggers import WandbLogger
+from typing_extensions import override
 from wandb.sdk.wandb_run import Run
 
 from motion_planning.architecture import GNNActorCritic, TransformerActorCritic
@@ -18,6 +20,33 @@ from motion_planning.lightning import (
     MotionPlanningImitation,
     MotionPlanningTD3,
 )
+
+
+class ConsoleProgressBar(ProgressBar):
+    """
+    A 'progress bar' that simply prints to the console.
+    """
+
+    def __init__(self, logger):
+        super().__init__()
+        self.logger = logger
+        self._enabled = True
+
+    def enable(self):
+        self._enabled = True
+
+    def disable(self):
+        self._enabled = False
+
+    @override
+    def on_validation_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        if trainer.state.fn != "fit":
+            return
+        metrics = self.get_metrics(trainer, pl_module)
+        metrics.pop("v_num", None)
+        self.logger.info(f"Epoch {trainer.current_epoch}: {metrics}")
 
 
 def get_architecture_cls(model_str):
@@ -151,6 +180,8 @@ def make_trainer(
                 save_top_k=1,
             ),
         ]
+    if params["simple_progress"]:
+        callbacks += [ConsoleProgressBar(logging.getLogger("trainer"))]
 
     trainer = pl.Trainer(
         logger=logger,
@@ -161,7 +192,6 @@ def make_trainer(
         max_epochs=params["max_epochs"],
         default_root_dir="logs/",
         check_val_every_n_epoch=1,
-        enable_progress_bar=params["progress_bar"],
     )
     return trainer
 

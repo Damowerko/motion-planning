@@ -13,6 +13,11 @@ from motion_planning.utils import (
     make_trainer,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s:%(name)s:%(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +63,7 @@ def main():
     group.add_argument("--notes", type=str, default="")
     group.add_argument("--group", type=str, default=None)
     group.add_argument("--tag", type=str, dest="tags", action="append")
-    group.add_argument("--no_bar", action="store_false", dest="progress_bar")
+    group.add_argument("--simple_progress", action="store_true")
 
     # reinforcement learning specific args
     if operation in ("ddpg", "td3"):
