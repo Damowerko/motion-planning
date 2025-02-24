@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 import numpy as np
@@ -13,6 +14,22 @@ from torchrl.envs import EnvBase
 from motion_planning.envs.render_matplotlib import MotionPlanningRender
 
 
+@dataclass
+class MotionPlanningEnvParams:
+    n_agents: int = 100
+    width: float = 1000.0
+    initial_separation: float = 5.0
+    scenario: str = "clusters"
+    max_vel: float = 5.0
+    dt: float = 1.0
+    collision_distance: float = 2.5
+    collision_coefficient: float = 5.0
+    coverage_cutoff: float = 5.0
+    reward_sigma: float = 10.0
+    expert_policy: str | None = None
+    samples_per_cluster: tuple[int | None, int | None] = (None, None)
+
+
 class MotionPlanningEnv(EnvBase):
     scenarios = {
         "uniform",
@@ -22,13 +39,14 @@ class MotionPlanningEnv(EnvBase):
         "two_lines",
         "icra",
     }
+    default_samples_per_cluster = [1, 5, 10]
 
     def __init__(
         self,
         n_agents: int = 100,
         width: float = 1000.0,
         initial_separation: float = 5.0,
-        scenario: str = "uniform",
+        scenario: str = "clusters",
         max_vel: float = 5.0,
         dt: float = 1.0,
         collision_distance: float = 2.5,
@@ -36,7 +54,26 @@ class MotionPlanningEnv(EnvBase):
         coverage_cutoff: float = 5.0,
         reward_sigma: float = 10.0,
         expert_policy: str | None = None,
+        samples_per_cluster: tuple[int | None, int | None] = (None, None),
     ):
+        """
+        Args:
+            n_agents: The number of agents.
+            width: The width of the environment.
+            initial_separation: The initial separation between agents.
+            scenario: The scenario to use. One of "uniform", "clusters", "gaussian_uniform", "circle", "two_lines", "icra".
+            max_vel: The maximum velocity of the agents in m/s.
+            dt: The time step of the environment in seconds.
+            collision_distance: The distance at which agents are considered to be in collision in meters.
+            collision_coefficient: The coefficient of the collision penalty for the reward function.
+            coverage_cutoff: The cutoff distance for coverage in meters.
+            reward_sigma: In the reward function, coverage is accounted for by a Gaussian with sigma=reward_sigma.
+            expert_policy: The policy to use for the expert. One of "c", "c_sq", "d1", "d1_sq", "d0", "capt".
+                If provided, the expert policy will be outputted at each step with key "expert".
+            samples_per_cluster: A tuple indicating the number of (agents, targets) per cluster for the "clusters" scenario.
+                If not provided, the number of agents and targets per cluster will be random from MotionPlanningEnv.samples_per_cluster.
+        """
+
         super().__init__(device="cpu", batch_size=torch.Size([]))
         if scenario not in self.scenarios:
             raise ValueError(
@@ -52,6 +89,11 @@ class MotionPlanningEnv(EnvBase):
         self.coverage_cutoff = coverage_cutoff
         self.reward_sigma = reward_sigma
         self.collision_coefficient = collision_coefficient
+        if any(s is not None for s in samples_per_cluster) and scenario != "clusters":
+            raise ValueError(
+                "samples_per_cluster can only be specified for the 'clusters' scenario."
+            )
+        self.samples_per_cluster = samples_per_cluster
         # agent properties
         self.max_vel = max_vel
         self.collision_distance = collision_distance
@@ -257,7 +299,7 @@ class MotionPlanningEnv(EnvBase):
             (edge_weight, edge_index), shape=(self.n_agents, self.n_agents)
         )
         _, component_ids = scipy.sparse.csgraph.connected_components(
-            coo, directed=True, connection="weak", return_labels=True
+            coo, directed=False, return_labels=True
         )
         return component_ids
 
@@ -343,18 +385,21 @@ class MotionPlanningEnv(EnvBase):
                 lambda: self.rng.normal(size=(self.n_agents, 2)),
             )
         elif self.scenario == "clusters":
-            n_targets_per_cluster = self.rng.choice([1, 5, 10])
-            n_agents_per_cluster = self.rng.choice([1, 5, 10])
-            self.targets = init_clusters(
-                self.n_targets,
-                n_targets_per_cluster,
+            agents_per_cluster, targets_per_cluster = self.samples_per_cluster
+            if agents_per_cluster is None:
+                agents_per_cluster = self.rng.choice(self.default_samples_per_cluster)
+            if targets_per_cluster is None:
+                targets_per_cluster = self.rng.choice(self.default_samples_per_cluster)
+            self.positions = init_clusters(
+                self.n_agents,
+                agents_per_cluster,
                 self.width,
                 self.initial_separation,
                 self.rng,
             )
-            self.positions = init_clusters(
-                self.n_agents,
-                n_agents_per_cluster,
+            self.targets = init_clusters(
+                self.n_targets,
+                targets_per_cluster,
                 self.width,
                 self.initial_separation,
                 self.rng,
@@ -444,14 +489,14 @@ def uniform_circle(n_samples, radius, rng):
     return np.stack([r * np.cos(theta), r * np.sin(theta)], axis=-1)
 
 
-def init_clusters(n_samples, n_samples_per_cluster, width, initial_separation, rng):
+def init_clusters(n_samples, samples_per_cluster, width, initial_separation, rng):
     assert (
-        n_samples % n_samples_per_cluster == 0
-    ), f"n_samples={n_samples} must be divisible by n_samples_per_cluster={n_samples_per_cluster}"
-    n_clusters = n_samples // n_samples_per_cluster
+        n_samples % samples_per_cluster == 0
+    ), f"n_samples={n_samples} must be divisible by samples_per_cluster={samples_per_cluster}"
+    n_clusters = n_samples // samples_per_cluster
     if n_clusters == n_samples:
         return init_uniform(n_samples, width, initial_separation, rng)
-    cluster_radius = 5 * initial_separation * n_samples_per_cluster**0.5
+    cluster_radius = 5 * initial_separation * samples_per_cluster**0.5
     cluster_centers = collision_free_sampling(
         2 * cluster_radius,
         lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 2)),
@@ -459,7 +504,7 @@ def init_clusters(n_samples, n_samples_per_cluster, width, initial_separation, r
     return collision_free_sampling(
         initial_separation,
         lambda: uniform_circle(n_samples, cluster_radius, rng)
-        + cluster_centers.repeat(n_samples_per_cluster, axis=0),
+        + cluster_centers.repeat(samples_per_cluster, axis=0),
     )
 
 
@@ -647,7 +692,7 @@ def index_to_coo(idx, mask=None):
         i = i[mask]
         j = j[mask]
     data = np.ones_like(i)
-    return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
+    return scipy.sparse.coo_matrix((data, (j, i)), shape=(N, N))
 
 
 def collision_free_sampling(d: float, sampler: Callable[[], np.ndarray]):
@@ -661,14 +706,18 @@ def collision_free_sampling(d: float, sampler: Callable[[], np.ndarray]):
     # set of indices of agents that were changed in this iteration
     positions: np.ndarray = sampler()
     idx: np.ndarray = np.arange(positions.shape[0])
-    while True:
+    terminated = False
+    for i in range(100):
         dist = cdist(positions, positions[idx])
         dist[idx, np.arange(len(idx))] = np.inf
         min_dist = dist.min(axis=0)
         if (min_dist >= d).all():
+            terminated = True
             break
         # find indices of agents that are too close and need to be changed
         # this set will be monotonically decreasing
         idx = idx[min_dist < d]
         positions[idx] = sampler()[idx]
+    if not terminated:
+        raise RuntimeError("Collision-free sampling reached iteration limit.")
     return positions
