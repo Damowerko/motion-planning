@@ -49,10 +49,10 @@ def parse_args():
     # training arguments
     training_group = parser.add_argument_group("Training")
     training_group.add_argument("--no_log", action="store_false", dest="log")
-    training_group.add_argument("--max_epochs", type=int, default=500)
+    training_group.add_argument("--max_epochs", type=int, default=100)
     # disable early stopping by default (set to 10_000 epochs)
     training_group.add_argument("--patience", type=int, default=10_000)
-    training_group.add_argument("--no_bar", action="store_false", dest="progress_bar")
+    training_group.add_argument("--simple_progress", action="store_true")
 
     # reinforcement learning specific args
     if operation in ("ddpg", "td3", "ppo"):
@@ -63,7 +63,7 @@ def parse_args():
 
 
 def study(params: dict):
-    study_name = "ump-1"
+    study_name = "ump-rotary"
     storage = os.environ["OPTUNA_STORAGE"]
     pruner = optuna.pruners.HyperbandPruner(
         min_resource=10,
@@ -77,6 +77,7 @@ def study(params: dict):
         load_if_exists=True,
         directions=["minimize"],
     )
+    study.set_metric_names(["val/actor_loss"])
     study.optimize(
         partial(objective, default_params=params),
         n_trials=1,
@@ -84,14 +85,30 @@ def study(params: dict):
 
 
 def objective(trial: optuna.trial.Trial, default_params: dict):
+    # search over embed_dim to ensure that it is not too large
+    embed_dim = 16 * trial.suggest_int("embed_dim/16", 1, 16)
+    # embed_dim must be divisible by n_heads
+    n_heads = 2 ** trial.suggest_int("log2(n_heads)", 0, 4)
+    n_channels = embed_dim // n_heads
+
     params = dict(
         actor_lr=trial.suggest_float("actor_lr", 1e-8, 1e-2, log=True),
         weight_decay=trial.suggest_float("weight_decay", 1e-16, 1, log=True),
         n_layers=trial.suggest_int("n_layers", 2, 10),
-        n_heads=trial.suggest_int("n_heads", 1, 8),
-        n_channels=trial.suggest_int("n_channels", 16, 128),
+        n_heads=n_heads,
+        n_channels=n_channels,
         dropout=trial.suggest_float("dropout", 0.0, 0.5),
+        encoding_type="rotary",
+        encoding_frequencies="linear",
+        attention_window=trial.suggest_categorical(
+            "attention_window", [0.0, 500.0, 1000.0]
+        ),
+        connected_mask=True,
+        batch_size=128,
+        num_workers=32,
+        gamma=trial.suggest_float("gamma", 0.9, 0.999, log=True),
     )
+
     params = {**default_params, **params}
     trainer = make_trainer(
         params,
