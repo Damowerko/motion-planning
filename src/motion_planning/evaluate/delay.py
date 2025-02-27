@@ -15,17 +15,15 @@ def delay(
     max_steps: int,
     num_episodes: int,
     num_workers: int | None = None,
+    comm_interval: float = 0.1,
+    render: bool = False,
 ):
-    dfs = []
-    for i in tqdm.trange(0, 11, desc="Comm interval"):
-        comm_interval = i * 0.1
-        delayed_policy = DelayedModel(policy, comm_interval=comm_interval)
-        df, _ = evaluate_policy(
-            env_params, delayed_policy, max_steps, num_episodes, num_workers
-        )
-        df["delay_s"] = comm_interval
-        dfs.append(df)
-    return pd.concat(dfs)
+    delayed_policy = DelayedModel(policy, comm_interval=comm_interval)
+    df, frames = evaluate_policy(
+        env_params, delayed_policy, max_steps, num_episodes, num_workers, render
+    )
+    df["delay_s"] = comm_interval
+    return df, frames
 
 
 class DelayedModel(TensorDictModuleBase):
