@@ -16,21 +16,25 @@ kubectl create -f - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
-  generateName: motion-planning-train-
+  generateName: motion-planning-test-
   namespace: $K8S_NAMESPACE
 spec:
   completions: 1
   parallelism: 1
-  backoffLimit: 3
   ttlSecondsAfterFinished: 3600
   template:
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
+      volumes:
+      - name: motion-planning-data
+        nfs:
+          server: lc1-alelab.seas.upenn.edu
+          path: /nfs/general/motion_planning_data
       containers:
       - name: motion-planning-train
         image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME
         imagePullPolicy: Always
-        command: ["python", "-u", "scripts/train.py", $args, "--simple_progress"]
+        command: ["python", "-u", $args]
         env:
         - name: WANDB_ENTITY
           value: damowerko-academic
@@ -49,4 +53,8 @@ spec:
             memory: 32Gi
           limits:
             nvidia.com/gpu: 1
+        volumeMounts:
+        - mountPath: /home/default/motion-planning/data
+          name: motion-planning-data
+          readOnly: false
 EOF
