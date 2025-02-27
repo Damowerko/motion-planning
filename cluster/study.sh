@@ -1,11 +1,6 @@
 #!/bin/bash
 set -e
-completions="$1"
-shift
-if ! [[ "$completions" =~ ^[0-9]+$ ]]; then
-  echo "First argument must be a number"
-  exit 1
-fi
+
 args="$@"
 IMAGE_NAME="motion-planning"
 K8S_NAMESPACE=${K8S_NAMESPACE:-$(kubectl config get-contexts | grep '*' | awk '{print $5}')}
@@ -14,6 +9,10 @@ if [ -z "$DOCKER_USERNAME" ]; then
     exit 1
 fi
 
+# comma separated list of arguments, printf adds an extra comma at the end, so we remove it
+printf -v args "\"%s\"," "$@"
+args=${args%,}
+
 template=$(cat << EOF
 apiVersion: batch/v1
 kind: Job
@@ -21,7 +20,7 @@ metadata:
   generateName: motion-planning-optuna-
   namespace: $K8S_NAMESPACE
 spec:
-  completions: $completions
+  completions: 400
   parallelism: 8
   ttlSecondsAfterFinished: 3600
   template:
@@ -31,7 +30,7 @@ spec:
       - name: motion-planning-trial
         image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME
         imagePullPolicy: Always
-        command: ["bash", "-c", "python -u scripts/study.py $args --no_bar && sleep 1"]
+        command: ["python", "-u", "scripts/study.py", $args, "--simple_progress"]
         env:
         - name: OPTUNA_STORAGE
           value: postgresql://optuna:optuna@optuna-db.owerko.svc.cluster.local:5432/optuna
