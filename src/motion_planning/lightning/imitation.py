@@ -18,7 +18,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         model: ActorCriticWrapper,
         expert_policy: str = "c_sq",
         expert_probability: float = 0.5,
-        expert_probability_decay: float = 0.99,
+        expert_probability_decay: float = 1.00,
         **kwargs,
     ):
         """
