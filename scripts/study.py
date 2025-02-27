@@ -110,6 +110,7 @@ def objective(trial: optuna.trial.Trial, default_params: dict):
     )
 
     params = {**default_params, **params}
+    params["group"] = trial.study.study_name
     trainer = make_trainer(
         params,
         callbacks=[
@@ -117,7 +118,6 @@ def objective(trial: optuna.trial.Trial, default_params: dict):
                 trial, monitor="val/actor_loss"
             )
         ],
-        wandb_kwargs=dict(group=trial.study.study_name),
     )
 
     architecture = get_architecture_cls(params["architecture"])(**params)
