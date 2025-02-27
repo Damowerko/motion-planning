@@ -1,0 +1,60 @@
+import argparse
+import json
+import logging
+import typing
+from pathlib import Path
+
+import imageio.v3 as iio
+import pandas as pd
+import seaborn as sns
+import torch
+from matplotlib import pyplot as plt
+from numpy.typing import NDArray
+
+from motion_planning.envs.motion_planning import MotionPlanningEnvParams
+from motion_planning.evaluate import evaluate_policy, scalability
+from motion_planning.utils import load_model
+
+logger = logging.getLogger(__name__)
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname)s:%(name)s:%(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    torch.set_float32_matmul_precision("high")
+    parser = argparse.ArgumentParser()
+
+    # common args
+    parser.add_argument("--checkpoint", type=str, required=True)
+    parser.add_argument("--max_steps", type=int, default=200)
+    parser.add_argument("--n_trials", type=int, default=10)
+    parser.add_argument("--n_workers", type=int)
+    params = vars(parser.parse_args())
+
+    logger.info(f"Loading model from {params['checkpoint']}")
+    model, name = load_model(params["checkpoint"])
+    policy = model.model.get_policy_operator().eval()
+
+    env_params = MotionPlanningEnvParams()
+    logger.info("Running simulation")
+    _, frames = evaluate_policy(
+        env_params=env_params,
+        policy=policy,
+        max_steps=params["max_steps"],
+        num_episodes=params["n_trials"],
+        num_workers=params["n_workers"],
+        render=True,
+    )
+
+    logger.info("Saving video")
+    path = Path("data") / "test_results" / name
+    path.mkdir(parents=True, exist_ok=True)
+    assert frames is not None
+    iio.imwrite(path / f"{name}.mp4", frames, fps=40)
+
+
+if __name__ == "__main__":
+    main()
