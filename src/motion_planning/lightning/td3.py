@@ -95,7 +95,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             self.manual_backward(loss_vals["loss_actor"])
             opt_actor.step()
         # critic update
-        opt_critic.step()
+        opt_critic.zero_grad()
         self.manual_backward(loss_vals["loss_qvalue"])
         opt_critic.step()
 
