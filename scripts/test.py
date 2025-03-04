@@ -38,7 +38,7 @@ def main():
     model, name = load_model(params["checkpoint"])
     policy = model.model.get_policy_operator().eval()
 
-    env_params = MotionPlanningEnvParams(scenario="uniform")
+    env_params = MotionPlanningEnvParams()
 
     logger.info("Basic policy evaluation")
     evalutate_df, _ = evaluate_policy(
