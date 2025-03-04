@@ -93,10 +93,12 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         ) % self.policy_delay == 0 and self.current_epoch > self.warmup_epochs:
             opt_actor.zero_grad()
             self.manual_backward(loss_vals["loss_actor"])
+            torch.nn.utils.clip_grad_norm_(self.loss.actor_network_params.flatten_keys().values(), 1e-2)
             opt_actor.step()
         # critic update
         opt_critic.zero_grad()
         self.manual_backward(loss_vals["loss_qvalue"])
+        torch.nn.utils.clip_grad_norm_(self.loss.qvalue_network_params.flatten_keys().values(), 1e-2)
         opt_critic.step()
 
         self.target_net_updater.step()
