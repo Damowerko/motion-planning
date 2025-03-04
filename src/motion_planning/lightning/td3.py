@@ -101,18 +101,10 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         self.target_net_updater.step()
 
-        self.log(
-            "train/actor_loss",
-            loss_vals["loss_actor"],
-            prog_bar=True,
-            batch_size=self.batch_size,
-        )
-        self.log(
-            "train/critic_loss",
-            loss_vals["loss_qvalue"],
-            prog_bar=True,
-            batch_size=self.batch_size,
-        )
+        self.log("train/actor_loss", loss_vals["loss_actor"], prog_bar=True)
+        self.log("train/critic_loss", loss_vals["loss_qvalue"], prog_bar=True)
+        self.log("train/pred_value", loss_vals["pred_value"].mean())
+        self.log("train/target_value", loss_vals["target_value"].mean())
         # do not log reward, coverage or collisions, since using a replay buffer
 
     def validation_step(self, td: TensorDictBase):
