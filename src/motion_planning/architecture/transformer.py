@@ -480,7 +480,7 @@ class TransformerCritic(nn.Module):
         y = self.transformer(x, pos)
         # get the outputs corresponding to the agents
         y_agent = y[:, :n_agents]
-        state_action_value = self.readout(y_agent).sum(-2)
+        state_action_value = self.readout(y_agent).mean(-2)
         return state_action_value
 
     def to_tensordict_module(self) -> TensorDictModule:
