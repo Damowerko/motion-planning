@@ -1,18 +1,13 @@
 import argparse
-import json
 import logging
-import typing
 from pathlib import Path
 
 import imageio.v3 as iio
-import pandas as pd
-import seaborn as sns
+import numpy as np
 import torch
-from matplotlib import pyplot as plt
-from numpy.typing import NDArray
 
 from motion_planning.envs.motion_planning import MotionPlanningEnvParams
-from motion_planning.evaluate import evaluate_policy, scalability
+from motion_planning.evaluate import evaluate_policy
 from motion_planning.utils import load_model
 
 logger = logging.getLogger(__name__)
@@ -38,6 +33,7 @@ def main():
     model, name = load_model(params["checkpoint"])
     policy = model.model.get_policy_operator().eval()
 
+    logger.info("Making video from training distribution")
     env_params = MotionPlanningEnvParams()
     logger.info("Running simulation")
     _, frames = evaluate_policy(
@@ -48,11 +44,24 @@ def main():
         num_workers=params["n_workers"],
         render=True,
     )
+    assert frames is not None
 
+    for scenario in ["circle", "two_lines", "gaussian_uniform", "icra"]:
+        logger.info(f"Making video for scenario: {scenario}")
+        env_params = MotionPlanningEnvParams(scenario=scenario)
+        _, _frames = evaluate_policy(
+            env_params=env_params,
+            policy=policy,
+            max_steps=2 * params["max_steps"],
+            num_episodes=3,
+            num_workers=3,
+            render=True,
+        )
+        assert _frames is not None
+        frames = np.concatenate([frames, _frames])
     logger.info("Saving video")
     path = Path("data") / "test_results" / name
     path.mkdir(parents=True, exist_ok=True)
-    assert frames is not None
     iio.imwrite(path / f"{name}.mp4", frames, fps=40)
 
 

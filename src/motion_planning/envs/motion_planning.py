@@ -382,7 +382,10 @@ class MotionPlanningEnv(EnvBase):
             )
             self.positions = collision_free_sampling(
                 self.initial_separation,
-                lambda: self.rng.normal(size=(self.n_agents, 2)),
+                lambda: self.rng.normal(
+                    size=(self.n_agents, 2),
+                    scale=self.initial_separation * self.n_agents**0.5,
+                ),
             )
         elif self.scenario == "clusters":
             agents_per_cluster, targets_per_cluster = self.samples_per_cluster
@@ -658,9 +661,14 @@ def init_icra(n_samples, width):
             [3 * width / 8, width / 4],
         ]
     )
-
     targets = np.concatenate([i_points, c_points, r_points, a_points, others], axis=0)
-    return targets
+    # swap the x and y coordinates
+    targets = np.flip(targets, axis=1)
+    # flip upside down
+    targets[:, 1] = -targets[:, 1]
+    # shrink by 20%
+    targets *= 0.8
+    return targets.copy()
 
 
 def argtopk(X, K, axis=-1):
