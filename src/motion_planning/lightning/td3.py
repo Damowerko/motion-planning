@@ -43,6 +43,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         polyak: float = 0.99,
         policy_delay: int = 1,
         warmup_epochs: int = 0,
+        grad_clip_norm: float = 0.1,
+        grad_clip_p: float = 2.0,
         **kwargs,
     ):
         """
@@ -56,6 +58,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.policy_delay = policy_delay
         self.warmup_epochs = warmup_epochs
         self.automatic_optimization = False
+        self.grad_clip_norm = grad_clip_norm
+        self.grad_clip_p = grad_clip_p
         self.loss = TD3Loss(
             self.model.get_policy_operator(),
             self.model.get_value_operator(),
@@ -93,10 +97,22 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         ) % self.policy_delay == 0 and self.current_epoch >= self.warmup_epochs:
             opt_actor.zero_grad()
             self.manual_backward(loss_vals["loss_actor"])
+            if self.grad_clip_norm > 0.0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.loss.actor_network_params.flatten_keys().values(),
+                    max_norm=self.grad_clip_norm,
+                    norm_type=self.grad_clip_p,
+                )
             opt_actor.step()
         # critic update
         opt_critic.zero_grad()
         self.manual_backward(loss_vals["loss_qvalue"])
+        if self.grad_clip_norm > 0.0:
+            torch.nn.utils.clip_grad_norm_(
+                self.loss.actor_network_params.flatten_keys().values(),
+                max_norm=self.grad_clip_norm,
+                norm_type=self.grad_clip_p,
+            )
         opt_critic.step()
 
         self.target_net_updater.step()
