@@ -153,8 +153,11 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         actor_optimizer, _ = self.optimizers()
         self.log("train/actor_lr", actor_optimizer.param_groups[0]["lr"])
         # update the learning rate
-        for scheduler in self.lr_schedulers():  # type: ignore
-            scheduler.step()
+        schedulers = self.lr_schedulers()
+        schedulers = schedulers if isinstance(schedulers, list) else [schedulers]
+        for scheduler in schedulers:
+            if scheduler is not None:
+                scheduler.step()  # type: ignore
 
     def validation_step(self, td: TensorDictBase):
         loss_vals = self.loss(td.clone())
