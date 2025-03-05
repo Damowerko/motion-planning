@@ -11,6 +11,11 @@ fi
 printf -v args "\"%s\"," "$@"
 args=${args%,}
 
+# Get the current digest of the Docker image
+IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $DOCKER_USERNAME/$IMAGE_NAME | cut -d'@' -f2)
+echo "Using Docker image digest: $IMAGE_DIGEST"
+
+
 # create the job
 kubectl create -f - <<EOF
 apiVersion: batch/v1
@@ -28,7 +33,7 @@ spec:
       restartPolicy: OnFailure
       containers:
       - name: motion-planning-train
-        image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME
+        image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME@$IMAGE_DIGEST
         imagePullPolicy: Always
         command: ["python", "-u", "scripts/train.py", $args, "--simple_progress"]
         env:
