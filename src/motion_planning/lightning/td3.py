@@ -117,9 +117,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         opt_actor, opt_critic = self.optimizers()
         loss_vals = self.loss(td.clone())
         # actor update
-        if (
-            self.global_step + 1
-        ) % self.policy_delay == 0 and self.current_epoch >= self.warmup_epochs:
+        if (self.global_step + 1) % self.policy_delay == 0:
             opt_actor.zero_grad()
             self.manual_backward(loss_vals["loss_actor"])
             if self.grad_clip_norm > 0.0:
