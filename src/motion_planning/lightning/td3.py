@@ -67,7 +67,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.loss = TD3Loss(
             self.model.get_policy_operator(),
             self.model.get_value_operator(),
-            loss_function="smooth_l1",
+            loss_function="l2",
             bounds=(-1, 1),  # type: ignore
             policy_noise=self.noise,
             noise_clip=self.noise_clip,
@@ -102,15 +102,16 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             self.loss.actor_network_params.flatten_keys().values(),
             lr=self.actor_lr,
             weight_decay=self.weight_decay,
-            fused=True,
+        )
+        actor_scheduler = torch.optim.lr_scheduler.LambdaLR(
+            actor_optimizer, lr_lambda=self._lr_lambda
         )
         critic_optimizer = torch.optim.AdamW(
             self.loss.qvalue_network_params.flatten_keys().values(),
             lr=self.critic_lr,
             weight_decay=self.weight_decay,
-            fused=True,
         )
-        return [actor_optimizer, critic_optimizer]
+        return [actor_optimizer, critic_optimizer], [actor_scheduler]
 
     def training_step(self, td: TensorDictBase):
         opt_actor, opt_critic = self.optimizers()
@@ -146,6 +147,14 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.log("train/pred_value", loss_vals["pred_value"].mean())
         self.log("train/target_value", loss_vals["target_value"].mean())
         # do not log reward, coverage or collisions, since using a replay buffer
+
+    def on_train_epoch_end(self):
+        # log the current learning rate
+        actor_optimizer, _ = self.optimizers()
+        self.log("train/actor_lr", actor_optimizer.param_groups[0]["lr"])
+        # update the learning rate
+        for scheduler in self.lr_schedulers():  # type: ignore
+            scheduler.step()
 
     def validation_step(self, td: TensorDictBase):
         loss_vals = self.loss(td.clone())
