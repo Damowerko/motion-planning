@@ -357,7 +357,7 @@ class GNNCriticWrapper(nn.Module):
     ) -> torch.Tensor:
         x = torch.cat([observation, action], dim=-1)
         y = self.gcn(*batch_graph(x, edge_index))
-        y = y.reshape(x.size(0), x.size(1), 1).sum(1)
+        y = y.reshape(x.size(0), x.size(1), 1).mean(1)
         return y
 
 
