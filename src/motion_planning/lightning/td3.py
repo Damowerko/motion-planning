@@ -1,3 +1,5 @@
+import logging
+
 import torch
 from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule, TensorDictParams
@@ -7,6 +9,8 @@ from torchrl.objectives import SoftUpdate
 from torchrl.objectives import TD3Loss as _TD3Loss
 
 from motion_planning.lightning.base import MotionPlanningActorCritic
+
+logger = logging.getLogger(__name__)
 
 
 class TD3Loss(_TD3Loss):
@@ -72,6 +76,26 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             TD3Loss.default_value_estimator, gamma=self.gamma
         )
         self.target_net_updater = SoftUpdate(self.loss, eps=polyak)
+
+    def populate(self):
+        # populate replay buffer with initial data
+        logger.info("Populating replay buffer with one rollout.")
+        for i, data in enumerate(self.collector):
+            if i >= self.max_steps:
+                break
+            self.buffer.extend(data)
+        # add 10 random rollouts
+        for _ in range(10):
+            data = self.env.rollout(self.max_steps)
+            self.buffer.extend(data.reshape(self.num_workers * self.max_steps))  # type: ignore
+
+    def _lr_lambda(self, epoch):
+        if epoch < self.warmup_epochs // 2:
+            return 0.0
+        elif epoch < self.warmup_epochs:
+            return (epoch - self.warmup_epochs // 2) / (self.warmup_epochs // 2)
+        else:
+            return 1.0
 
     def configure_optimizers(self):
         actor_optimizer = torch.optim.AdamW(
