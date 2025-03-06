@@ -36,8 +36,7 @@ def scalability(
     """
     density = env_params.n_agents / env_params.width**2
     df_list = []
-    # TODO: change back to [100, 200, 500, 1000]
-    for n_agents in [100, 500]:
+    for n_agents in [100, 200, 300, 500, 700, 1000]:
         logger.info(f"Evaluating scalability for {n_agents} agents.")
         env_params.width = compute_width(n_agents, density)
         env_params.n_agents = n_agents
