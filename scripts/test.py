@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--max_steps", type=int, default=200)
     parser.add_argument("--n_trials", type=int, default=10)
-    parser.add_argument("--n_workers", type=int)
+    parser.add_argument("--n_workers", type=int, default=10)
     params = vars(parser.parse_args())
 
     logger.info(f"Loading model from {params['checkpoint']}")
@@ -67,7 +67,7 @@ def main():
         policy=policy,
         max_steps=params["max_steps"],
         num_episodes=params["n_trials"],
-        num_workers=params.get("n_workers", 10),
+        num_workers=params["n_workers"],
     )
     scalability_df.to_parquet(path / "scalability.parquet")
 
