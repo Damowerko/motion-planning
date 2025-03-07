@@ -1,7 +1,6 @@
 import argparse
 import json
 import logging
-import typing
 from pathlib import Path
 
 import imageio.v3 as iio
@@ -12,7 +11,7 @@ from matplotlib import pyplot as plt
 from numpy.typing import NDArray
 
 from motion_planning.envs.motion_planning import MotionPlanningEnvParams
-from motion_planning.evaluate import evaluate_policy, scalability
+from motion_planning.evaluate import evaluate_policy, scalability, scenarios
 from motion_planning.utils import load_model
 
 logger = logging.getLogger(__name__)
@@ -37,6 +36,7 @@ def main():
     logger.info(f"Loading model from {params['checkpoint']}")
     model, name = load_model(params["checkpoint"])
     policy = model.model.get_policy_operator().eval()
+    path = Path("data") / "test_results" / name
 
     env_params = MotionPlanningEnvParams()
 
@@ -48,6 +48,18 @@ def main():
         num_episodes=params["n_trials"],
         num_workers=params["n_workers"],
     )
+    path.mkdir(parents=True, exist_ok=True)
+    save_results(name, path, evalutate_df, None)
+
+    logger.info("OOD evaluation")
+    scenarios_df = scenarios(
+        env_params=env_params,
+        policy=policy,
+        max_steps=params["max_steps"],
+        num_episodes=params["n_trials"],
+        num_workers=params["n_workers"],
+    )
+    scenarios_df.to_parquet(path / "scenarios.parquet")
 
     logger.info("Scalability evaluation")
     scalability_df = scalability(
@@ -55,13 +67,8 @@ def main():
         policy=policy,
         max_steps=params["max_steps"],
         num_episodes=params["n_trials"],
-        num_workers=params["n_workers"],
+        num_workers=params.get("n_workers", 10),
     )
-
-    logger.info("Saving results")
-    path = Path("data") / "test_results" / name
-    path.mkdir(parents=True, exist_ok=True)
-    save_results(name, path, evalutate_df, None)
     scalability_df.to_parquet(path / "scalability.parquet")
 
 
