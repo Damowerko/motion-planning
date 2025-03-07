@@ -54,9 +54,10 @@ spec:
         resources:
           requests:
             cpu: 16
-            memory: 32Gi
+            memory: 60Gi
           limits:
             nvidia.com/gpu: 1
+            memory: 60Gi
         volumeMounts:
         - mountPath: /home/default/motion-planning/data
           name: motion-planning-data
