@@ -66,13 +66,17 @@ def evaluate_policy(
         serial_for_single=True,
         device=torch.device("cuda"),
     )
-    td_list = typing.cast(
-        list[TensorDictBase],
-        [
-            env.rollout(max_steps, policy, auto_cast_to_device=True)
-            for _ in range(num_rollouts)
-        ],
-    )
+    try:
+        td_list = typing.cast(
+            list[TensorDictBase],
+            [
+                env.rollout(max_steps, policy, auto_cast_to_device=True)
+                for _ in range(num_rollouts)
+            ],
+        )
+    finally:
+        env.close()
+        del env
     data = typing.cast(TensorDictBase, tensordict.cat(td_list, dim=0))
     df = td_to_df(data)
     if render:
