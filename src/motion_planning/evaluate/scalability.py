@@ -1,4 +1,5 @@
 import logging
+from copy import copy
 
 import pandas as pd
 from tensordict.nn import TensorDictModuleBase
@@ -34,6 +35,7 @@ def scalability(
         - `density`: The density of the environment.
         - `n_samples_per_cluster`: The number of samples per cluster (for both agents and targets).
     """
+    env_params = copy(env_params)
     density = env_params.n_agents / env_params.width**2
     df_list = []
     for n_agents in [100, 200, 300, 500, 700, 1000]:

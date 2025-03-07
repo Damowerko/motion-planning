@@ -1,4 +1,5 @@
 import logging
+from copy import copy
 
 import pandas as pd
 from tensordict.nn import TensorDictModuleBase
@@ -24,6 +25,7 @@ def scenarios(
         - `n_agents`: The number of agents.
         - `scenario`: The scenario used for that trial.
     """
+    env_params = copy(env_params)
     df_list = []
     for scenario in ["circle", "two_lines", "gaussian_uniform", "icra"]:
         logger.info(f"Evaluating {scenario} scenario.")
