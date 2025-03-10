@@ -113,10 +113,10 @@ class DelayedModel(TensorDictModuleBase):
         _src = edge_index[..., 0, :]  # (B, E)
         _dst = edge_index[..., 1, :]  # (B, E)
         # since the graph is undirected, we need to consider both directions
-        # src = torch.cat([_src, _dst], dim=-1)
-        # dst = torch.cat([_dst, _src], dim=-1)
-        src = _src
-        dst = _dst
+        src = torch.cat([_src, _dst], dim=-1)
+        dst = torch.cat([_dst, _src], dim=-1)
+        # src = _src
+        # dst = _dst
 
         # Information flows from src to target, for each edge (src, dst) in edge_index,
         # we find the most recent time the src agent has received information from each agent
