@@ -358,11 +358,12 @@ class MotionPlanningEnv(EnvBase):
         return np.sum((distances < threshold).astype(int))
 
     def _reward(self):
-        row_idx, col_idx = linear_sum_assignment(self.dist_pt)
-        assert (row_idx == np.arange(self.n_agents)).all()
+        # the reward function is a gaussian kernel of the distance to the target
+        gaussian_pt = np.exp(-((self.dist_pt / self.reward_sigma) ** 2))
+        # there can only be one agent covering each target, find assignment that maximizes the reward
+        row_idx, col_idx = linear_sum_assignment(gaussian_pt, maximize=True)
         # use the distance to the optimal assignment agent as a reward
-        distances = self.dist_pt[row_idx, col_idx]
-        reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
+        reward_coverage = gaussian_pt[row_idx, col_idx]
         # count the number of collisions per agent
         collisions_per_agent = (
             np.sum(self.dist_pp < self.collision_distance, axis=1) - 1
