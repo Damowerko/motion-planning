@@ -75,7 +75,8 @@ def evaluate_policy(
             ],
         )
     finally:
-        env.close()
+        if not env.is_closed:
+            env.close()
         del env
     data = typing.cast(TensorDictBase, tensordict.cat(td_list, dim=0))
     df = td_to_df(data)
