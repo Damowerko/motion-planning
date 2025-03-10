@@ -1,17 +1,21 @@
 from dataclasses import dataclass
 from typing import Callable, Optional
+from numba import jit, prange
 
 import numpy as np
 import scipy.sparse
 import torch
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra
 from scipy.spatial.distance import cdist
 from tensordict import TensorDict, TensorDictBase
 from torchrl.data.tensor_specs import Bounded, Categorical, Composite, Unbounded
 from torchrl.envs import EnvBase
 
 from motion_planning.envs.render_matplotlib import MotionPlanningRender
+import re
 
 
 @dataclass
@@ -190,10 +194,12 @@ class MotionPlanningEnv(EnvBase):
     def baseline_policy(self, name: str) -> NDArray:
         if name in ["c", "c_sq"]:
             return self.centralized_policy(distance_squared=name == "c_sq")
-        elif name in ["d1", "d1_sq"]:
-            return self.decentralized_policy(distance_squared=name == "d_sq")
-        elif name == "d0":
-            return self.decentralized_policy(hops=0)
+        elif match := re.match(r"d(\d)(_sq)?", name):
+            hops = int(match.group(1))
+            distance_squared = match.group(2) is not None
+            return self.k_hop_hungarian_policy(
+                hops=hops, distance_squared=distance_squared
+            )
         elif name == "capt":
             return self.capt_policy()
         else:
@@ -207,20 +213,14 @@ class MotionPlanningEnv(EnvBase):
         return action / self.max_vel
 
     def decentralized_policy(self, hops=0, distance_squared=False):
-        observed_targets = self._observed_targets()
-        observed_agents = self._observed_agents()
+        observed_targets = self._observed_targets()[0]
+        observed_agents = self._observed_agents(remove_self=False)[0]
         if hops == 0:
             action = observed_targets[:, 0, :]
         elif hops == 1:
             action = np.zeros(self.action_space.shape)  # type: ignore
             for i in range(self.n_agents):
-                agent_positions = np.concatenate(
-                    (
-                        self.positions[i, None, :],
-                        observed_agents[i] + self.positions[i, None, :],
-                    ),
-                    axis=0,
-                )
+                agent_positions = self.positions[i, None, :] + observed_agents[i]
                 target_positions = observed_targets[i] + agent_positions[0]
                 distances = cdist(agent_positions, target_positions)
                 cost = distances**2 if distance_squared else distances
@@ -249,16 +249,98 @@ class MotionPlanningEnv(EnvBase):
         action = self.clip_action(action_raw)
         return action / self.max_vel
 
-    def _observed_agents(self):
+    @staticmethod
+    @jit(nopython=True)
+    def _k_hop_hungarian_cost(
+        n_hops: int,
+        positions: NDArray,
+        targets: NDArray,
+        graph_dist: NDArray,
+        agent_idx: NDArray,
+        target_idx: NDArray,
+    ) -> NDArray:
+        n_agents = positions.shape[0]
+        n_targets = targets.shape[0]
+        distance = np.full((n_agents, n_agents, n_targets), np.inf)
+        for i in prange(n_agents):
+            visible_agents = set()
+            visible_targets = set()
+            for j in range(n_agents):
+                if graph_dist[i, j] > n_hops:
+                    continue
+                for k in range(agent_idx.shape[1]):
+                    visible_agents.add(agent_idx[j, k])
+                for k in range(target_idx.shape[1]):
+                    visible_targets.add(target_idx[j, k])
+            for j in visible_agents:
+                for k in visible_targets:
+                    distance[i, j, k] = np.linalg.norm(targets[k] - positions[j])
+        return distance
+
+    def k_hop_hungarian_policy(self, hops=1, distance_squared=False):
+        graph_dist = dijkstra(self.graph_scipy, directed=True)
+        _, agent_idx = self._observed_agents(remove_self=False)
+        _, target_idx = self._observed_targets()
+        distance = MotionPlanningEnv._k_hop_hungarian_cost(
+            hops, self.positions, self.targets, graph_dist, agent_idx, target_idx
+        )
+        cost = distance**2 if distance_squared else distance
+        action = np.zeros((self.n_agents, 2))
+        for i in range(self.n_agents):
+            _cost = cost[i]
+
+            # eliminate rows full of inf
+            all_inf_row = np.all(_cost == np.inf, axis=1)
+            _cost = _cost[~all_inf_row]
+            old_row = np.arange(self.n_agents)[~all_inf_row]
+            # eliminate columns full of inf
+            all_inf_col = np.all(_cost == np.inf, axis=0)
+            _cost = _cost[:, ~all_inf_col]
+            old_col = np.arange(self.n_targets)[~all_inf_col]
+
+            # replace inf values with a large number
+            # _cost[np.isinf(_cost)] = 1e30
+            row_idx, col_idx = linear_sum_assignment(_cost)
+
+            # map the new indices to the old indices
+            row_idx = old_row[row_idx]
+            col_idx = old_col[col_idx]
+
+            assignment = col_idx[np.nonzero(row_idx == i)]
+            # sometimes agent i has no assignment
+            if len(assignment) > 0:
+                action[i] = self.targets[assignment] - self.positions[i]
+        action = self.clip_action(action)
+        return action / self.max_vel
+
+    def _observed_agents(self, remove_self=True):
+        """
+        Find which agents are observed by each agent. Looks at the closest self.observe_max_agents.
+
+        Args:
+            remove_self (bool): If False, will also include its own position in the observations.
+
+        Returns:
+            observed_positions (np.ndarray): (N, K, 2) The _relative_ positions of the observed agents.
+            idx (np.ndarray): (N, K) The indices of the observed agents.
+        """
         idx = argtopk(-self.dist_pp, self.observe_max_agents + 1, axis=1)
-        idx = idx[:, 1:]  # remove self
+        if remove_self:
+            idx = idx[:, 1:]  # remove self
         observed_positions = self.positions[idx] - self.positions[:, np.newaxis, :]
-        return observed_positions
+        return observed_positions, idx
 
     def _observed_targets(self):
+        """
+        Find which targets are observed by each agent. Looks at the closest self.observe_max_targets.
+
+        Returns:
+            observed_positions (np.ndarray): (N, K, 2) The _relative_ positions of the observed targets.
+            idx (np.ndarray): (N, K) The indices of the observed targets.
+        """
         idx = argtopk(-self.dist_pt, self.observe_max_targets, axis=1)
         observed_positions = self.targets[idx, :] - self.positions[:, np.newaxis, :]
-        return observed_positions
+        return observed_positions, idx
 
     def _compute_distances(self):
         self.dist_pp = cdist(self.positions, self.positions)
@@ -267,6 +349,7 @@ class MotionPlanningEnv(EnvBase):
     def _compute_graph(self):
         idx = argtopk(-self.dist_pp, self.comm_max_neighbors + 1, axis=1)
         coo = index_to_coo(idx)
+        self.graph_scipy = coo
         self.edge_index = np.stack((coo.row, coo.col), axis=0)
 
     def collisions(self, threshold: float) -> int:
@@ -307,8 +390,8 @@ class MotionPlanningEnv(EnvBase):
         return np.mean(np.any(self.dist_pt < self.coverage_cutoff, axis=0))
 
     def _make_output(self) -> TensorDictBase:
-        observed_targets = self._observed_targets().reshape(self.n_agents, -1)
-        observed_agents = self._observed_agents().reshape(self.n_agents, -1)
+        observed_targets = self._observed_targets()[0].reshape(self.n_agents, -1)
+        observed_agents = self._observed_agents()[0].reshape(self.n_agents, -1)
         observation = np.concatenate(
             (self.velocity / self.max_vel, observed_targets, observed_agents), axis=1
         )
@@ -475,7 +558,7 @@ class MotionPlanningEnv(EnvBase):
             self._reward(),
             self.coverage(),
             self.edge_index,
-            self._observed_targets(),
+            self._observed_targets()[0],
         )
 
 
