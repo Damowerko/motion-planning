@@ -12,7 +12,6 @@ from numpy.typing import NDArray
 
 from motion_planning.envs.motion_planning import MotionPlanningEnvParams
 from motion_planning.evaluate import evaluate_expert
-from motion_planning.utils import load_model
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +30,18 @@ def main():
         "--policy",
         type=str,
         required=True,
-        choices=["c", "c_sq", "d1", "d1_sq", "d0", "capt"],
+        choices=[
+            "c",
+            "c_sq",
+            "capt",
+        ]
+        + [f"d{i}" for i in range(10)]
+        + [f"d{i}_sq" for i in range(10)],
     )
     parser.add_argument("--max_steps", type=int, default=200)
     parser.add_argument("--n_trials", type=int, default=10)
     parser.add_argument("--n_workers", type=int)
+    parser.add_argument("--video", action="store_true")
     params = vars(parser.parse_args())
 
     logger.info(f"Evaluating expert policy: {params['policy']}")
@@ -45,16 +51,17 @@ def main():
     )
 
     logger.info("Basic policy evaluation")
-    evalutate_df, _ = evaluate_expert(
+    evalutate_df, frames = evaluate_expert(
         env_params=env_params,
         max_steps=params["max_steps"],
         num_episodes=params["n_trials"],
         num_workers=params["n_workers"],
+        render=params["video"],
     )
     logger.info("Saving results")
     path = Path("data") / "test_results" / params["policy"]
     path.mkdir(parents=True, exist_ok=True)
-    save_results(params["policy"], path, evalutate_df, None)
+    save_results(params["policy"], path, evalutate_df, frames)
 
 
 def save_results(
