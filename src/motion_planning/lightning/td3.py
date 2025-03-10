@@ -6,6 +6,7 @@ from tensordict.nn import TensorDictModule, TensorDictParams
 from torchcps.utils import add_model_specific_args
 from torchrl.modules import ActorCriticWrapper
 from torchrl.objectives import SoftUpdate
+from torchrl.objectives import TD3BCLoss as _TD3BCLoss
 from torchrl.objectives import TD3Loss as _TD3Loss
 
 from motion_planning.lightning.base import MotionPlanningActorCritic
@@ -14,6 +15,29 @@ logger = logging.getLogger(__name__)
 
 
 class TD3Loss(_TD3Loss):
+    """
+    Hacked TD3Loss that does not use vmap.
+    """
+
+    actor_network: TensorDictModule
+    qvalue_network: TensorDictModule
+    actor_network_params: TensorDictParams
+    qvalue_network_params: TensorDictParams
+    target_actor_network_params: TensorDictParams
+    target_qvalue_network_params: TensorDictParams
+
+    def _make_vmap(self):
+        self._vmap_qvalue_network00 = self.critic_loop
+
+    def critic_loop(self, td, parameters):
+        outputs = []
+        for i in range(self.num_qvalue_nets):
+            with parameters[i].to_module(self.qvalue_network):
+                outputs.append(self.qvalue_network(td[i]))
+        return torch.stack(outputs, dim=0)
+
+
+class TD3BCLoss(_TD3BCLoss):
     """
     Hacked TD3Loss that does not use vmap.
     """
@@ -49,14 +73,19 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         warmup_epochs: int = 0,
         grad_clip_norm: float = 0.1,
         grad_clip_p: float = 2.0,
+        expert_policy: str = "c_sq",
+        expert_weight: float = 0.0,
         **kwargs,
     ):
         """
         Args:
-            buffer_size: size of the replay buffer
-            target_policy: the target policy to use for the expert
-            expert_probability: probability of sampling from the expert
+            polyak: the polyak value for the target networks
+            policy_delay: the delay for the policy update
             warmup_epochs: Number of epochs to take before starting to train the actor.
+            grad_clip_norm: the gradient clipping norm
+            grad_clip_p: the gradient clipping p
+            expert_policy: the expert policy to use
+            expert_weight: the weight for the expert policy
         """
         super().__init__(model, **kwargs)
         self.policy_delay = policy_delay
@@ -64,17 +93,34 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.automatic_optimization = False
         self.grad_clip_norm = grad_clip_norm
         self.grad_clip_p = grad_clip_p
-        self.loss = TD3Loss(
-            self.model.get_policy_operator(),
-            self.model.get_value_operator(),
-            loss_function="l2",
-            bounds=(-1, 1),  # type: ignore
-            policy_noise=self.noise,
-            noise_clip=self.noise_clip,
-        )
-        self.loss.make_value_estimator(
-            TD3Loss.default_value_estimator, gamma=self.gamma
-        )
+
+        if expert_weight > 0.0:
+            self.expert_policy = expert_policy
+            self.loss = TD3BCLoss(
+                self.model.get_policy_operator(),
+                self.model.get_value_operator(),
+                loss_function="l2",
+                bounds=(-1, 1),  # type: ignore
+                policy_noise=self.noise,
+                noise_clip=self.noise_clip,
+                # larger alpha means more weight on the value estimate
+                alpha=1 / expert_weight,
+            )
+            self.loss.make_value_estimator(
+                TD3BCLoss.default_value_estimator, gamma=self.gamma
+            )
+        else:
+            self.loss = TD3Loss(
+                self.model.get_policy_operator(),
+                self.model.get_value_operator(),
+                loss_function="l2",
+                bounds=(-1, 1),  # type: ignore
+                policy_noise=self.noise,
+                noise_clip=self.noise_clip,
+            )
+            self.loss.make_value_estimator(
+                TD3Loss.default_value_estimator, gamma=self.gamma
+            )
         self.target_net_updater = SoftUpdate(self.loss, eps=polyak)
 
     def populate(self):
@@ -115,6 +161,11 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
     def training_step(self, td: TensorDictBase):
         opt_actor, opt_critic = self.optimizers()
+
+        # TD3BC adds a MSE between "action" and the output of the actor network
+        # the action field is not used anywhere else, besides for getting dimensions
+        if self.expert_policy is not None:
+            td["action"] = td["expert"]
         loss_vals = self.loss(td.clone())
         # actor update
         if (self.global_step + 1) % self.policy_delay == 0:
