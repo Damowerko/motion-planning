@@ -20,7 +20,7 @@ kubectl create -f - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
-  generateName: motion-planning-test-
+  generateName: motion-planning-run-
   namespace: $K8S_NAMESPACE
 spec:
   completions: 1
@@ -35,7 +35,7 @@ spec:
           server: lc1-alelab.seas.upenn.edu
           path: /nfs/general/motion_planning_data
       containers:
-      - name: motion-planning-train
+      - name: motion-planning-run
         image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME@$IMAGE_DIGEST
         imagePullPolicy: Always
         command: ["python", "-u", $args]
