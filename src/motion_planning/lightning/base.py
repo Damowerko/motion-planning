@@ -45,8 +45,8 @@ class MotionPlanningActorCritic(pl.LightningModule):
         reward_sigma: float = 10.0,
         num_workers: int = 32,
         # Noise parameters
-        noise: float = 0.05,
-        noise_clip: float = 0.1,
+        noise: float = 0.1,
+        noise_clip: float = 0.2,
         **kwargs,
     ):
         super().__init__()
