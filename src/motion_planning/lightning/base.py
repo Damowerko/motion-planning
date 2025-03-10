@@ -43,6 +43,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         initial_separation: float = 5.0,
         collision_coefficient: float = 5.0,
         reward_sigma: float = 10.0,
+        coverage_reward: str = "dist_sq",
         num_workers: int = 32,
         # Noise parameters
         noise: float = 0.1,
@@ -68,6 +69,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.initial_separation = initial_separation
         self.collision_coefficient = collision_coefficient
         self.reward_sigma = reward_sigma
+        self.coverage_reward = coverage_reward
         self.num_workers = num_workers
         self.expert_policy = None
         # Noise parameters
@@ -90,6 +92,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
             collision_distance=self.collision_distance,
             collision_coefficient=self.collision_coefficient,
             reward_sigma=self.reward_sigma,
+            coverage_reward=self.coverage_reward,
             expert_policy=self.expert_policy,
         )
         self.env = ParallelEnv(self.num_workers, make_env, device=self.device)

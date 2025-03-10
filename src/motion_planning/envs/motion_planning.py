@@ -59,6 +59,7 @@ class MotionPlanningEnv(EnvBase):
         reward_sigma: float = 10.0,
         expert_policy: str | None = None,
         samples_per_cluster: tuple[int | None, int | None] = (None, None),
+        coverage_reward: str = "dist_sq",
     ):
         """
         Args:
@@ -76,6 +77,7 @@ class MotionPlanningEnv(EnvBase):
                 If provided, the expert policy will be outputted at each step with key "expert".
             samples_per_cluster: A tuple indicating the number of (agents, targets) per cluster for the "clusters" scenario.
                 If not provided, the number of agents and targets per cluster will be random from MotionPlanningEnv.samples_per_cluster.
+            coverage_reward: The reward function to use for coverage. One of "dist_sq", "dist", "gaussian", "coverage".
         """
 
         super().__init__(device="cpu", batch_size=torch.Size([]))
@@ -98,6 +100,7 @@ class MotionPlanningEnv(EnvBase):
                 "samples_per_cluster can only be specified for the 'clusters' scenario."
             )
         self.samples_per_cluster = samples_per_cluster
+        self.coverage_reward = coverage_reward
         # agent properties
         self.max_vel = max_vel
         self.collision_distance = collision_distance
@@ -358,12 +361,26 @@ class MotionPlanningEnv(EnvBase):
         return np.sum((distances < threshold).astype(int))
 
     def _reward(self):
-        # the reward function is a gaussian kernel of the distance to the target
-        gaussian_pt = np.exp(-((self.dist_pt / self.reward_sigma) ** 2))
-        # there can only be one agent covering each target, find assignment that maximizes the reward
-        row_idx, col_idx = linear_sum_assignment(gaussian_pt, maximize=True)
-        # use the distance to the optimal assignment agent as a reward
-        reward_coverage = gaussian_pt[row_idx, col_idx]
+        if self.coverage_reward == "coverage":
+            reward_coverage = self.coverage()
+        elif self.coverage_reward == "gaussian":
+            # the reward function is a gaussian kernel of the distance to the target
+            gaussian_pt = np.exp(-((self.dist_pt / self.reward_sigma) ** 2))
+            # there can only be one agent covering each target, find assignment that maximizes the reward
+            row_idx, col_idx = linear_sum_assignment(gaussian_pt, maximize=True)
+            # use the distance to the optimal assignment agent as a reward
+            reward_coverage = gaussian_pt[row_idx, col_idx]
+        elif self.coverage_reward == "dist_sq" or self.reward == "dist":
+            if self.coverage_reward == "dist_sq":
+                cost = self.dist_pt**2
+            else:
+                cost = self.dist_pt
+            row_idx, col_idx = linear_sum_assignment(cost)
+            assert (row_idx == np.arange(self.n_agents)).all()
+            # use the distance to the optimal assignment agent as a reward
+            distances = self.dist_pt[row_idx, col_idx]
+            reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
+
         # count the number of collisions per agent
         collisions_per_agent = (
             np.sum(self.dist_pp < self.collision_distance, axis=1) - 1
