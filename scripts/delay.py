@@ -37,14 +37,8 @@ def main():
     policy = model.model.get_policy_operator().eval()
 
     df_list = []
-    for samples_per_cluster, comm_interval in list(
-        product([1, 5, 10], [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-    ):
-        logger.info(f"Running trials for {comm_interval=}, {samples_per_cluster=}.")
-        env_params = MotionPlanningEnvParams(
-            scenario="clusters",
-            samples_per_cluster=(samples_per_cluster, samples_per_cluster),
-        )
+    for comm_interval in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+        env_params = MotionPlanningEnvParams()
         df, _ = delay(
             env_params=env_params,
             policy=policy,
@@ -53,7 +47,6 @@ def main():
             num_workers=params["n_workers"],
             comm_interval=comm_interval,
         )
-        df["samples_per_cluster"] = samples_per_cluster
         df_list.append(df)
 
     logger.info("Saving results")
@@ -62,21 +55,17 @@ def main():
     pd.concat(df_list).to_parquet(path / "delay.parquet")
 
     frames_list = []
-    for samples_per_cluster in [1, 5, 10]:
-        env_params = MotionPlanningEnvParams(
-            scenario="clusters",
-            samples_per_cluster=(samples_per_cluster, samples_per_cluster),
-        )
-        logger.info(f"Making video with delay 0.1 for {samples_per_cluster} agents")
-        df, frames = delay(
-            env_params=env_params,
-            policy=policy,
-            max_steps=params["max_steps"],
-            num_episodes=10,
-            comm_interval=0.1,
-            render=True,
-        )
-        frames_list.append(frames)
+    env_params = MotionPlanningEnvParams()
+    logger.info(f"Making video with delay 0.1")
+    df, frames = delay(
+        env_params=env_params,
+        policy=policy,
+        max_steps=params["max_steps"],
+        num_episodes=10,
+        comm_interval=0.1,
+        render=True,
+    )
+    frames_list.append(frames)
     logger.info("Saving video")
     frames = np.concatenate(frames_list)
     iio.imwrite(path / f"{name}_delay_100ms.mp4", frames, fps=40)
