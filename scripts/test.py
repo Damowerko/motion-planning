@@ -31,6 +31,8 @@ def main():
     parser.add_argument("--max_steps", type=int, default=200)
     parser.add_argument("--n_trials", type=int, default=10)
     parser.add_argument("--n_workers", type=int, default=10)
+    parser.add_argument("--no_scalability", dest="scalability", action="store_false")
+    parser.add_argument("--no_scenarios", dest="scenarios", action="store_false")
     params = vars(parser.parse_args())
 
     logger.info(f"Loading model from {params['checkpoint']}")
@@ -51,25 +53,27 @@ def main():
     path.mkdir(parents=True, exist_ok=True)
     save_results(name, path, evalutate_df, None)
 
-    logger.info("OOD evaluation")
-    scenarios_df = scenarios(
-        env_params=env_params,
-        policy=policy,
-        max_steps=params["max_steps"],
-        num_episodes=params["n_trials"],
-        num_workers=params["n_workers"],
-    )
-    scenarios_df.to_parquet(path / "scenarios.parquet")
+    if params["scenarios"]:
+        logger.info("OOD evaluation")
+        scenarios_df = scenarios(
+            env_params=env_params,
+            policy=policy,
+            max_steps=params["max_steps"],
+            num_episodes=params["n_trials"],
+            num_workers=params["n_workers"],
+        )
+        scenarios_df.to_parquet(path / "scenarios.parquet")
 
-    logger.info("Scalability evaluation")
-    scalability_df = scalability(
-        env_params=env_params,
-        policy=policy,
-        max_steps=params["max_steps"],
-        num_episodes=params["n_trials"],
-        num_workers=params["n_workers"],
-    )
-    scalability_df.to_parquet(path / "scalability.parquet")
+    if params["scalability"]:
+        logger.info("Scalability evaluation")
+        scalability_df = scalability(
+            env_params=env_params,
+            policy=policy,
+            max_steps=params["max_steps"],
+            num_episodes=params["n_trials"],
+            num_workers=params["n_workers"],
+        )
+        scalability_df.to_parquet(path / "scalability.parquet")
 
 
 def save_results(
