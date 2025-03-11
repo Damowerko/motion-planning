@@ -281,7 +281,7 @@ class MotionPlanningEnv(EnvBase):
         return distance
 
     def k_hop_hungarian_policy(self, hops=1, distance_squared=False):
-        graph_dist = dijkstra(self.graph_scipy, directed=True)
+        graph_dist = dijkstra(self.graph_scipy, directed=False)
         _, agent_idx = self._observed_agents(remove_self=False)
         _, target_idx = self._observed_targets()
         distance = MotionPlanningEnv._k_hop_hungarian_cost(
