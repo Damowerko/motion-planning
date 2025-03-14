@@ -59,7 +59,9 @@ def load_delay(
 ):
     return pd.concat(
         [
-            load_test(id, "delay", data_path).assign(id=id, policy=models_delay[id])
+            aggregate_results(load_test(id, "delay", data_path)).assign(
+                id=id, policy=models_delay[id]
+            )
             for id in models_delay
         ],
         ignore_index=True,
