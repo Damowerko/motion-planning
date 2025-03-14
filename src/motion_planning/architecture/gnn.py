@@ -296,14 +296,11 @@ class GCN(nn.Module):
                     ),
                 ]
             self.residual_blocks += [
-                (
-                    ResidualBlock(
-                        conv=gnn.Sequential("x, edge_index, edge_attr, size", conv),
-                        # norm=gnn.BatchNorm(n_channels),
-                        norm=None,
-                        act=activation,
-                        dropout=dropout,
-                    )
+                ResidualBlock(
+                    conv=gnn.Sequential("x, edge_index, edge_attr, size", conv),
+                    norm=None,
+                    act=activation,
+                    dropout=dropout,
                 )
             ]
 
