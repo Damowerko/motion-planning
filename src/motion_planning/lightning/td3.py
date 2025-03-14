@@ -115,8 +115,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
     def __init__(
         self,
         model: ActorCriticWrapper,
-        polyak: float = 0.99,
-        policy_delay: int = 1,
+        polyak: float = 0.995,
+        policy_delay: int = 2,
         warmup_epochs: int = 0,
         grad_clip_norm: float = 0.1,
         grad_clip_p: float = 2.0,
@@ -195,6 +195,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             self.loss.actor_network_params.flatten_keys().values(),
             lr=self.actor_lr,
             weight_decay=self.weight_decay,
+            fused=True,
         )
         actor_scheduler = torch.optim.lr_scheduler.LambdaLR(
             actor_optimizer, lr_lambda=self._lr_lambda
@@ -203,6 +204,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             self.loss.qvalue_network_params.flatten_keys().values(),
             lr=self.critic_lr,
             weight_decay=self.weight_decay,
+            fused=True,
         )
         return [actor_optimizer, critic_optimizer], [actor_scheduler]
 
@@ -217,6 +219,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         # actor update
         if (self.global_step + 1) % (self.policy_delay + 1) == 0:
             opt_actor.zero_grad()
+            opt_critic.zero_grad()
             self.manual_backward(loss_vals["loss_actor"])
             if self.grad_clip_norm > 0.0:
                 torch.nn.utils.clip_grad_norm_(
@@ -226,6 +229,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
                 )
             opt_actor.step()
         # critic update
+        opt_actor.zero_grad()
         opt_critic.zero_grad()
         self.manual_backward(loss_vals["loss_qvalue"])
         if self.grad_clip_norm > 0.0:
