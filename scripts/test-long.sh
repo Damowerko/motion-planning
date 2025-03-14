@@ -16,5 +16,5 @@ done
 # Delay experiments
 CHECKPOINTS=("xdbf9fux" "o5tb680f")
 for checkpoint in "${CHECKPOINTS[@]}"; do
-    ./cluster/run.sh ./scripts/delay.py --checkpoint wandb://damowerko-academic/motion-planning/$checkpoint --n_trials 100 --n_workers 10 --max_steps 800
+    ./cluster/run.sh ./scripts/delay.py --checkpoint wandb://damowerko-academic/motion-planning/$checkpoint --n_trials 100 --n_workers 10 --max_steps $MAX_STEPS
 done
