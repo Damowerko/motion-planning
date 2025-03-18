@@ -28,7 +28,7 @@ spec:
   ttlSecondsAfterFinished: 3600
   template:
     spec:
-      restartPolicy: Never
+      restartPolicy: OnFailure
       volumes:
       - name: motion-planning-data
         nfs:
