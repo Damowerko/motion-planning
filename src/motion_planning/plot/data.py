@@ -11,7 +11,7 @@ DEFAULT_DATA_PATH = Path("/nfs/general/motion_planning_data/test_results")
 
 
 def load_baselines(data_path=DEFAULT_DATA_PATH):
-    policies = {"c_sq": "LSPA"} | {f"d{i}_sq": f"DLSAP-{i}" for i in range(10)}
+    policies = {"c_sq": "LSAP"} | {f"d{i}_sq": f"DHBA-{i}" for i in range(10)}
     df = pd.concat(
         [
             pd.read_parquet(data_path / policy / f"{policy}.parquet").assign(
@@ -85,9 +85,7 @@ def load_comparison(
         [
             df_baseline,
             df_models,
-            df_delay.query("delay_s == 0.1").assign(
-                policy=lambda df: df["policy"] + " (delayed)"
-            ),
+            df_delay.query("delay_s == 0.1").assign(policy=lambda df: df["policy"]),
         ],
         ignore_index=True,
     )

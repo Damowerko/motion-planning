@@ -1,13 +1,16 @@
+from matplotlib.collections import LineCollection
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
 from seaborn import plotting_context, axes_style
 import seaborn.objects as so
-from matplotlib.figure import Figure
+
+from motion_planning.envs.motion_planning import MotionPlanningEnv
 
 ONE_COLUMN_WIDTH = 3.5
 TWO_COLUMN_WIDTH = 7.16
 LEGEND_WIDTH = 0.5
-FIGURE_HEIGHT = 3.0
+FIGURE_HEIGHT = 2.5
 
 
 def so_theme():
@@ -171,8 +174,10 @@ def plot_delay_terminal(df_delay):
     return p
 
 
-def plot_comparison(df_compare):
-    f = Figure(figsize=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), layout="tight")
+def plot_comparison(df_compare, ylim=(0.5, 1.0)):
+    f, ax = plt.subplots(
+        figsize=(ONE_COLUMN_WIDTH, FIGURE_HEIGHT), layout="constrained"
+    )
     p = (
         so.Plot(
             df_compare,
@@ -182,13 +187,55 @@ def plot_comparison(df_compare):
             ymax="coverage_max",
             color="policy",
         )
-        .add(so.Band())
         .add(so.Line())
-        .limit(y=(0.5, 1.0))
+        .add(so.Band())
+        .limit(y=ylim)
         .label(x="Time (s)", y="Coverage")
         .theme(so_theme())
-        .on(f)
+        .on(ax)
         .plot()
     )
+    legend = f.legends.pop(0)
+    ax.legend(legend.legend_handles, [t.get_text() for t in legend.texts])
     plt.close(f)
     return p
+
+
+def plot_initialization():
+    fig, ax = plt.subplots(1, 3, figsize=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT))
+    for i, (n_agents_per_cluster, n_goals_per_cluster) in enumerate(
+        [(1, 1), (5, 1), (10, 5)]
+    ):
+        env = MotionPlanningEnv(
+            scenario="clusters",
+            samples_per_cluster=(n_agents_per_cluster, n_goals_per_cluster),
+        )
+        env.reset()
+
+        positions = env.positions
+        targets = env.targets
+
+        observed_targets_mask = np.zeros(len(targets), dtype=bool)
+        observed_targets_idx = env._observed_targets()[1].reshape(-1)
+        observed_targets_mask[observed_targets_idx] = True
+
+        observed_targets = targets[observed_targets_mask]
+        unobserved_targets = targets[~observed_targets_mask]
+        edge_index = env.edge_index
+
+        start_pos = positions[edge_index[0]]
+        end_pos = positions[edge_index[1]]
+        segments = list(np.stack([start_pos, end_pos], axis=1))
+
+        ax[i].add_collection(LineCollection(segments, colors="gray", linewidths=0.5))
+        ax[i].plot(
+            unobserved_targets[:, 0], unobserved_targets[:, 1], "rx", markersize=3
+        )
+        ax[i].plot(observed_targets[:, 0], observed_targets[:, 1], "gx", markersize=3)
+        ax[i].plot(positions[:, 0], positions[:, 1], "bo", markersize=2)
+        ax[i].set_xlim(-env.width / 2, env.width / 2)
+        ax[i].set_ylim(-env.width / 2, env.width / 2)
+        ax[i].set_aspect("equal")
+        ax[i].set_xticks([])
+        ax[i].set_yticks([])
+    return fig
