@@ -5,6 +5,10 @@ import seaborn as sns
 from seaborn import plotting_context, axes_style
 import seaborn.objects as so
 
+from motion_planning.architecture.transformer import (
+    geometric_frequencies,
+    linear_frequencies,
+)
 from motion_planning.envs.motion_planning import MotionPlanningEnv
 
 ONE_COLUMN_WIDTH = 3.5
@@ -141,7 +145,7 @@ def plot_delay_over_time(df_delay) -> so.Plot:
         .label(x="Time (s)", y="Coverage")
         .scale(color=so.Continuous("viridis"))
         .theme(so_theme())
-        .layout(size=(TWO_COLUMN_WIDTH, 3.0), engine="tight")
+        .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
     )
 
 
@@ -238,4 +242,35 @@ def plot_initialization():
         ax[i].set_aspect("equal")
         ax[i].set_xticks([])
         ax[i].set_yticks([])
+    return fig
+
+
+def plot_frequencies():
+    # Plot stem plots of frequencies and periods
+    fig, ax = plt.subplots(
+        1, 2, figsize=(ONE_COLUMN_WIDTH, ONE_COLUMN_WIDTH / 2), layout="constrained"
+    )
+    period = 1000.0
+    n_frequencies = 100
+
+    # Linear frequencies
+    frequencies_linear = linear_frequencies(period, n_frequencies) / 2 / np.pi
+    periods_linear = 1 / frequencies_linear
+    # Geometric frequencies
+    frequencies_geom = geometric_frequencies(period, n_frequencies) / 2 / np.pi
+    periods_geom = 1 / frequencies_geom
+
+    fractional_index = np.arange(n_frequencies) / n_frequencies
+    # Plot frequencies
+    ax[0].plot(fractional_index, frequencies_linear, label="Linear")
+    ax[0].plot(fractional_index, frequencies_geom, label="Geometric")
+    ax[0].set_xlabel(r"$k/K$")
+    ax[0].set_ylabel(r"$f_k \quad [\mathrm{m}^{-1}]$")
+    # Plot periods
+    ax[1].plot(fractional_index, periods_linear, label="Linear")
+    ax[1].plot(fractional_index, periods_geom, label="Geometric")
+    ax[1].set_xlabel("$k/K$")
+    ax[1].set_ylabel(r"$1/f_k \quad [\mathrm{m}]$")
+    ax[1].legend()
+    plt.close(fig)
     return fig

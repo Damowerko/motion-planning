@@ -108,6 +108,8 @@ def df_from_tag(
             "connected_mask",
         ]
     ]
+    # divide attention window by 2 to get the attention radius
+    config_df["attention_window"] /= 2
     df = df.join(config_df, on="id")
     return df
 

@@ -4,6 +4,7 @@ from motion_planning.plot.plot import (
     plot_encoding_scalability,
     plot_delay_over_time,
     plot_delay_terminal,
+    plot_frequencies,
     plot_initialization,
     set_theme_paper,
 )
@@ -27,6 +28,9 @@ def main():
     parser.add_argument("--no-comparison", dest="plot_comparison", action="store_false")
     parser.add_argument(
         "--no-initialization", dest="plot_initialization", action="store_false"
+    )
+    parser.add_argument(
+        "--no-frequencies", dest="plot_frequencies", action="store_false"
     )
     args = parser.parse_args()
 
@@ -105,6 +109,9 @@ def main():
         plot_initialization().savefig(
             fig_path / "initialization.pdf", bbox_inches="tight"
         )
+
+    if args.plot_frequencies:
+        plot_frequencies().savefig(fig_path / "frequencies.pdf", bbox_inches="tight")
 
 
 if __name__ == "__main__":
