@@ -8,10 +8,10 @@ for policy in "${POLICIES[@]}"; do
     ./cluster/run.sh scripts/baseline.py --policy $policy --n_trials 100 --n_workers 10 --max_steps $MAX_STEPS
 done
 # Define an array of checkpoint IDs
-CHECKPOINTS=("8hlpz45j" "xdbf9fux" "o5tb680f")
+CHECKPOINTS=("8hlpz45j" "xdbf9fux" "o5tb680f" )
 # Loop through the checkpoints
 for checkpoint in "${CHECKPOINTS[@]}"; do
-    ./cluster/run.sh scripts/test.py --n_trials 100 --n_workers 20 --max_steps $MAX_STEPS --checkpoint wandb://damowerko-academic/motion-planning/$checkpoint
+    ./cluster/run.sh scripts/test.py --n_trials 100 --n_workers 10 --max_steps $MAX_STEPS --checkpoint wandb://damowerko-academic/motion-planning/$checkpoint
 done
 # Delay experiments
 CHECKPOINTS=("xdbf9fux" "o5tb680f")
