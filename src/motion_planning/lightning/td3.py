@@ -5,7 +5,7 @@ import torch
 from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule, TensorDictParams
 from torchcps.utils import add_model_specific_args
-from torchrl.modules import ActorCriticWrapper
+from torchrl.modules import ActorCriticWrapper, OrnsteinUhlenbeckProcessWrapper
 from torchrl.objectives import SoftUpdate
 from torchrl.objectives import TD3BCLoss as _TD3BCLoss
 from torchrl.objectives import TD3Loss as _TD3Loss
@@ -140,11 +140,12 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.automatic_optimization = False
         self.grad_clip_norm = grad_clip_norm
         self.grad_clip_p = grad_clip_p
+        self.exploration_policy = OrnsteinUhlenbeckProcessWrapper(self.model.get_policy_operator())
 
         if expert_weight > 0.0:
             self.expert_policy = expert_policy
             self.loss = TD3BCLoss(
-                self.model.get_policy_operator(),
+                self.exploration_policy,
                 self.model.get_value_operator(),
                 loss_function="l2",
                 bounds=(-1, 1),  # type: ignore
@@ -158,7 +159,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             )
         else:
             self.loss = TD3Loss(
-                self.model.get_policy_operator(),
+                self.exploration_policy,
                 self.model.get_value_operator(),
                 loss_function="l2",
                 bounds=(-1, 1),  # type: ignore
@@ -169,6 +170,21 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
                 TD3Loss.default_value_estimator, gamma=self.gamma
             )
         self.target_net_updater = SoftUpdate(self.loss, eps=polyak)
+
+    def rollout_action(self, td: TensorDictBase) -> TensorDictBase:
+        """
+        Choose an action to take in a rollout step.
+
+        Returns:
+            Modified data with data.action set to the action. Can set other fields as well.
+        """
+        with torch.no_grad():
+            td = self.exploration_policy(td)
+            if self.training:
+                td["action"] = self.policy(td["action"])
+            else:
+                td["action"] = self.clip_action(td["action"])
+            return td
 
     def populate(self):
         # populate replay buffer with initial data
