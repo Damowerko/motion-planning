@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from numpy.typing import NDArray
 
 from motion_planning.envs.motion_planning import MotionPlanningEnvParams
-from motion_planning.evaluate import evaluate_expert
+from motion_planning.evaluate import evaluate_expert, scenarios
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ def main():
     parser.add_argument("--n_trials", type=int, default=10)
     parser.add_argument("--n_workers", type=int)
     parser.add_argument("--video", action="store_true")
+    parser.add_argument("--no-scenarios", dest="scenarios", action="store_false")
     params = vars(parser.parse_args())
 
     logger.info(f"Evaluating expert policy: {params['policy']}")
@@ -62,6 +63,18 @@ def main():
     path = Path("data") / "test_results" / params["policy"]
     path.mkdir(parents=True, exist_ok=True)
     save_results(params["policy"], path, evalutate_df, frames)
+
+    logger.info("Scenarios evaluation")
+    if params["scenarios"]:
+        logger.info("OOD evaluation")
+        scenarios_df = scenarios(
+            env_params=env_params,
+            policy=None,
+            max_steps=params["max_steps"],
+            num_episodes=params["n_trials"],
+            num_workers=params["n_workers"],
+        )
+        scenarios_df.to_parquet(path / "scenarios.parquet")
 
 
 def save_results(

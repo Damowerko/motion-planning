@@ -5,14 +5,14 @@ import pandas as pd
 from tensordict.nn import TensorDictModuleBase
 
 from motion_planning.envs.motion_planning import MotionPlanningEnvParams
-from motion_planning.evaluate.common import evaluate_policy
+from motion_planning.evaluate.common import evaluate_policy, evaluate_expert
 
 logger = logging.getLogger(__name__)
 
 
 def scenarios(
     env_params: MotionPlanningEnvParams,
-    policy: TensorDictModuleBase,
+    policy: TensorDictModuleBase | None,
     max_steps: int,
     num_episodes: int,
     num_workers: int | None = None,
@@ -30,9 +30,13 @@ def scenarios(
     for scenario in ["circle", "two_lines", "gaussian_uniform", "icra"]:
         logger.info(f"Evaluating {scenario} scenario.")
         env_params.scenario = scenario
-        df, _ = evaluate_policy(
-            env_params, policy, max_steps, num_episodes, num_workers
-        )
+
+        if policy is None:
+            df, _ = evaluate_expert(env_params, max_steps, num_episodes, num_workers)
+        else:
+            df, _ = evaluate_policy(
+                env_params, policy, max_steps, num_episodes, num_workers
+            )
         df["scenario"] = scenario
         df["n_agents"] = env_params.n_agents
         df_list.append(df)
@@ -42,9 +46,12 @@ def scenarios(
         )
         env_params.scenario = "clusters"
         env_params.samples_per_cluster = (cluster_size, cluster_size)
-        df, _ = evaluate_policy(
-            env_params, policy, max_steps, num_episodes, num_workers
-        )
+        if policy is None:
+            df, _ = evaluate_expert(env_params, max_steps, num_episodes, num_workers)
+        else:
+            df, _ = evaluate_policy(
+                env_params, policy, max_steps, num_episodes, num_workers
+            )
         df["scenario"] = f"clusters {cluster_size}"
         df["n_agents"] = env_params.n_agents
         df_list.append(df)

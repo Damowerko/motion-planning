@@ -1,3 +1,4 @@
+import pandas as pd
 from motion_planning.plot.plot import (
     plot_comparison,
     plot_encoding_comparison,
@@ -6,13 +7,16 @@ from motion_planning.plot.plot import (
     plot_delay_terminal,
     plot_frequencies,
     plot_initialization,
+    plot_scenarios,
     set_theme_paper,
 )
 from motion_planning.plot.data import (
     df_from_tag,
     aggregate_results,
+    load_baseline,
     load_comparison,
     load_delay,
+    load_test,
 )
 from pathlib import Path
 import logging
@@ -32,6 +36,7 @@ def main():
     parser.add_argument(
         "--no-frequencies", dest="plot_frequencies", action="store_false"
     )
+    parser.add_argument("--no-scenarios", dest="plot_scenarios", action="store_false")
     args = parser.parse_args()
 
     fig_path = Path("figures/journal")
@@ -63,8 +68,8 @@ def main():
         # Plots that show the impact of delays on coverage
         logger.info("Delay plots")
         models_delay = {
-            "7969mfvs": "TF Local",
-            "khpb9hkx": "TF Masked",
+            "7969mfvs": "Trained w/o conn. mask",
+            "khpb9hkx": "Trained w/ conn. mask",
         }
         df_delay = load_delay(models_delay)
         plot_delay_over_time(df_delay).save(
@@ -80,8 +85,8 @@ def main():
         baselines = ["LSAP", "DHBA-0", "DHBA-4", "DHBA-8"]
         df_compare = load_comparison(
             baselines,
-            {"khpb9hkx": "TF Masked $\\tau=0.0$"},
-            {"khpb9hkx": "TF Masked, $\\tau=0.1$"},
+            {"khpb9hkx": "MAST-M, $\\tau=0.0$"},
+            {"khpb9hkx": "MAST-M, $\\tau=0.1$"},
         )
         plot_comparison(df_compare).save(
             fig_path / "compare-baseline.pdf", bbox_inches="tight"
@@ -91,13 +96,13 @@ def main():
         df_compare = load_comparison(
             [],
             models={
-                "mixtoko2": "TF Clairvoyant",
-                "7969mfvs": "TF Local, $\\tau=0.0$",
-                "khpb9hkx": "TF Masked, $\\tau=0.0$",
+                "mixtoko2": "MAST-C",
+                "7969mfvs": "MAST-L, $\\tau=0.0$",
+                "khpb9hkx": "MAST-M, $\\tau=0.0$",
             },
             models_delay={
-                "7969mfvs": "TF Local, $\\tau=0.1$",
-                "khpb9hkx": "TF Masked, $\\tau=0.1$",
+                "7969mfvs": "MAST-L, $\\tau=0.1$",
+                "khpb9hkx": "MAST-M, $\\tau=0.1$",
             },
         )
         plot_comparison(df_compare, ylim=(0.8, 1.0)).save(
@@ -112,6 +117,20 @@ def main():
 
     if args.plot_frequencies:
         plot_frequencies().savefig(fig_path / "frequencies.pdf", bbox_inches="tight")
+
+    if args.plot_scenarios:
+        df_scenarios = pd.concat(
+            [
+                aggregate_results(load_baseline("d8_sq", "scenarios")),
+                aggregate_results(
+                    load_test("khpb9hkx", "scenarios").assign(policy="MAST-M")
+                ),
+            ],
+            ignore_index=True,
+        )
+        plot_scenarios(df_scenarios).save(
+            fig_path / "scenarios.pdf", bbox_inches="tight"
+        )
 
 
 if __name__ == "__main__":

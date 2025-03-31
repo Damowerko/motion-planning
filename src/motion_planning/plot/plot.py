@@ -14,7 +14,7 @@ from motion_planning.envs.motion_planning import MotionPlanningEnv
 ONE_COLUMN_WIDTH = 3.5
 TWO_COLUMN_WIDTH = 7.16
 LEGEND_WIDTH = 0.5
-FIGURE_HEIGHT = 2.5
+FIGURE_HEIGHT = 2.25
 
 
 def so_theme():
@@ -22,7 +22,7 @@ def so_theme():
         plotting_context("paper", font_scale=1.0)
         | axes_style("ticks")
         | {
-            "figure.figsize": (2.0, 3.5),
+            "figure.figsize": (ONE_COLUMN_WIDTH, FIGURE_HEIGHT),
             "figure.dpi": 300,
             "savefig.dpi": 300,
             "text.usetex": True,
@@ -41,9 +41,9 @@ def set_theme_paper():
     sns.set_theme(
         context="paper",
         style="ticks",
-        font_scale=0.8,  # default font size is 10pt
+        font_scale=1.0,
         rc={
-            "figure.figsize": (2.0, 3.5),
+            "figure.figsize": (ONE_COLUMN_WIDTH, FIGURE_HEIGHT),
             "figure.dpi": 300,
             "savefig.dpi": 300,
             "text.usetex": True,
@@ -71,8 +71,8 @@ def rename_pe(df):
 
     df["PE"] = df.apply(
         lambda x: {
-            ("mlp", "linear"): "MLP",
-            ("mlp", "geometric"): "MLP",
+            ("mlp", "linear"): "MLP-PE",
+            ("mlp", "geometric"): "MLP-PE",
             ("absolute", "linear"): "APE-L",
             ("absolute", "geometric"): "APE-G",
             ("rotary", "linear"): "RoPE-L",
@@ -83,11 +83,24 @@ def rename_pe(df):
     return df
 
 
+def rename_attention_window(df):
+    attention_window_str = {
+        0: "$\\infty$",
+        250: 250,
+        500: 500,
+        1000: 1000,
+    }
+    df = df.assign(
+        attention_window=df["attention_window"].map(attention_window_str)
+    ).sort_values(["attention_window", "time"])
+    return df
+
+
 def plot_encoding_comparison(df_basic):
     max_step = 200
     return (
         so.Plot(
-            data=rename_pe(df_basic)
+            data=rename_pe(rename_attention_window(df_basic))
             .query(f"step <= {max_step}")
             .sort_values(["PE", "time"]),
             x="time",
@@ -98,8 +111,10 @@ def plot_encoding_comparison(df_basic):
         )
         .add(so.Band())
         .add(so.Line())
+        .limit(y=(0.5, 1.0), x=(25, max_step))
+        .scale(y=so.Continuous().tick(count=6))
         .facet("attention_window")
-        .label(x="Time (s)", y="Coverage", col="$R_\\text{{att}}=$")
+        .label(x="$t$ (s)", y="Test Success Rate, $N=100$", col="$R_\\text{{att}}=$")
         .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
         .theme(so_theme())
     )
@@ -109,7 +124,7 @@ def plot_encoding_scalability(df_scalability):
     max_step = 200
     return (
         so.Plot(
-            data=rename_pe(df_scalability)
+            data=rename_pe(rename_attention_window(df_scalability))
             .query(f"step == {max_step}")
             .sort_values(["PE", "n_agents"]),
             x="n_agents",
@@ -122,13 +137,28 @@ def plot_encoding_scalability(df_scalability):
         .add(so.Line())
         .add(so.Dot(pointsize=3))
         .facet("attention_window")
-        .label(x="Number of Agents", y="Coverage", col="$R_\\text{{att}}=$")
+        .label(
+            x="$N$ agents",
+            y=f"Test Success Rate, $t={max_step}$",
+            col="$R_\\text{{att}}=$",
+        )
+        .limit(y=(0.2, 1.0))
         .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
         .theme(so_theme())
     )
 
 
-def plot_delay_over_time(df_delay) -> so.Plot:
+def plot_delay_over_time(df_delay, window=None) -> so.Plot:
+    # apply rolling mean to df_delay
+    if window is not None:
+        df_delay = (
+            df_delay.sort_values("time")
+            .groupby(["policy", "delay_s"])[
+                ["time", "coverage_mean", "coverage_se", "coverage_min", "coverage_max"]
+            ]
+            .apply(lambda x: x.rolling(window=window, min_periods=1, on="time").mean())
+            .reset_index()
+        )
     return (
         so.Plot(
             data=df_delay,
@@ -139,10 +169,11 @@ def plot_delay_over_time(df_delay) -> so.Plot:
             color="delay_s",
         )
         .facet("policy")
-        .add(so.Band(alpha=0.1))
+        .add(so.Band(alpha=0.05))
         .add(so.Line(linewidth=0.5))
-        .limit(y=(0.5, 1.0))
-        .label(x="Time (s)", y="Coverage")
+        .limit(y=(0.75, 0.9))
+        .scale(y=so.Continuous().tick(count=4))
+        .label(x="$t$ (s)", y="Test Success Rate", color="$\\tau$ (s)")
         .scale(color=so.Continuous("viridis"))
         .theme(so_theme())
         .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
@@ -167,7 +198,7 @@ def plot_delay_terminal(df_delay):
         .add(so.Band(alpha=0.2))
         .add(so.Dot(pointsize=3))
         .limit(y=(0.8, 0.9))
-        .label(x="Delay (s)", y=f"Coverage at {max_time}s")
+        .label(x="Delay (s)", y=f"Test Success Rate at {max_time}s")
         .theme(so_theme())
         .on(ax)
         .plot()
@@ -194,7 +225,7 @@ def plot_comparison(df_compare, ylim=(0.5, 1.0)):
         .add(so.Line())
         .add(so.Band())
         .limit(y=ylim)
-        .label(x="Time (s)", y="Coverage")
+        .label(x="$t$ (s)", y="Test Success Rate")
         .theme(so_theme())
         .on(ax)
         .plot()
@@ -254,23 +285,82 @@ def plot_frequencies():
     n_frequencies = 100
 
     # Linear frequencies
-    frequencies_linear = linear_frequencies(period, n_frequencies) / 2 / np.pi
-    periods_linear = 1 / frequencies_linear
+    frequencies_linear = linear_frequencies(period, n_frequencies)
+    periods_linear = 2 * np.pi / frequencies_linear
     # Geometric frequencies
-    frequencies_geom = geometric_frequencies(period, n_frequencies) / 2 / np.pi
-    periods_geom = 1 / frequencies_geom
+    frequencies_geom = geometric_frequencies(period, n_frequencies)
+    periods_geom = 2 * np.pi / frequencies_geom
 
     fractional_index = np.arange(n_frequencies) / n_frequencies
     # Plot frequencies
     ax[0].plot(fractional_index, frequencies_linear, label="Linear")
     ax[0].plot(fractional_index, frequencies_geom, label="Geometric")
     ax[0].set_xlabel(r"$k/K$")
-    ax[0].set_ylabel(r"$f_k \quad [\mathrm{m}^{-1}]$")
+    ax[0].set_ylabel(r"$\omega_k \quad [\mathrm{m}^{-1}]$")
     # Plot periods
     ax[1].plot(fractional_index, periods_linear, label="Linear")
     ax[1].plot(fractional_index, periods_geom, label="Geometric")
     ax[1].set_xlabel("$k/K$")
-    ax[1].set_ylabel(r"$1/f_k \quad [\mathrm{m}]$")
+    ax[1].set_ylabel(r"$2\pi/\omega_k \quad [\mathrm{m}]$")
     ax[1].legend()
     plt.close(fig)
     return fig
+
+
+SCENARIO_NAMES = {
+    "circle": "Circle",
+    "two_lines": "Two Lines",
+    "gaussian uniform": "Gaussian-Uniform",
+    "icra": "ICRA",
+    "clusters 1": "Clusters-1",
+    "clusters 5": "Clusters-5",
+    "clusters 10": "Clusters-10",
+    "clusters 20": "Clusters-20",
+    "clusters 25": "Clusters-25",
+}
+
+
+def plot_scenarios(df_scenario):
+    df_scenario = df_scenario.assign(
+        scenario=df_scenario["scenario"].map(SCENARIO_NAMES)
+    )
+    p = (
+        so.Plot(
+            df_scenario,
+            x="time",
+            y="coverage_mean",
+            ymin="coverage_min",
+            ymax="coverage_max",
+            color="scenario",
+        )
+        .facet("policy")
+        .add(so.Line())
+        .add(so.Band())
+        .limit(x=(0, 800))
+        .label(x="$t$ (s)", y="Test Success Rate", color="Scenario")
+        .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
+        .theme(so_theme())
+        .plot()
+    )
+    return p
+
+
+def plot_scenarios_terminal(df_scenarios):
+    df_scenarios = df_scenarios.assign(
+        scenario=df_scenarios["scenario"].map(SCENARIO_NAMES)
+    )
+    p = (
+        so.Plot(
+            df_scenarios.query("time == time.max()"),
+            x="scenario",
+            y="coverage_mean",
+            ymin="coverage_min",
+            ymax="coverage_max",
+            color="policy",
+        )
+        .add(so.Bar(), so.Dodge())
+        .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
+        .theme(so_theme())
+        .plot()
+    )
+    return p

@@ -9,16 +9,27 @@ api = wandb.Api()
 
 DEFAULT_DATA_PATH = Path("/nfs/general/motion_planning_data/test_results")
 
+BASELINE_POLICIES = {"c_sq": "LSAP"} | {f"d{i}_sq": f"DHBA-{i}" for i in range(10)}
+
+
+def load_baseline(
+    policy: str, test_kind: Literal["basic", "scenarios"], data_path=DEFAULT_DATA_PATH
+):
+    filename = f"{policy}.parquet" if test_kind == "basic" else f"{test_kind}.parquet"
+    df = pd.read_parquet(data_path / policy / filename).assign(
+        policy=BASELINE_POLICIES[policy],
+        id=BASELINE_POLICIES[policy],
+    )
+    return df
+
 
 def load_baselines(data_path=DEFAULT_DATA_PATH):
-    policies = {"c_sq": "LSAP"} | {f"d{i}_sq": f"DHBA-{i}" for i in range(10)}
     df = pd.concat(
         [
-            pd.read_parquet(data_path / policy / f"{policy}.parquet").assign(
-                policy=policies[policy],
-                id=policies[policy],
+            load_baseline(policy, "basic", data_path).assign(
+                policy=BASELINE_POLICIES[policy]
             )
-            for policy in policies
+            for policy in BASELINE_POLICIES
         ]
     )
     return df
@@ -65,7 +76,7 @@ def load_delay(
             for id in models_delay
         ],
         ignore_index=True,
-    )
+    ).query("delay_s > 0")
 
 
 def load_comparison(
@@ -122,12 +133,13 @@ def aggregate_results(df):
                 "time",
                 "n_agents",
                 "delay_s",
+                "scenario",
             ]
         )
     )
     keep_columns = list(set(df.columns) - set(gb_columns) - {"coverage", "collisions"})
     return (
-        df.groupby(gb_columns)
+        df.groupby(gb_columns, sort=False)
         .agg(
             coverage_mean=("coverage", "mean"),
             coverage_se=("coverage", "sem"),
@@ -137,9 +149,11 @@ def aggregate_results(df):
         )
         .reset_index()
         .assign(
-            coverage_min=lambda df: df["coverage_mean"] - df["coverage_se"],
-            coverage_max=lambda df: df["coverage_mean"] + df["coverage_se"],
-            collisions_min=lambda df: df["collisions_mean"] - df["collisions_se"],
-            collisions_max=lambda df: df["collisions_mean"] + df["collisions_se"],
+            coverage_min=lambda df: df["coverage_mean"] - 1.96 * df["coverage_se"],
+            coverage_max=lambda df: df["coverage_mean"] + 1.96 * df["coverage_se"],
+            collisions_min=lambda df: df["collisions_mean"]
+            - 1.96 * df["collisions_se"],
+            collisions_max=lambda df: df["collisions_mean"]
+            + 1.96 * df["collisions_se"],
         )
     )
