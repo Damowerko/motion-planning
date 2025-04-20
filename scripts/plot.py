@@ -8,6 +8,7 @@ from motion_planning.plot.plot import (
     plot_frequencies,
     plot_initialization,
     plot_scenarios,
+    plot_scenarios_initialization,
     set_theme_paper,
 )
 from motion_planning.plot.data import (
@@ -72,9 +73,9 @@ def main():
             "khpb9hkx": "Trained w/ conn. mask",
         }
         df_delay = load_delay(models_delay)
-        plot_delay_over_time(df_delay).save(
-            fig_path / "delay-over-time.pdf", bbox_inches="tight"
-        )
+        plot_delay_over_time(
+            df_delay.query("delay_s in [0.2, 0.4, 0.6, 0.8, 1.0]")
+        ).save(fig_path / "delay-over-time.pdf", bbox_inches="tight")
         plot_delay_terminal(df_delay).save(
             fig_path / "delay-terminal.pdf", bbox_inches="tight"
         )
@@ -83,12 +84,14 @@ def main():
         # Plot that compares the masked transformer with DHBA
         logger.info("Comparison plots")
         baselines = ["LSAP", "DHBA-0", "DHBA-4", "DHBA-8"]
+        delay_s = 1.0
         df_compare = load_comparison(
             baselines,
-            {"khpb9hkx": "MAST-M, $\\tau=0.0$"},
-            {"khpb9hkx": "MAST-M, $\\tau=0.1$"},
+            {},
+            {"khpb9hkx": f"MAST-M, $\\tau={delay_s:.1f}$"},
+            delay_s=delay_s,
         )
-        plot_comparison(df_compare).save(
+        plot_comparison(df_compare, ylim=(0.5, 1.01), every=0.1).save(
             fig_path / "compare-baseline.pdf", bbox_inches="tight"
         )
 
@@ -96,16 +99,17 @@ def main():
         df_compare = load_comparison(
             [],
             models={
-                "mixtoko2": "MAST-C",
+                "mixtoko2": "MAST-C, $\\tau=0.0$",
                 "7969mfvs": "MAST-L, $\\tau=0.0$",
                 "khpb9hkx": "MAST-M, $\\tau=0.0$",
             },
             models_delay={
-                "7969mfvs": "MAST-L, $\\tau=0.1$",
-                "khpb9hkx": "MAST-M, $\\tau=0.1$",
+                "7969mfvs": f"MAST-L, $\\tau={delay_s:.1f}$",
+                "khpb9hkx": f"MAST-M, $\\tau={delay_s:.1f}$",
             },
+            delay_s=delay_s,
         )
-        plot_comparison(df_compare, ylim=(0.8, 1.0)).save(
+        plot_comparison(df_compare, ylim=(0.8, 1.01), every=0.05).save(
             fig_path / "compare-transformer.pdf", bbox_inches="tight"
         )
 
@@ -121,7 +125,7 @@ def main():
     if args.plot_scenarios:
         df_scenarios = pd.concat(
             [
-                aggregate_results(load_baseline("d8_sq", "scenarios")),
+                # aggregate_results(load_baseline("d8_sq", "scenarios")),
                 aggregate_results(
                     load_test("khpb9hkx", "scenarios").assign(policy="MAST-M")
                 ),
@@ -130,6 +134,9 @@ def main():
         )
         plot_scenarios(df_scenarios).save(
             fig_path / "scenarios.pdf", bbox_inches="tight"
+        )
+        plot_scenarios_initialization().savefig(
+            fig_path / "scenarios-initialization.pdf", bbox_inches="tight"
         )
 
 

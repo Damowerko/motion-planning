@@ -172,9 +172,11 @@ def plot_delay_over_time(df_delay, window=None) -> so.Plot:
         .add(so.Band(alpha=0.05))
         .add(so.Line(linewidth=0.5))
         .limit(y=(0.75, 0.9))
-        .scale(y=so.Continuous().tick(count=4))
+        .scale(
+            y=so.Continuous().tick(count=4),
+            color=so.Continuous("viridis"),
+        )
         .label(x="$t$ (s)", y="Test Success Rate", color="$\\tau$ (s)")
-        .scale(color=so.Continuous("viridis"))
         .theme(so_theme())
         .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
     )
@@ -197,7 +199,8 @@ def plot_delay_terminal(df_delay):
         .add(so.Line(linewidth=0.5))
         .add(so.Band(alpha=0.2))
         .add(so.Dot(pointsize=3))
-        .limit(y=(0.8, 0.9))
+        .limit(y=(0.75, 0.95))
+        .scale(y=so.Continuous().tick(every=0.05))
         .label(x="Delay (s)", y=f"Test Success Rate at {max_time}s")
         .theme(so_theme())
         .on(ax)
@@ -209,7 +212,7 @@ def plot_delay_terminal(df_delay):
     return p
 
 
-def plot_comparison(df_compare, ylim=(0.5, 1.0)):
+def plot_comparison(df_compare, ylim=(0.5, 1.0), every=0.2):
     f, ax = plt.subplots(
         figsize=(ONE_COLUMN_WIDTH, FIGURE_HEIGHT), layout="constrained"
     )
@@ -225,6 +228,7 @@ def plot_comparison(df_compare, ylim=(0.5, 1.0)):
         .add(so.Line())
         .add(so.Band())
         .limit(y=ylim)
+        .scale(y=so.Continuous().tick(every=every, minor=1))
         .label(x="$t$ (s)", y="Test Success Rate")
         .theme(so_theme())
         .on(ax)
@@ -236,43 +240,43 @@ def plot_comparison(df_compare, ylim=(0.5, 1.0)):
     return p
 
 
+def _plot_initialization(scenario, samples_per_cluster, ax):
+    env = MotionPlanningEnv(
+        scenario=scenario,
+        samples_per_cluster=samples_per_cluster,
+    )
+    env.reset()
+
+    positions = env.positions
+    targets = env.targets
+
+    observed_targets_mask = np.zeros(len(targets), dtype=bool)
+    observed_targets_idx = env._observed_targets()[1].reshape(-1)
+    observed_targets_mask[observed_targets_idx] = True
+
+    observed_targets = targets[observed_targets_mask]
+    unobserved_targets = targets[~observed_targets_mask]
+    edge_index = env.edge_index
+
+    start_pos = positions[edge_index[0]]
+    end_pos = positions[edge_index[1]]
+    segments = list(np.stack([start_pos, end_pos], axis=1))
+
+    ax.add_collection(LineCollection(segments, colors="gray", linewidths=0.5))
+    ax.plot(unobserved_targets[:, 0], unobserved_targets[:, 1], "rx", markersize=3)
+    ax.plot(observed_targets[:, 0], observed_targets[:, 1], "gx", markersize=3)
+    ax.plot(positions[:, 0], positions[:, 1], "bo", markersize=2)
+    ax.set_xlim(-env.width / 2, env.width / 2)
+    ax.set_ylim(-env.width / 2, env.width / 2)
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
 def plot_initialization():
     fig, ax = plt.subplots(1, 3, figsize=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT))
-    for i, (n_agents_per_cluster, n_goals_per_cluster) in enumerate(
-        [(1, 1), (5, 1), (10, 5)]
-    ):
-        env = MotionPlanningEnv(
-            scenario="clusters",
-            samples_per_cluster=(n_agents_per_cluster, n_goals_per_cluster),
-        )
-        env.reset()
-
-        positions = env.positions
-        targets = env.targets
-
-        observed_targets_mask = np.zeros(len(targets), dtype=bool)
-        observed_targets_idx = env._observed_targets()[1].reshape(-1)
-        observed_targets_mask[observed_targets_idx] = True
-
-        observed_targets = targets[observed_targets_mask]
-        unobserved_targets = targets[~observed_targets_mask]
-        edge_index = env.edge_index
-
-        start_pos = positions[edge_index[0]]
-        end_pos = positions[edge_index[1]]
-        segments = list(np.stack([start_pos, end_pos], axis=1))
-
-        ax[i].add_collection(LineCollection(segments, colors="gray", linewidths=0.5))
-        ax[i].plot(
-            unobserved_targets[:, 0], unobserved_targets[:, 1], "rx", markersize=3
-        )
-        ax[i].plot(observed_targets[:, 0], observed_targets[:, 1], "gx", markersize=3)
-        ax[i].plot(positions[:, 0], positions[:, 1], "bo", markersize=2)
-        ax[i].set_xlim(-env.width / 2, env.width / 2)
-        ax[i].set_ylim(-env.width / 2, env.width / 2)
-        ax[i].set_aspect("equal")
-        ax[i].set_xticks([])
-        ax[i].set_yticks([])
+    for i, samples_per_cluster in enumerate([(1, 1), (5, 1), (10, 5)]):
+        _plot_initialization("clusters", samples_per_cluster, ax[i])
     return fig
 
 
@@ -310,7 +314,7 @@ def plot_frequencies():
 SCENARIO_NAMES = {
     "circle": "Circle",
     "two_lines": "Two Lines",
-    "gaussian uniform": "Gaussian-Uniform",
+    # "gaussian uniform": "Gaussian-Uniform",
     "icra": "ICRA",
     "clusters 1": "Clusters-1",
     "clusters 5": "Clusters-5",
@@ -324,6 +328,9 @@ def plot_scenarios(df_scenario):
     df_scenario = df_scenario.assign(
         scenario=df_scenario["scenario"].map(SCENARIO_NAMES)
     )
+    f, ax = plt.subplots(
+        figsize=(ONE_COLUMN_WIDTH, FIGURE_HEIGHT), layout="constrained"
+    )
     p = (
         so.Plot(
             df_scenario,
@@ -333,16 +340,42 @@ def plot_scenarios(df_scenario):
             ymax="coverage_max",
             color="scenario",
         )
-        .facet("policy")
+        # .facet("policy")
         .add(so.Line())
         .add(so.Band())
+        .scale(y=so.Continuous().tick(every=0.2, minor=1))
         .limit(x=(0, 800))
         .label(x="$t$ (s)", y="Test Success Rate", color="Scenario")
-        .layout(size=(TWO_COLUMN_WIDTH, FIGURE_HEIGHT), engine="tight")
         .theme(so_theme())
+        .on(ax)
         .plot()
     )
+    legend = f.legends.pop(0)
+    ax.legend(legend.legend_handles, [t.get_text() for t in legend.texts], ncol=2)
+    plt.close(f)
     return p
+
+
+def plot_scenarios_initialization():
+    f, ax = plt.subplots(
+        2,
+        len(SCENARIO_NAMES) // 2,
+        figsize=(TWO_COLUMN_WIDTH, TWO_COLUMN_WIDTH / 2),
+        layout="constrained",
+    )
+    ax = ax.flatten()
+    for i, scenario in enumerate(SCENARIO_NAMES.keys()):
+        scenario_name = SCENARIO_NAMES[scenario]
+        if "clusters" in scenario:
+            k = int(scenario.split(" ")[1])
+            scenario = "clusters"
+            samples_per_cluster = (k, k)
+        else:
+            samples_per_cluster = (None, None)
+        _plot_initialization(scenario, samples_per_cluster, ax[i])
+        ax[i].set_title(scenario_name)
+    plt.close(f)
+    return f
 
 
 def plot_scenarios_terminal(df_scenarios):

@@ -5,6 +5,7 @@ from pathlib import Path
 import imageio.v3 as iio
 import numpy as np
 import torch
+from motion_planning.utils import compute_width
 
 from motion_planning.envs.motion_planning import MotionPlanningEnvParams
 from motion_planning.evaluate import evaluate_policy
@@ -27,14 +28,18 @@ def main():
     parser.add_argument("--max_steps", type=int, default=200)
     parser.add_argument("--n_trials", type=int, default=10)
     parser.add_argument("--n_workers", type=int)
+    parser.add_argument("--n_agents", type=int, default=100)
+    parser.add_argument("--suffix", type=str, default="")
     params = vars(parser.parse_args())
+
+    width = compute_width(params["n_agents"], 100 / 1000**2)
 
     logger.info(f"Loading model from {params['checkpoint']}")
     model, name = load_model(params["checkpoint"])
     policy = model.model.get_policy_operator().eval()
 
     logger.info("Making video from training distribution")
-    env_params = MotionPlanningEnvParams()
+    env_params = MotionPlanningEnvParams(n_agents=params["n_agents"], width=width)
     logger.info("Running simulation")
     _, frames = evaluate_policy(
         env_params=env_params,
@@ -47,8 +52,12 @@ def main():
     assert frames is not None
 
     for scenario in ["circle", "two_lines", "gaussian_uniform", "icra"]:
+        if scenario == "icra" and params["n_agents"] != 100:
+            continue
         logger.info(f"Making video for scenario: {scenario}")
-        env_params = MotionPlanningEnvParams(scenario=scenario)
+        env_params = MotionPlanningEnvParams(
+            scenario=scenario, n_agents=params["n_agents"], width=width
+        )
         _, _frames = evaluate_policy(
             env_params=env_params,
             policy=policy,
@@ -62,7 +71,7 @@ def main():
     logger.info("Saving video")
     path = Path("data") / "test_results" / name
     path.mkdir(parents=True, exist_ok=True)
-    iio.imwrite(path / f"{name}.mp4", frames, fps=40)
+    iio.imwrite(path / f"{name}{params['suffix']}.mp4", frames, fps=40)
 
 
 if __name__ == "__main__":

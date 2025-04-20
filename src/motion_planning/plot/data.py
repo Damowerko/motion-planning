@@ -76,30 +76,36 @@ def load_delay(
             for id in models_delay
         ],
         ignore_index=True,
-    ).query("delay_s > 0")
+    )
 
 
 def load_comparison(
     baselines: list[str],
     models: dict[str, str],
     models_delay: dict[str, str],
+    delay_s: float = 0.1,
 ):
     df_baseline = aggregate_results(load_baselines()).query(f"policy in {baselines}")
-    df_models = pd.concat(
-        [
-            aggregate_results(load_test(model, "basic")).assign(policy=name)
-            for model, name in models.items()
-        ]
-    )
-    df_delay = load_delay(models_delay)
-    return pd.concat(
-        [
-            df_baseline,
-            df_models,
-            df_delay.query("delay_s == 0.1").assign(policy=lambda df: df["policy"]),
-        ],
-        ignore_index=True,
-    )
+    if len(models) > 0:
+        df_models = pd.concat(
+            [
+                aggregate_results(load_test(model, "basic")).assign(policy=name)
+                for model, name in models.items()
+            ]
+        )
+    if len(models_delay) > 0:
+        df_delay = (
+            load_delay(models_delay)
+            .query(f"delay_s == {delay_s}")
+            .assign(policy=lambda df: df["policy"])
+        )
+
+    dfs = [df_baseline]
+    if len(models) > 0:
+        dfs.append(df_models)
+    if len(models_delay) > 0:
+        dfs.append(df_delay)
+    return pd.concat(dfs, ignore_index=True)
 
 
 def df_from_tag(
