@@ -94,7 +94,7 @@ def reinforce(params: dict):
     if params["checkpoint"]:
         params["pretrain"] = True
         logger.info("Resuming from pretraining.")
-        lightning_module, _ = load_model(params["checkpoint"])
+        lightning_module, _ = load_model(params["checkpoint"], False)
         model = lightning_module.model
     else:
         params["pretrain"] = False

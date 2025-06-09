@@ -141,6 +141,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.grad_clip_norm = grad_clip_norm
         self.grad_clip_p = grad_clip_p
         self.exploration_policy = OrnsteinUhlenbeckProcessWrapper(self.model.get_policy_operator())
+        # self.exploration_policy = self.model.get_policy_operator()
 
         if expert_weight > 0.0:
             self.expert_policy = expert_policy

@@ -379,7 +379,8 @@ class MotionPlanningEnv(EnvBase):
             assert (row_idx == np.arange(self.n_agents)).all()
             # use the distance to the optimal assignment agent as a reward
             distances = self.dist_pt[row_idx, col_idx]
-            reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
+            # reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
+            reward_coverage = -distances
 
         # count the number of collisions per agent
         collisions_per_agent = (
