@@ -2,6 +2,7 @@
 # Project Top-Level Dirs
 /logs
 /data
+/data_old
 /figures
 /cluster
 /out

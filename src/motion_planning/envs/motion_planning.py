@@ -37,6 +37,7 @@ class MotionPlanningRender:
         self,
         goal_positions,
         agent_positions,
+        obs_positions,
         reward,
         coverage,
         observed_targets,
@@ -127,7 +128,7 @@ def index_to_coo(idx):
     return scipy.sparse.coo_matrix((data, (i, j)), shape=(N, N))
 
 
-def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarray]):
+def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarray], obstacles: Optional[np.ndarray] = None, obs_r: Optional[float] = None):
     """
     Sample n positions without collisions within a given radius r.
 
@@ -135,6 +136,8 @@ def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarra
         n: The number of positions to sample.
         r: The minimum distance between positions.
         sampler: A function that samples positions given the number of positions to sample.
+        obstacles (optional): Obstacles that the sampled collisions should not collide with
+        obs_r (optional): Obstacle radius
     """
     # set of indices of agents that were changed in this iteration
     idx: np.ndarray = np.arange(n)
@@ -143,11 +146,19 @@ def collision_free_sampling(n: int, r: float, sampler: Callable[[int], np.ndarra
         dist = cdist(positions, positions[idx])
         dist[idx, np.arange(len(idx))] = np.inf
         min_dist = dist.min(axis=0)
-        if (min_dist >= 2 * r).all():
-            break
-        # find indices of agents that are too close and need to be changed
-        # this set will be monotonically decreasing
-        idx = idx[min_dist < 2 * r]
+
+        if obstacles is not None and obs_r:
+            dist_obs = cdist(obstacles, positions[idx])
+            min_dist_obs = dist_obs.min(axis=0)
+            if (min_dist >= 2 * r).all() and (min_dist_obs >= r + obs_r).all():
+                break
+            # find indices of agents that are too close and need to be changed
+            # this set will be monotonically decreasing
+            idx = idx[np.logical_or(min_dist < 2 * r, min_dist_obs < r + obs_r)]
+        else:
+            if (min_dist >= 2 * r).all():
+                break
+            idx = idx[min_dist < 2 * r]
         positions[idx] = sampler(idx.shape[0])
     return positions
 
@@ -187,6 +198,7 @@ class MotionPlanning(GraphEnv):
     ):
         self.n_agents = n_agents
         self.n_targets = n_agents
+        self.n_obstacles = 5
 
         if scenario not in self.scenarios:
             raise ValueError(
@@ -206,8 +218,10 @@ class MotionPlanning(GraphEnv):
         # agent properties
         self.max_vel = 0.5
         self.agent_radius = agent_radius
+        self.obstacle_radius = 0.5
         self.n_observed_agents = 3
         self.n_observed_targets = 3
+        self.n_observed_obstacles = 2
 
         # comm graph properties
         self.n_neighbors = 3
@@ -229,6 +243,7 @@ class MotionPlanning(GraphEnv):
             self.state_ndim / 2
             + self.n_observed_targets * 2
             + self.n_observed_agents * 2
+            + self.n_observed_obstacles * 2
         )
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -344,16 +359,21 @@ class MotionPlanning(GraphEnv):
         idx = idx[:, 1:]  # remove self
         return self.position[idx] - self.position[:, np.newaxis, :]
 
+    def _observed_obstacles(self):
+        idx = argtopk(-self.dist_po, self.n_observed_obstacles, axis=1)
+        return self.obstacle_positions[idx, :] - self.position[:, np.newaxis, :]
+
     def _observed_targets(self):
         idx = argtopk(-self.dist_pt, self.n_observed_targets, axis=1)
         return self.target_positions[idx, :] - self.position[:, np.newaxis, :]
 
     def _observation(self):
         tgt = self._observed_targets().reshape(self.n_agents, -1)
+        obs = self._observed_obstacles().reshape(self.n_agents, -1)
         agt = self._observed_agents().reshape(self.n_agents, -1)
-        obs = np.concatenate((self.state[:, 2:], tgt, agt), axis=1)
-        assert obs.shape == self.observation_space.shape  # type: ignore
-        return obs
+        o = np.concatenate((self.state[:, 2:], tgt, agt, obs), axis=1)
+        assert o.shape == self.observation_space.shape  # type: ignore
+        return o
 
     def _centralized_state(self):
         return np.concatenate((self.position, self.target_positions), axis=1)
@@ -365,6 +385,7 @@ class MotionPlanning(GraphEnv):
     def _compute_distances(self):
         self.dist_pp = cdist(self.position, self.position)
         self.dist_pt = cdist(self.position, self.target_positions)
+        self.dist_po = cdist(self.position, self.obstacle_positions)
 
     def n_collisions(self, r: float) -> int:
         x_idx, y_idx = np.triu_indices_from(self.dist_pp, k=1)
@@ -379,7 +400,8 @@ class MotionPlanning(GraphEnv):
         reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
         # count the number of collisions per agent
         n_collisions_per_agent = (
-            np.sum(self.dist_pp < 2 * self.agent_radius, axis=1) - 1
+            np.sum(self.dist_pp < 2 * self.agent_radius, axis=1) - 1 +
+            np.sum(self.dist_po < self.obstacle_radius + self.agent_radius, axis=1)
         )
         penalty_collision = self.collision_coefficient * n_collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
@@ -408,22 +430,34 @@ class MotionPlanning(GraphEnv):
         self.state = np.zeros((self.n_agents, self.state_ndim))
         if self.scenario == "uniform":
             sampler = lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2))
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.target_positions = collision_free_sampling(
-                self.n_targets, self.agent_radius, sampler
+                self.n_targets, self.agent_radius, sampler, self.obstacle_positions, self.obstacle_radius
             )
             self.position = collision_free_sampling(
-                self.n_agents, self.agent_radius, sampler
+                self.n_agents, self.agent_radius, sampler, self.obstacle_positions, self.obstacle_radius
             )
         elif self.scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
             # targets are uniformly distributed
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.target_positions = collision_free_sampling(
                 self.n_targets,
                 self.agent_radius,
                 lambda n: rng.uniform(-self.width / 2, self.width / 2, (n, 2)),
+                self.obstacle_positions,
+                self.obstacle_radius,
             )
             self.position = collision_free_sampling(
-                self.n_agents, self.agent_radius, lambda n: rng.normal(size=(n, 2))
+                self.n_agents,
+                self.agent_radius,
+                lambda n: rng.normal(size=(n, 2)),
+                self.obstacle_positions,
+                self.obstacle_radius,
             )
         elif self.scenario == "circle":
             def circ_sampler(n):
@@ -431,6 +465,9 @@ class MotionPlanning(GraphEnv):
                 angle = rng.uniform(-np.pi, np.pi, (n, 1))
                 return np.concatenate([radius * np.cos(angle), radius * np.sin(angle)], axis=1)
             
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.target_positions = collision_free_sampling(
                 self.n_targets,
                 self.agent_radius,
@@ -448,6 +485,9 @@ class MotionPlanning(GraphEnv):
                 ),
                 rng.uniform(-self.width / 2, self.width / 2, (n, 1))
             ], axis=1))
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.position = collision_free_sampling(
                 self.n_targets, self.agent_radius, sampler(1)
             )
@@ -455,6 +495,9 @@ class MotionPlanning(GraphEnv):
                 self.n_targets, self.agent_radius, sampler(0)
             )
         elif self.scenario == "icra":
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.position = collision_free_sampling(
                 self.n_targets,
                 self.agent_radius,
@@ -560,6 +603,9 @@ class MotionPlanning(GraphEnv):
             self.target_positions = np.concatenate([i_points, c_points, r_points, a_points, others], axis=0)
         elif self.scenario == "q-scenario":
             # collision free sampling
+            self.obstacle_positions = collision_free_sampling(
+                self.n_obstacles, self.obstacle_radius, sampler
+            )
             self.target_positions = collision_free_sampling(
                 self.n_targets,
                 self.agent_radius,
@@ -588,6 +634,7 @@ class MotionPlanning(GraphEnv):
         return self.render_.render(
             self.target_positions.T,
             self.position.T,
+            self.obstacle_positions,
             self._reward(),
             self.coverage(),
             self._observed_targets(),

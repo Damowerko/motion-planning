@@ -59,7 +59,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.ac_target = deepcopy(self.ac)
 
         if pretrain:
-            self.frozen_epochs = 100
+            self.frozen_epochs = 50
             self.warmup_epochs = 50
         else:
             self.frozen_epochs = 0
@@ -186,23 +186,23 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         opt_critic1.zero_grad()
         self.manual_backward(loss_q1)
         torch.nn.utils.clip_grad_norm_(self.ac.critic.parameters(), 1e-2)
-        for name, param in self.ac.critic.named_parameters():
-            self.log(
-                f"train/critic1_gradients/{name}",
-                param.grad.mean(),
-                batch_size=data.batch_size,
-            )
+        # for name, param in self.ac.critic.named_parameters():
+        #     self.log(
+        #         f"train/critic1_gradients/{name}",
+        #         param.grad.mean(),
+        #         batch_size=data.batch_size,
+        #     )
         opt_critic1.step()
 
         opt_critic2.zero_grad()
         self.manual_backward(loss_q2)
         torch.nn.utils.clip_grad_norm_(self.ac.critic2.parameters(), 1e-2)
-        for name, param in self.ac.critic2.named_parameters():
-            self.log(
-                f"train/critic2_gradients/{name}",
-                param.grad.mean(),
-                batch_size=data.batch_size,
-            )
+        # for name, param in self.ac.critic2.named_parameters():
+        #     self.log(
+        #         f"train/critic2_gradients/{name}",
+        #         param.grad.mean(),
+        #         batch_size=data.batch_size,
+        #     )
         opt_critic2.step()
 
         self.delay_count += 1
@@ -223,14 +223,14 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.zero_grad()
             self.manual_backward(loss_pi)
             torch.nn.utils.clip_grad_norm_(self.ac.actor.parameters(), 1e-2)
-            for name, param in self.ac.actor.named_parameters():
-                if param.grad is None:
-                    continue
-                self.log(
-                    f"train/actor_gradients/{name}",
-                    param.grad.mean(),
-                    batch_size=data.batch_size,
-                )
+            # for name, param in self.ac.actor.named_parameters():
+            #     if param.grad is None:
+            #         continue
+            #     self.log(
+            #         f"train/actor_gradients/{name}",
+            #         param.grad.mean(),
+            #         batch_size=data.batch_size,
+            #     )
             opt_actor.step()
 
             # Unfreeze the critic network

@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import pygame
+# import pygame
 import networkx as nx
 import imageio.v3 as iio
 import matplotlib.pyplot as plt
@@ -32,143 +32,143 @@ from motion_planning.models import (
 )
 
 
-class MotionPlanningVideo:
-    def transform(self, position):
-        return self.screen_width / 2 + self.padding + position * self.scaler
+# class MotionPlanningVideo:
+#     def transform(self, position):
+#         return self.screen_width / 2 + self.padding + position * self.scaler
 
-    class Drone:
-        def __init__(self, x, y, x_vel, y_vel, agent_radius):
-            self.x = x
-            self.y = y
-            theta = np.arctan2(y_vel, x_vel)
-            if np.sqrt(np.power(x_vel, 2) + np.power(y_vel, 2)) < 0.1:
-                theta = 0
-            self.rot = np.array(
-                [[np.cos(theta), -np.sin(theta)],
-                [np.sin(theta), np.cos(theta)]]
-            )
-            self.agent_radius = agent_radius * 2
+#     class Drone:
+#         def __init__(self, x, y, x_vel, y_vel, agent_radius):
+#             self.x = x
+#             self.y = y
+#             theta = np.arctan2(y_vel, x_vel)
+#             if np.sqrt(np.power(x_vel, 2) + np.power(y_vel, 2)) < 0.1:
+#                 theta = 0
+#             self.rot = np.array(
+#                 [[np.cos(theta), -np.sin(theta)],
+#                 [np.sin(theta), np.cos(theta)]]
+#             )
+#             self.agent_radius = agent_radius * 2
         
-        def draw(self, surf):
-            center = np.asarray((self.x, self.y))
-            coords = [
-                (self.x - self.agent_radius / 2, self.y - self.agent_radius / 2),
-                (self.x + self.agent_radius / 2, self.y - self.agent_radius / 2),
-                (self.x + self.agent_radius / 2, self.y + self.agent_radius / 2),
-                (self.x - self.agent_radius / 2, self.y + self.agent_radius / 2),
-            ]
+#         def draw(self, surf):
+#             center = np.asarray((self.x, self.y))
+#             coords = [
+#                 (self.x - self.agent_radius / 2, self.y - self.agent_radius / 2),
+#                 (self.x + self.agent_radius / 2, self.y - self.agent_radius / 2),
+#                 (self.x + self.agent_radius / 2, self.y + self.agent_radius / 2),
+#                 (self.x - self.agent_radius / 2, self.y + self.agent_radius / 2),
+#             ]
 
-            for i in range(4):
-                coords[i] = self.rot @ np.asarray(coords[i] - center) + center
+#             for i in range(4):
+#                 coords[i] = self.rot @ np.asarray(coords[i] - center) + center
 
-            for coord in coords:
-                pygame.draw.circle(surf, (0, 0, 255), coord, self.agent_radius / 2)
-            pygame.draw.polygon(surf, (0, 0, 255), coords)
-            for coord in coords:
-                pygame.draw.circle(surf, (255, 255, 255), coord, self.agent_radius / 4)
+#             for coord in coords:
+#                 pygame.draw.circle(surf, (0, 0, 255), coord, self.agent_radius / 2)
+#             pygame.draw.polygon(surf, (0, 0, 255), coords)
+#             for coord in coords:
+#                 pygame.draw.circle(surf, (255, 255, 255), coord, self.agent_radius / 4)
     
-    class Target:
-        def __init__(self, x, y, target_radius):
-            self.x = x
-            self.y = y
-            self.target_radius = target_radius * 2
+#     class Target:
+#         def __init__(self, x, y, target_radius):
+#             self.x = x
+#             self.y = y
+#             self.target_radius = target_radius * 2
         
-        def draw(self, surf):
-            pygame.draw.circle(surf, (255, 0, 0), (self.x, self.y), self.target_radius)
-            pygame.draw.circle(surf, (255, 255, 255), (self.x, self.y), 2 * self.target_radius / 3)
-            pygame.draw.circle(surf, (255, 0, 0), (self.x, self.y), self.target_radius / 3)
+#         def draw(self, surf):
+#             pygame.draw.circle(surf, (255, 0, 0), (self.x, self.y), self.target_radius)
+#             pygame.draw.circle(surf, (255, 255, 255), (self.x, self.y), 2 * self.target_radius / 3)
+#             pygame.draw.circle(surf, (255, 0, 0), (self.x, self.y), self.target_radius / 3)
     
-    class Graph:
-        def __init__(self, adjacency, agent_pos):
-            self.G = nx.from_scipy_sparse_array(adjacency)
-            self.G.remove_edges_from(nx.selfloop_edges(self.G))
-            self.agent_pos = agent_pos
+#     class Graph:
+#         def __init__(self, adjacency, agent_pos):
+#             self.G = nx.from_scipy_sparse_array(adjacency)
+#             self.G.remove_edges_from(nx.selfloop_edges(self.G))
+#             self.agent_pos = agent_pos
         
-        def draw(self, surf):
-            for edge in self.G.edges:
-                pygame.draw.line(surf, (0, 0, 0), self.agent_pos[edge[0]], self.agent_pos[edge[1]], width=2)
+#         def draw(self, surf):
+#             for edge in self.G.edges:
+#                 pygame.draw.line(surf, (0, 0, 0), self.agent_pos[edge[0]], self.agent_pos[edge[1]], width=2)
 
-    def __init__(self, width, n_agents, agent_radius, max_steps, scenario='uniform', baseline=False):
-        self.width = width
-        self.n_agents = n_agents
-        self.agent_radius = agent_radius
-        self.target_radius = agent_radius
-        self.curr_step = 0
-        self.max_steps = max_steps
-        self.baseline = baseline
+#     def __init__(self, width, n_agents, agent_radius, max_steps, scenario='uniform', baseline=False):
+#         self.width = width
+#         self.n_agents = n_agents
+#         self.agent_radius = agent_radius
+#         self.target_radius = agent_radius
+#         self.curr_step = 0
+#         self.max_steps = max_steps
+#         self.baseline = baseline
 
-        self.env = MotionPlanning(n_agents, width, agent_radius, scenario=scenario)
+#         self.env = MotionPlanning(n_agents, width, agent_radius, scenario=scenario)
 
-        self._running = True
-        self._display = None
-        self.observations = self.c_state = None
-        self.done = False
-        self.scaler = 120
-        self.padding = 4
-        self.total_scale = self.scaler + 2 * self.padding
-        self.size = self.screen_width, self.screen_height = width * self.total_scale, width * self.total_scale
+#         self._running = True
+#         self._display = None
+#         self.observations = self.c_state = None
+#         self.done = False
+#         self.scaler = 120
+#         self.padding = 4
+#         self.total_scale = self.scaler + 2 * self.padding
+#         self.size = self.screen_width, self.screen_height = width * self.total_scale, width * self.total_scale
     
-    def on_init(self):
-        pygame.init()
-        self._display = pygame.display.set_mode(self.size)
-        self._running = True
-        self.observations, self.c_state = self.env.reset()
+#     def on_init(self):
+#         pygame.init()
+#         self._display = pygame.display.set_mode(self.size)
+#         self._running = True
+#         self.observations, self.c_state = self.env.reset()
     
-    def on_event(self, event):
-        if event.type == pygame.QUIT:
-            self._running = False
-    def on_loop(self, policy_fn):
-        if self.baseline:
-            action = policy_fn(
-                self.observations,
-                self.env.adjacency()
-            )
-        else:
-            action = policy_fn(
-                self.observations,
-                self.c_state,
-                self.curr_step + 1,
-                self.env.adjacency()
-            )
-        self.observations, self.c_state, _, self.done, _ = self.env.step(action)
-        # print(action == self.env.clip_action(self.env._observed_targets()[:,0,:]))
-        self.curr_step += 1
-    def on_render(self):
-        self._display.fill((255, 255, 255))
-        self.Graph(self.env.adjacency(), self.transform(self.env.position)).draw(self._display)
-        for i in range(self.env.n_targets):
-            self.Target(*self.transform(self.env.target_positions[i]), self.target_radius * self.scaler).draw(self._display)
-        for i in range(self.n_agents):
-            self.Drone(*self.transform(self.env.position[i]), *self.env.velocity[i], self.agent_radius * self.scaler).draw(self._display)
-        pygame.display.update()
-    def on_cleanup(self):
-        pygame.quit()
+#     def on_event(self, event):
+#         if event.type == pygame.QUIT:
+#             self._running = False
+#     def on_loop(self, policy_fn):
+#         if self.baseline:
+#             action = policy_fn(
+#                 self.observations,
+#                 self.env.adjacency()
+#             )
+#         else:
+#             action = policy_fn(
+#                 self.observations,
+#                 self.c_state,
+#                 self.curr_step + 1,
+#                 self.env.adjacency()
+#             )
+#         self.observations, self.c_state, _, self.done, _ = self.env.step(action)
+#         # print(action == self.env.clip_action(self.env._observed_targets()[:,0,:]))
+#         self.curr_step += 1
+#     def on_render(self):
+#         self._display.fill((255, 255, 255))
+#         self.Graph(self.env.adjacency(), self.transform(self.env.position)).draw(self._display)
+#         for i in range(self.env.n_targets):
+#             self.Target(*self.transform(self.env.target_positions[i]), self.target_radius * self.scaler).draw(self._display)
+#         for i in range(self.n_agents):
+#             self.Drone(*self.transform(self.env.position[i]), *self.env.velocity[i], self.agent_radius * self.scaler).draw(self._display)
+#         pygame.display.update()
+#     def on_cleanup(self):
+#         pygame.quit()
     
-    def get_image(self):
-        return pygame.surfarray.array3d(self._display)[..., :3].copy()
+#     def get_image(self):
+#         return pygame.surfarray.array3d(self._display)[..., :3].copy()
 
-    def on_execute(self, policy_fn):
-        if self.on_init() == False:
-            self._running = False
+#     def on_execute(self, policy_fn):
+#         if self.on_init() == False:
+#             self._running = False
         
-        images = []
-        while self._running:
-            for event in pygame.event.get():
-                self.on_event(event)
+#         images = []
+#         while self._running:
+#             for event in pygame.event.get():
+#                 self.on_event(event)
             
-            self.on_loop(policy_fn)
-            self.on_render()
-            images.append(self.get_image())
+#             self.on_loop(policy_fn)
+#             self.on_render()
+#             images.append(self.get_image())
 
-            if self.curr_step == self.max_steps or self.done:
-                self._running = False
-        self.on_cleanup()
-        return images
+#             if self.curr_step == self.max_steps or self.done:
+#                 self._running = False
+#         self.on_cleanup()
+#         return images
     
-    def save_video(self, path, name, policy_fn):
-        path.mkdir(parents=True, exist_ok=True)
-        images = np.asarray(self.on_execute(policy_fn))
-        iio.imwrite(path / f"{name}.mp4", images, fps=30)
+#     def save_video(self, path, name, policy_fn):
+#         path.mkdir(parents=True, exist_ok=True)
+#         images = np.asarray(self.on_execute(policy_fn))
+#         iio.imwrite(path / f"{name}.mp4", images, fps=30)
 
 
 def main():
@@ -457,13 +457,13 @@ def baseline(params):
     else:
         raise ValueError(f"Invalid policy {params.policy}.")
 
-    # data, frames = rollout(env, policy_fn, params, baseline=True)
-    # save_results(
-    #     params.policy, Path("data") / "test_results" / params.policy, data, frames
-    # )
-    sim = MotionPlanningVideo(params.width, params.n_agents, params.agent_radius, params.max_steps, scenario=params.scenario, baseline=True)
-    name_scenario = f'{params.policy}-{params.scenario}'
-    sim.save_video(Path("data") / "test_results" / params.policy, name_scenario, policy_fn)
+    data, frames = rollout(env, policy_fn, params, baseline=True)
+    save_results(
+        params.policy, Path("data") / "test_results" / params.policy, data, frames
+    )
+    # sim = MotionPlanningVideo(params.width, params.n_agents, params.agent_radius, params.max_steps, scenario=params.scenario, baseline=True)
+    # name_scenario = f'{params.policy}-{params.scenario}'
+    # sim.save_video(Path("data") / "test_results" / params.policy, name_scenario, policy_fn)
 
 
 def test(params):
@@ -474,7 +474,7 @@ def test(params):
         agent_radius=params.agent_radius + params.agent_margin,
         collision_coefficient=params.collision_coefficient,
     )
-    model, name = load_model(params.checkpoint)
+    model, name = load_model(params.checkpoint, best=False)
     model = model.eval()
 
     @torch.no_grad()
@@ -482,11 +482,11 @@ def test(params):
         data = model.to_data(observation, centralized_state, step, graph)
         return model.ac.actor.forward(data.state, data)[0].detach().cpu().numpy()
 
-    # data, frames = rollout(env, policy_fn, params)
-    # save_results(name, Path("data") / "test_results" / name, data, frames)
-    sim = MotionPlanningVideo(params.width, params.n_agents, params.agent_radius, params.max_steps, scenario=params.scenario)
-    name_scenario = f'{name}-{params.scenario}'
-    sim.save_video(Path("data") / "test_results" / name, name_scenario, policy_fn)
+    data, frames = rollout(env, policy_fn, params)
+    save_results(name, Path("data_old") / "test_results" / name, data, frames)
+    # sim = MotionPlanningVideo(params.width, params.n_agents, params.agent_radius, params.max_steps, scenario=params.scenario)
+    # name_scenario = f'{name}-{params.scenario}'
+    # sim.save_video(Path("data_old") / "test_results" / name, name_scenario, policy_fn)
 
 
 def test_q(params):

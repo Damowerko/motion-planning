@@ -19,7 +19,7 @@ class Parameters:
     agent_radius: float = 0.05
     agent_margin: float = 0.05
     scenario: str = "uniform"
-    checkpoint: str = "wandb://test-team-12/motion-planning/j0pmfvt9"
+    checkpoint: str = "wandb://damowerko-academic/motion-planning/nhrudg38"
     n_trials: int = 50
     max_steps: int = 200
 
@@ -78,7 +78,7 @@ def main():
         futures: List[Future] = []
         for radius in [0.05, 0.1, 0.2, 0.3, 0.4]:
             futures.append(e.submit(evaluate, Parameters(agent_radius=radius)))
-        pd.concat([f.result() for f in futures]).to_parquet(Path("data/radius.parquet"))
+        pd.concat([f.result() for f in futures]).to_parquet(Path("data_old/radius.parquet"))
 
         # futures: List[Future] = []
         # for n_agents in [10, 50, 100, 200, 500]:
