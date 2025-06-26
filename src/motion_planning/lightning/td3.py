@@ -10,10 +10,15 @@ from torchrl.objectives import SoftUpdate
 from torchrl.objectives import TD3BCLoss as _TD3BCLoss
 from torchrl.objectives import TD3Loss as _TD3Loss
 
+from torchrl.envs.utils import step_mdp
+from torchrl.objectives.utils import (
+    _reduce,
+    distance_loss,
+)
+
 from motion_planning.lightning.base import MotionPlanningActorCritic
 
 logger = logging.getLogger(__name__)
-from torchrl.objectives.utils import _reduce
 
 
 class TD3Loss(_TD3Loss):

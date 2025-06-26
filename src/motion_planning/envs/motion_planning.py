@@ -160,8 +160,8 @@ class MotionPlanningEnv(EnvBase):
         if self.expert_policy is not None:
             self.observation_spec["expert"] = self.action_spec.clone()
         self.observation_spec
-        self.reward_spec = Unbounded(shape=torch.Size((1,)), dtype=torch.float32)
-        self.done_spec = Categorical(2, torch.Size((1,)), dtype=torch.bool)
+        self.reward_spec = Unbounded(shape=torch.Size((self.n_agents, 1)), dtype=torch.float32)
+        self.done_spec = Categorical(2, torch.Size((self.n_agents, 1)), dtype=torch.bool)
 
     def _set_seed(self, seed: int | None = None):
         self.rng = np.random.default_rng(seed)
@@ -389,7 +389,8 @@ class MotionPlanningEnv(EnvBase):
         penalty_collision = self.collision_coefficient * collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
         reward = reward_coverage - penalty_collision
-        return reward.mean()
+        # reward = -np.min(self.dist_pt, axis=-1)
+        return reward
 
     def components(self) -> np.ndarray:
         """
@@ -454,8 +455,8 @@ class MotionPlanningEnv(EnvBase):
         self._compute_distances()
         self._compute_graph()
         output = self._make_output()
-        output["reward"] = (torch.as_tensor(self._reward()).float(),)
-        output["done"] = (torch.as_tensor(False),)
+        output["reward"] = torch.as_tensor(self._reward()).float().unsqueeze(1)
+        output["done"] = torch.as_tensor([False] * self.n_agents).unsqueeze(1)
         return output
 
     def _reset(self, *args) -> TensorDictBase:
