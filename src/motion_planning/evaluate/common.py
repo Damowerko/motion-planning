@@ -130,11 +130,16 @@ def td_to_df(td: TensorDictBase) -> pd.DataFrame:
     td_selected["trial"] = torch.arange(n_trials, dtype=torch.long)[:, None].expand(
         -1, n_steps
     )
+
     for key in td_selected.keys():
+        if key in ["reward", "step"]:
+            td_selected[key] = td_selected[key].double().mean(axis=2)
+    
         if key in ["trial", "step", "collisions"]:
             td_selected[key] = td_selected[key].long()
         else:
             td_selected[key] = td_selected[key].double()
+
     return pd.DataFrame(td_selected.reshape(-1).apply(torch.squeeze).numpy())
 
 

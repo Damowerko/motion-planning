@@ -158,8 +158,10 @@ def make_trainer(
         )
 
         if params["operation"] == "imitation":
-            monitor = "val/actor_loss"
-            mode = "min"
+            # monitor = "val/actor_loss"
+            # mode = "min"
+            monitor = "val/coverage"
+            mode = "max"
         else:
             monitor = "val/reward"
             mode = "max"

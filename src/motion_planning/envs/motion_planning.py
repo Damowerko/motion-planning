@@ -370,7 +370,7 @@ class MotionPlanningEnv(EnvBase):
             row_idx, col_idx = linear_sum_assignment(gaussian_pt, maximize=True)
             # use the distance to the optimal assignment agent as a reward
             reward_coverage = gaussian_pt[row_idx, col_idx]
-        elif self.coverage_reward == "dist_sq" or self.reward == "dist":
+        elif self.coverage_reward == "dist_sq" or self.coverage_reward == "dist":
             if self.coverage_reward == "dist_sq":
                 cost = self.dist_pt**2
             else:
@@ -379,8 +379,7 @@ class MotionPlanningEnv(EnvBase):
             assert (row_idx == np.arange(self.n_agents)).all()
             # use the distance to the optimal assignment agent as a reward
             distances = self.dist_pt[row_idx, col_idx]
-            # reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
-            reward_coverage = -distances
+            reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
 
         # count the number of collisions per agent
         collisions_per_agent = (
@@ -389,7 +388,7 @@ class MotionPlanningEnv(EnvBase):
         penalty_collision = self.collision_coefficient * collisions_per_agent
         # the reward for each agent is the coverage reward minus the collision penalty
         reward = reward_coverage - penalty_collision
-        # reward = -np.min(self.dist_pt, axis=-1)
+        # reward = np.exp(-((np.min(self.dist_pt, axis=-1) / self.reward_sigma) ** 2))
         return reward
 
     def components(self) -> np.ndarray:

@@ -36,9 +36,9 @@ def main():
     params = vars(parser.parse_args())
 
     logger.info(f"Loading model from {params['checkpoint']}")
-    model, name = load_model(params["checkpoint"])
+    model, name = load_model(params["checkpoint"], best=False)
     policy = model.model.get_policy_operator().eval()
-    path = Path("data_old") / "test_results" / name
+    path = Path("data") / "test_results" / name
 
     env_params = MotionPlanningEnvParams()
 
