@@ -50,6 +50,9 @@ def main():
         render=True,
     )
     assert frames is not None
+    path = Path("data") / "test_results" / name
+    path.mkdir(parents=True, exist_ok=True)
+    iio.imwrite(path / f"{name}-clusters.gif", frames, fps=40)
 
     for scenario in ["circle", "two_lines", "gaussian_uniform", "icra"]:
         if scenario == "icra" and params["n_agents"] != 100:
@@ -62,14 +65,17 @@ def main():
             env_params=env_params,
             policy=policy,
             max_steps=2 * params["max_steps"],
-            num_episodes=3,
-            num_workers=3,
+            num_episodes=2,
+            num_workers=2,
             render=True,
         )
         assert _frames is not None
+        if scenario == "two_lines":
+            iio.imwrite(path / f"{name}-two_lines.gif", _frames, fps=40)
+        if scenario == "icra":
+            iio.imwrite(path / f"{name}-icra.gif", _frames, fps=40)
         frames = np.concatenate([frames, _frames])
     logger.info("Saving video")
-    path = Path("data") / "test_results" / name
     path.mkdir(parents=True, exist_ok=True)
     iio.imwrite(path / f"{name}{params['suffix']}.mp4", frames, fps=40)
 

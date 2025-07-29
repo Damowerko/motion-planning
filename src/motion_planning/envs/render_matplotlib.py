@@ -95,7 +95,7 @@ class MotionPlanningRender:
 
         # Update title
         self.title.set_text(
-            f"Reward: {reward:.2f}, Coverage: {np.round(coverage*100)}%"
+            f"Reward: {reward.mean():.2f}, Coverage: {np.round(coverage*100)}%"
         )
 
         # Draw each artist

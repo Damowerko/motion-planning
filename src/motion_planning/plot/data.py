@@ -8,6 +8,7 @@ import wandb
 api = wandb.Api()
 
 DEFAULT_DATA_PATH = Path("/nfs/general/motion_planning_data/test_results")
+# DEFAULT_DATA_PATH = Path("data/test_results")
 
 BASELINE_POLICIES = {"c_sq": "LSAP"} | {f"d{i}_sq": f"DHBA-{i}" for i in range(10)}
 

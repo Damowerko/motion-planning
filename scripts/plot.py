@@ -40,7 +40,7 @@ def main():
     parser.add_argument("--no-scenarios", dest="plot_scenarios", action="store_false")
     args = parser.parse_args()
 
-    fig_path = Path("figures/journal")
+    fig_path = Path("data/journal")
 
     set_theme_paper()
 
@@ -83,34 +83,39 @@ def main():
     if args.plot_comparison:
         # Plot that compares the masked transformer with DHBA
         logger.info("Comparison plots")
-        baselines = ["LSAP", "DHBA-0", "DHBA-4", "DHBA-8"]
-        delay_s = 1.0
-        df_compare = load_comparison(
-            baselines,
-            {},
-            {"khpb9hkx": f"MAST-M, $\\tau={delay_s:.1f}$"},
-            delay_s=delay_s,
-        )
-        plot_comparison(df_compare, ylim=(0.5, 1.01), every=0.1).save(
-            fig_path / "compare-baseline.pdf", bbox_inches="tight"
-        )
+        # baselines = ["LSAP", "DHBA-0", "DHBA-4", "DHBA-8"]
+        # delay_s = 1.0
+        # df_compare = load_comparison(
+        #     baselines,
+        #     {},
+        #     {"khpb9hkx": f"MAST-M, $\\tau={delay_s:.1f}$"},
+        #     delay_s=delay_s,
+        # )
+        # plot_comparison(df_compare, ylim=(0.5, 1.01), every=0.1).save(
+        #     fig_path / "compare-baseline.pdf", bbox_inches="tight"
+        # )
 
         # Plot that compares the different transformer models
         df_compare = load_comparison(
             [],
+            # models={
+            #     "mixtoko2": "MAST-C, $\\tau=0.0$",
+            #     "7969mfvs": "MAST-L, $\\tau=0.0$",
+            #     "khpb9hkx": "MAST-M, $\\tau=0.0$",
+            # },
+            # models_delay={
+            #     "7969mfvs": f"MAST-L, $\\tau={delay_s:.1f}$",
+            #     "khpb9hkx": f"MAST-M, $\\tau={delay_s:.1f}$",
+            # },
+            # delay_s=delay_s,
             models={
-                "mixtoko2": "MAST-C, $\\tau=0.0$",
-                "7969mfvs": "MAST-L, $\\tau=0.0$",
-                "khpb9hkx": "MAST-M, $\\tau=0.0$",
+                "0wqpdb0q": "Pre-trained GNN",
+                "h0lcjb6p": "GNN with RL Finetuning",
             },
-            models_delay={
-                "7969mfvs": f"MAST-L, $\\tau={delay_s:.1f}$",
-                "khpb9hkx": f"MAST-M, $\\tau={delay_s:.1f}$",
-            },
-            delay_s=delay_s,
+            models_delay={},
         )
         plot_comparison(df_compare, ylim=(0.8, 1.01), every=0.05).save(
-            fig_path / "compare-transformer.pdf", bbox_inches="tight"
+            fig_path / "compare-rl.pdf", bbox_inches="tight"
         )
 
     if args.plot_initialization:
