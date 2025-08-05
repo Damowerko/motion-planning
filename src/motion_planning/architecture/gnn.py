@@ -337,7 +337,7 @@ class GNNActorWrapper(nn.Module):
         self.gcn = gcn
 
     def forward(
-        self, observation: torch.Tensor, edge_index: torch.Tensor
+        self, observation: torch.Tensor, state: torch.Tensor, edge_index: torch.Tensor
     ) -> torch.Tensor:
         y = self.gcn(*batch_graph(observation, edge_index))
         y = y.reshape(observation.size(0), observation.size(1), -1)
@@ -350,9 +350,9 @@ class GNNCriticWrapper(nn.Module):
         self.gcn = gcn
 
     def forward(
-        self, observation: torch.Tensor, action: torch.Tensor, edge_index: torch.Tensor
+        self, state: torch.Tensor, action: torch.Tensor, edge_index: torch.Tensor
     ) -> torch.Tensor:
-        x = torch.cat([observation, action], dim=-1)
+        x = torch.cat([state, action], dim=-1)
         y = self.gcn(*batch_graph(x, edge_index))
         y = y.reshape(x.size(0), x.size(1), 1)
         # y = y.reshape(x.size(0), x.size(1), 1).mean(1)
@@ -366,7 +366,8 @@ class GNNActorCritic(ActorCriticWrapper):
 
     def __init__(
         self,
-        state_ndim: int = 14,
+        obs_ndim: int = 14,
+        state_ndim: int = 400,
         action_ndim: int = 2,
         n_taps: int = 2,
         n_layers: int = 5,
@@ -379,7 +380,7 @@ class GNNActorCritic(ActorCriticWrapper):
         **kwargs,
     ):
         actor_module = GCN(
-            state_ndim,
+            obs_ndim,
             action_ndim,
             n_taps,
             n_layers,
@@ -404,12 +405,12 @@ class GNNActorCritic(ActorCriticWrapper):
         )
         actor = TensorDictModule(
             GNNActorWrapper(actor_module),
-            in_keys=["observation", "edge_index"],
+            in_keys=["observation", "state", "edge_index"],
             out_keys=["action"],
         )
         critic = TensorDictModule(
             GNNCriticWrapper(critic_module),
-            in_keys=["observation", "action", "edge_index"],
+            in_keys=["state", "action", "edge_index"],
             out_keys=["state_action_value"],
         )
         super().__init__(actor, critic)

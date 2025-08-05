@@ -43,7 +43,7 @@ class MotionPlanningImitation(MotionPlanningActorCritic):
         super().setup(stage)
 
     def training_step(self, td: TensorDictBase):
-        opt_actor, opt_critic = self.optimizers()
+        opt_actor, _ = self.optimizers()
         # actor step
         td_actor = self.model.get_policy_operator()(td.clone())
         loss_actor = F.mse_loss(td_actor["action"], td_actor["expert"])

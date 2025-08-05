@@ -114,6 +114,7 @@ class MotionPlanningEnv(EnvBase):
         self.observation_ndim = int(
             2 + self.observe_max_targets * 2 + self.observe_max_agents * 2
         )
+        self.cstate_ndim = self.n_agents * 4
 
         self._render: Optional[MotionPlanningRender] = None
         self._make_spec()
@@ -129,6 +130,12 @@ class MotionPlanningEnv(EnvBase):
                 # -self.width / 2,
                 # self.width / 2,
                 shape=torch.Size((self.n_agents, self.observation_ndim)),
+                dtype=torch.float32,
+            ),
+            state=Unbounded(
+                # -self.width / 2,
+                # self.width / 2,
+                shape=torch.Size((self.n_agents, self.cstate_ndim)),
                 dtype=torch.float32,
             ),
             positions=Unbounded(
@@ -414,9 +421,15 @@ class MotionPlanningEnv(EnvBase):
         observation = np.concatenate(
             (self.velocity / self.max_vel, observed_targets, observed_agents), axis=1
         )
+        state_i = np.concatenate(
+            (self.positions.reshape(-1), self.targets.reshape(-1)), axis=0
+        )
+        assert state_i.shape == (400,)
+        state = np.tile(state_i[:400, None], (1, self.n_agents)).T
         output = TensorDict(
             {
                 "observation": torch.from_numpy(observation).float(),
+                "state": torch.from_numpy(state).float(),
                 "positions": torch.from_numpy(self.positions).float(),
                 "targets": torch.from_numpy(self.targets).float(),
                 "edge_index": torch.from_numpy(self.edge_index).long(),
