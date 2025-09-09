@@ -125,7 +125,7 @@ def evaluate_expert(
 def td_to_df(td: TensorDictBase) -> pd.DataFrame:
     n_trials, n_steps = td.shape
     td_selected = (
-        td["next"].select("collisions", "reward", "coverage", "time", "step").cpu()
+        td["next"].select("collisions", "reward", "coverage", "avg_dist_to_cover", "avg_opt_dist", "time", "step").cpu()
     )
     td_selected["trial"] = torch.arange(n_trials, dtype=torch.long)[:, None].expand(
         -1, n_steps

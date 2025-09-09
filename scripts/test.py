@@ -93,7 +93,7 @@ def save_results(
     data.to_parquet(path / f"{name}.parquet")
 
     # make a single plot of basic metrics
-    metric_names = ["reward", "coverage", "collisions"]
+    metric_names = ["reward", "coverage", "collisions", "avg_dist_to_cover", "avg_opt_dist"]
     for metric_name in metric_names:
         sns.relplot(data=data, x="step", y=metric_name, hue="trial", kind="line")
         plt.xlabel("Step")
@@ -106,6 +106,10 @@ def save_results(
         "Reward Std": data["reward"].std(),
         "Coverage Mean": data["coverage"].mean(),
         "Coverage Std": data["coverage"].std(),
+        "DTC Mean": data["avg_dist_to_cover"].mean(),
+        "DTC Std": data["avg_dist_to_cover"].std(),
+        "Optimal Distance Mean": data["avg_opt_dist"].mean(),
+        "Optimal Distance Std": data["avg_opt_dist"].std(),
         # Sum over step but mean over trials
         "Collisions Mean": data.groupby("trial")["collisions"].sum().mean(),
     }

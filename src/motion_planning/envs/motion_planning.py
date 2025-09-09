@@ -42,6 +42,7 @@ class MotionPlanningEnv(EnvBase):
         "circle",
         "two_lines",
         "icra",
+        "circular",
     }
     default_samples_per_cluster = [1, 5, 10]
 
@@ -154,6 +155,8 @@ class MotionPlanningEnv(EnvBase):
             ),
             collisions=Bounded(0, self.n_agents, torch.Size(()), dtype=torch.long),
             coverage=Bounded(0, 1, torch.Size(()), dtype=torch.float32),
+            avg_dist_to_cover=Unbounded(torch.Size(()), dtype=torch.float32),
+            avg_opt_dist=Unbounded(torch.Size(()), dtype=torch.float32),
             time=Bounded(0, float("inf"), torch.Size(()), dtype=torch.float32),
             shape=torch.Size(()),
         )
@@ -363,6 +366,9 @@ class MotionPlanningEnv(EnvBase):
     def _reward(self):
         if self.coverage_reward == "coverage":
             reward_coverage = self.coverage()
+        elif self.coverage_reward == "dtc":
+            reward_coverage = -self.avg_dist_to_cover()
+            # reward_coverage = np.exp(-((self.avg_dist_to_cover() / self.reward_sigma) ** 2))
         elif self.coverage_reward == "gaussian":
             # the reward function is a gaussian kernel of the distance to the target
             gaussian_pt = np.exp(-((self.dist_pt / self.reward_sigma) ** 2))
@@ -407,6 +413,16 @@ class MotionPlanningEnv(EnvBase):
 
     def coverage(self) -> float:
         return np.mean(np.any(self.dist_pt < self.coverage_cutoff, axis=0))
+    
+    def avg_dist_to_cover(self) -> float:
+        return np.mean(np.min(self.dist_pt, axis=0))
+
+    def avg_opt_dist(self) -> float:
+        row_idx, col_idx = linear_sum_assignment(self.dist_pt)
+        assert (row_idx == np.arange(self.n_agents)).all()
+        # use the distance to the optimal assignment agent as a reward
+        distances = self.dist_pt[row_idx, col_idx]
+        return np.mean(distances)
 
     def _make_output(self) -> TensorDictBase:
         observed_targets = self._observed_targets()[0].reshape(self.n_agents, -1)
@@ -425,6 +441,8 @@ class MotionPlanningEnv(EnvBase):
                     self.collisions(self.collision_distance)
                 ).long(),
                 "coverage": torch.as_tensor(self.coverage()).float(),
+                "avg_dist_to_cover": torch.as_tensor(self.avg_dist_to_cover()).float(),
+                "avg_opt_dist": torch.as_tensor(self.avg_opt_dist()).float(),
                 "time": torch.as_tensor(self.time).float(),
             }
         )
@@ -510,7 +528,6 @@ class MotionPlanningEnv(EnvBase):
                 self.rng,
             )
         elif self.scenario == "circle":
-
             def circ_sampler(n):
                 radius = self.rng.uniform(
                     3 * self.width / 16, 5 * self.width / 16, (n, 1)
@@ -555,6 +572,24 @@ class MotionPlanningEnv(EnvBase):
                 self.n_agents, self.width, self.initial_separation, self.rng
             )
             self.targets = init_icra(self.n_targets, self.width)
+        elif self.scenario == "circular":
+            def circ_sampler(n):
+                radius = self.rng.uniform(
+                    0, self.width / 2, (n, 1)
+                )
+                angle = self.rng.uniform(-np.pi, np.pi, (n, 1))
+                return np.concatenate(
+                    [radius * np.cos(angle), radius * np.sin(angle)], axis=1
+                )
+            
+            self.targets = collision_free_sampling(
+                self.initial_separation,
+                lambda: circ_sampler(self.n_targets),
+            )
+            self.positions = collision_free_sampling(
+                self.initial_separation,
+                lambda: circ_sampler(self.n_agents),
+            )
         else:
             raise ValueError(
                 f"Unknown scenario: {self.scenario}. Should be one of {self.scenarios}."
