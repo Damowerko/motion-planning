@@ -32,6 +32,7 @@ class MotionPlanningEnvParams:
     reward_sigma: float = 10.0
     expert_policy: str | None = None
     samples_per_cluster: tuple[int | None, int | None] = (None, None)
+    delay: int = 0
 
 
 class MotionPlanningEnv(EnvBase):
@@ -61,6 +62,7 @@ class MotionPlanningEnv(EnvBase):
         expert_policy: str | None = None,
         samples_per_cluster: tuple[int | None, int | None] = (None, None),
         coverage_reward: str = "dist_sq",
+        delay: int = 0,
     ):
         """
         Args:
@@ -115,6 +117,9 @@ class MotionPlanningEnv(EnvBase):
         self.observation_ndim = int(
             2 + self.observe_max_targets * 2 + self.observe_max_agents * 2
         )
+
+        self.delay = delay
+        self.agent_buffer = np.zeros((1, self.n_agents, 2))
 
         self._render: Optional[MotionPlanningRender] = None
         self._make_spec()
@@ -259,13 +264,14 @@ class MotionPlanningEnv(EnvBase):
     @jit(nopython=True)
     def _k_hop_hungarian_cost(
         n_hops: int,
-        positions: NDArray,
+        agent_buffer: NDArray,
         targets: NDArray,
         graph_dist: NDArray,
         agent_idx: NDArray,
         target_idx: NDArray,
+        delay: int = 0,
     ) -> NDArray:
-        n_agents = positions.shape[0]
+        n_agents = agent_buffer.shape[1]
         n_targets = targets.shape[0]
         distance = np.full((n_agents, n_agents, n_targets), np.inf)
         for i in prange(n_agents):
@@ -275,12 +281,14 @@ class MotionPlanningEnv(EnvBase):
                 if graph_dist[i, j] > n_hops:
                     continue
                 for k in range(agent_idx.shape[1]):
-                    visible_agents.add(agent_idx[j, k])
+                    visible_agents.add((graph_dist[i, j], agent_idx[j, k]))
                 for k in range(target_idx.shape[1]):
                     visible_targets.add(target_idx[j, k])
-            for j in visible_agents:
+            for hops, j in visible_agents:
                 for k in visible_targets:
-                    distance[i, j, k] = np.linalg.norm(targets[k] - positions[j])
+                    if hops * delay > agent_buffer.shape[0]:
+                        continue
+                    distance[i, j, k] = np.linalg.norm(targets[k] - agent_buffer[-int(hops)*delay, j])
         return distance
 
     def k_hop_hungarian_policy(self, hops=1, distance_squared=False):
@@ -288,7 +296,7 @@ class MotionPlanningEnv(EnvBase):
         _, agent_idx = self._observed_agents(remove_self=False)
         _, target_idx = self._observed_targets()
         distance = MotionPlanningEnv._k_hop_hungarian_cost(
-            hops, self.positions, self.targets, graph_dist, agent_idx, target_idx
+            hops, self.agent_buffer, self.targets, graph_dist, agent_idx, target_idx, delay=self.delay
         )
         cost = distance**2 if distance_squared else distance
         action = np.zeros((self.n_agents, 2))
@@ -468,6 +476,7 @@ class MotionPlanningEnv(EnvBase):
         action = self.clip_action(action * self.max_vel)
         self.velocity = action
         self.positions += self.velocity * self.dt
+        self.agent_buffer = np.concatenate((self.agent_buffer, self.positions[None]), axis=0)
         self.time += self.dt
         self._compute_distances()
         self._compute_graph()
@@ -598,6 +607,7 @@ class MotionPlanningEnv(EnvBase):
         self.time = 0.0
         self._compute_distances()
         self._compute_graph()
+        self.agent_buffer[0] = self.positions
         if self._render is not None:
             self._render.reset()
         return self._make_output()

@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--n_workers", type=int)
     parser.add_argument("--video", action="store_true")
     parser.add_argument("--no-scenarios", dest="scenarios", action="store_false")
+    parser.add_argument("--no-delay", dest="delay", action="store_false")
     params = vars(parser.parse_args())
 
     logger.info(f"Evaluating expert policy: {params['policy']}")
@@ -75,6 +76,27 @@ def main():
             num_workers=params["n_workers"],
         )
         scenarios_df.to_parquet(path / "scenarios.parquet")
+
+    logger.info("Delay evaluation")
+    if params["delay"]:
+        df_list = []
+        for i in range(4):
+            env_params = MotionPlanningEnvParams(
+                expert_policy=params["policy"],
+                delay=i,
+            )
+            evalutate_df, _ = evaluate_expert(
+                env_params=env_params,
+                max_steps=params["max_steps"],
+                num_episodes=params["n_trials"],
+                num_workers=params["n_workers"],
+                render=params["video"],
+            )
+            evalutate_df["delay_s"] = float(i)
+            df_list.append(evalutate_df)
+
+        logger.info("Saving results")
+        pd.concat(df_list).to_parquet(path / "delay.parquet")
 
 
 def save_results(
