@@ -348,13 +348,23 @@ class GNNCriticWrapper(nn.Module):
     def __init__(self, gcn: GCN):
         super().__init__()
         self.gcn = gcn
+        self.out = gnn.MLP(
+            in_channels=100,
+            hidden_channels=512,
+            out_channels=1,
+            num_layers=4,
+            dropout=0.0,
+            act="leaky_relu",
+            norm=None,
+            plain_last=True,
+        )
 
     def forward(
         self, observation: torch.Tensor, action: torch.Tensor, edge_index: torch.Tensor
     ) -> torch.Tensor:
         x = torch.cat([observation, action], dim=-1)
         y = self.gcn(*batch_graph(x, edge_index))
-        y = y.reshape(x.size(0), x.size(1), 1).mean(1)
+        y = self.out(y)
         return y
 
 
