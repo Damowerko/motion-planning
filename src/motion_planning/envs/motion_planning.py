@@ -370,7 +370,7 @@ class MotionPlanningEnv(EnvBase):
             row_idx, col_idx = linear_sum_assignment(gaussian_pt, maximize=True)
             # use the distance to the optimal assignment agent as a reward
             reward_coverage = gaussian_pt[row_idx, col_idx]
-        elif self.coverage_reward == "dist_sq" or self.reward == "dist":
+        elif self.coverage_reward == "dist_sq" or self.coverage_reward == "dist":
             if self.coverage_reward == "dist_sq":
                 cost = self.dist_pt**2
             else:
