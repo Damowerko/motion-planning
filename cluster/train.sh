@@ -30,7 +30,7 @@ spec:
   ttlSecondsAfterFinished: 3600
   template:
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
       containers:
       - name: motion-planning-train
         image: docker.io/$DOCKER_USERNAME/$IMAGE_NAME@$IMAGE_DIGEST
