@@ -20,54 +20,6 @@ activation_choices: typing.Dict[str, Type[nn.Module]] = {
 SequentialLayers = list[tuple[Callable, str] | Callable]
 
 
-class DeepSet(nn.Module):
-    def __init__(
-        self,
-        in_channels_phi: int,
-        in_channels_rho: int,
-        out_channels: int,
-        n_hidden_channels: int,
-        n_layers: int,
-        dropout: float,
-        activation: typing.Union[nn.Module, str] = "leaky_relu",
-    ):
-        super().__init__()
-        if isinstance(activation, str):
-            activation = activation_choices[activation]()
-
-        if n_layers < 1:
-            raise ValueError("n_layers for a Deep Set must be >= 1.")
-
-        dropout = float(dropout)
-
-        self.phi = gnn.MLP(
-            in_channels=in_channels_phi,
-            out_channels=in_channels_rho,
-            hidden_channels=n_hidden_channels,
-            num_layers=n_layers,
-            dropout=dropout,
-            act=activation,
-        )
-        self.rho = gnn.MLP(
-            in_channels=in_channels_rho,
-            out_channels=out_channels,
-            hidden_channels=n_hidden_channels,
-            num_layers=n_layers,
-            dropout=dropout,
-            act=activation,
-        )
-
-    def forward(self, x):
-        X_shape = x.shape + (self.rho.in_channels,)
-        X = torch.zeros(X_shape)
-        num_elements = int(x.size()[2] / self.phi.in_channels)
-        for i in range(num_elements):
-            X += self.phi(
-                x[:, :, i * self.phi.in_channels : (i + 1) * self.phi.in_channels]
-            )
-        return self.rho(X)
-
-
 class GraphFilter(nn.Module):
     def __init__(
         self,
