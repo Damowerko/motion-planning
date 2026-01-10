@@ -125,7 +125,7 @@ def evaluate_expert(
 def td_to_df(td: TensorDictBase) -> pd.DataFrame:
     n_trials, n_steps = td.shape
     td_selected = (
-        td["next"].select("collisions", "reward", "coverage", "avg_dist_to_cover", "avg_opt_dist", "time", "step").cpu()
+        td["next"].select("collisions", "reward", "coverage", "dist_to_cover", "avg_dist_to_cover", "avg_opt_dist", "time", "step").cpu()
     )
     td_selected["trial"] = torch.arange(n_trials, dtype=torch.long)[:, None].expand(
         -1, n_steps
@@ -139,8 +139,17 @@ def td_to_df(td: TensorDictBase) -> pd.DataFrame:
             td_selected[key] = td_selected[key].long()
         else:
             td_selected[key] = td_selected[key].double()
+    
+    df_dict = {}
+    for key, v in td_selected.items():
+        arr = v.reshape(n_trials * n_steps, -1).numpy()
+        if arr.shape[1] == 1:
+            df_dict[key] = arr[:,0]
+        else:
+            for j in range(arr.shape[1]):
+                df_dict[f"{key}_{j}"] = arr[:, j]
 
-    return pd.DataFrame(td_selected.reshape(-1).apply(torch.squeeze).numpy())
+    return pd.DataFrame(df_dict)
 
 
 def td_to_frames(td: TensorDictBase) -> NDArray:

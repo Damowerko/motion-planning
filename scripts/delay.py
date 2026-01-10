@@ -43,8 +43,7 @@ def main():
 
     if not params["skip_test"]:
         df_list = []
-        # for comm_interval in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
-        for comm_interval in [0.0, 1.0, 2.0, 3.0]:
+        for comm_interval in np.linspace(0.0, 1.0, 11):
             logger.info(f"Testing delay of {comm_interval} seconds.")
             env_params = MotionPlanningEnvParams()
             df, _ = delay(

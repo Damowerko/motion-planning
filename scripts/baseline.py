@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import imageio.v3 as iio
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
@@ -80,7 +81,7 @@ def main():
     logger.info("Delay evaluation")
     if params["delay"]:
         df_list = []
-        for i in range(4):
+        for i in np.linspace(0.0, 1.0, 11):
             env_params = MotionPlanningEnvParams(
                 expert_policy=params["policy"],
                 delay=i,

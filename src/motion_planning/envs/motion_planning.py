@@ -54,7 +54,7 @@ class MotionPlanningEnv(EnvBase):
         initial_separation: float = 5.0,
         scenario: str = "clusters",
         max_vel: float = 5.0,
-        dt: float = 1.0,
+        dt: float = 0.1,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
         coverage_cutoff: float = 5.0,
@@ -160,6 +160,7 @@ class MotionPlanningEnv(EnvBase):
             ),
             collisions=Bounded(0, self.n_agents, torch.Size(()), dtype=torch.long),
             coverage=Bounded(0, 1, torch.Size(()), dtype=torch.float32),
+            dist_to_cover=Unbounded(torch.Size((self.n_agents,)), dtype=torch.float32),
             avg_dist_to_cover=Unbounded(torch.Size(()), dtype=torch.float32),
             avg_opt_dist=Unbounded(torch.Size(()), dtype=torch.float32),
             time=Bounded(0, float("inf"), torch.Size(()), dtype=torch.float32),
@@ -269,8 +270,10 @@ class MotionPlanningEnv(EnvBase):
         graph_dist: NDArray,
         agent_idx: NDArray,
         target_idx: NDArray,
-        delay: int = 0,
+        delay_s: float = 0,
+        dt: float = 0.1,
     ) -> NDArray:
+        delay = int(delay_s / dt)
         n_agents = agent_buffer.shape[1]
         n_targets = targets.shape[0]
         distance = np.full((n_agents, n_agents, n_targets), np.inf)
@@ -296,7 +299,7 @@ class MotionPlanningEnv(EnvBase):
         _, agent_idx = self._observed_agents(remove_self=False)
         _, target_idx = self._observed_targets()
         distance = MotionPlanningEnv._k_hop_hungarian_cost(
-            hops, self.agent_buffer, self.targets, graph_dist, agent_idx, target_idx, delay=self.delay
+            hops, self.agent_buffer, self.targets, graph_dist, agent_idx, target_idx, delay_s=self.delay, dt=self.dt
         )
         cost = distance**2 if distance_squared else distance
         action = np.zeros((self.n_agents, 2))
@@ -375,8 +378,8 @@ class MotionPlanningEnv(EnvBase):
         if self.coverage_reward == "coverage":
             reward_coverage = self.coverage()
         elif self.coverage_reward == "dtc":
-            reward_coverage = -self.avg_dist_to_cover()
-            # reward_coverage = np.exp(-((self.avg_dist_to_cover() / self.reward_sigma) ** 2))
+            reward_coverage = -self.dist_to_cover().mean()
+            # reward_coverage = np.exp(-((self.dist_to_cover().mean() / self.reward_sigma) ** 2))
         elif self.coverage_reward == "gaussian":
             # the reward function is a gaussian kernel of the distance to the target
             gaussian_pt = np.exp(-((self.dist_pt / self.reward_sigma) ** 2))
@@ -400,7 +403,11 @@ class MotionPlanningEnv(EnvBase):
             np.sum(self.dist_pp < self.collision_distance, axis=1) - 1
         )
         penalty_collision = self.collision_coefficient * collisions_per_agent
+
+        matching_reward = np.linalg.norm(self.velocity - self.centralized_policy(distance_squared=(self.coverage_reward == "dist_sq")), axis=-1)
+
         # the reward for each agent is the coverage reward minus the collision penalty
+        # reward = reward_coverage - matching_reward - penalty_collision
         reward = reward_coverage - penalty_collision
         # reward = np.exp(-((np.min(self.dist_pt, axis=-1) / self.reward_sigma) ** 2))
         return reward
@@ -422,8 +429,8 @@ class MotionPlanningEnv(EnvBase):
     def coverage(self) -> float:
         return np.mean(np.any(self.dist_pt < self.coverage_cutoff, axis=0))
     
-    def avg_dist_to_cover(self) -> float:
-        return np.mean(np.min(self.dist_pt, axis=0))
+    def dist_to_cover(self) -> np.ndarray:
+        return np.min(self.dist_pt, axis=0)
 
     def avg_opt_dist(self) -> float:
         row_idx, col_idx = linear_sum_assignment(self.dist_pt)
@@ -449,7 +456,8 @@ class MotionPlanningEnv(EnvBase):
                     self.collisions(self.collision_distance)
                 ).long(),
                 "coverage": torch.as_tensor(self.coverage()).float(),
-                "avg_dist_to_cover": torch.as_tensor(self.avg_dist_to_cover()).float(),
+                "dist_to_cover": torch.as_tensor(self.dist_to_cover()).float(),
+                "avg_dist_to_cover": torch.as_tensor(self.dist_to_cover().mean()).float(),
                 "avg_opt_dist": torch.as_tensor(self.avg_opt_dist()).float(),
                 "time": torch.as_tensor(self.time).float(),
             }
