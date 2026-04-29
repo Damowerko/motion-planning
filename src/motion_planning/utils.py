@@ -117,6 +117,14 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
             with open(Path(uri).with_suffix("yaml")) as f:
                 params = yaml.safe_load(f)
 
+        if "n_heads" in params.keys():
+            params["n_heads"] = 4
+            params["n_layers"] = 4
+            params["n_channels"] = 64
+        else:
+            params["state_ndim"] = 14
+            params["n_layers"] = 3
+
         try:
             # New checkpoints should include the architecture in the state_dict
             model = get_operation_cls(model_str).load_from_checkpoint(uri)

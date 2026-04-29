@@ -499,9 +499,9 @@ class TransformerActorCritic(ActorCriticWrapper):
 
     def __init__(
         self,
-        n_layers: int = 2,
-        n_channels: int = 32,
-        n_heads: int = 2,
+        n_layers: int = 4,
+        n_channels: int = 64,
+        n_heads: int = 4,
         dropout: float = 0.0,
         encoding_type: str = "rotary",
         encoding_period: float = 1000.0,

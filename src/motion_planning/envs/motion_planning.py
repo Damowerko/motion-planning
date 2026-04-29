@@ -400,9 +400,16 @@ class MotionPlanningEnv(EnvBase):
             np.sum(self.dist_pp < self.collision_distance, axis=1) - 1
         )
         penalty_collision = self.collision_coefficient * collisions_per_agent
+
+        matching_reward = np.linalg.norm(self.velocity - self.centralized_policy(distance_squared=(self.coverage_reward == "dist_sq")), axis=-1)
+        matching_reward = np.exp(-((matching_reward / self.reward_sigma) ** 2))
+
+        dtc_reward = np.exp(-((self.avg_dist_to_cover() / self.reward_sigma) ** 2))
+
         # the reward for each agent is the coverage reward minus the collision penalty
-        reward = reward_coverage - penalty_collision
-        # reward = np.exp(-((np.min(self.dist_pt, axis=-1) / self.reward_sigma) ** 2))
+        # reward = reward_coverage - penalty_collision
+        # reward = reward_coverage + matching_reward - penalty_collision
+        reward = reward_coverage + dtc_reward + self.coverage() - penalty_collision
         return reward
 
     def components(self) -> np.ndarray:

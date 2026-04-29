@@ -56,6 +56,7 @@ def main():
 
     # training arguments
     group = parser.add_argument_group("Training")
+    group.add_argument("--best", action="store_true")
     group.add_argument("--no_log", action="store_false", dest="log")
     group.add_argument("--test", action="store_true")
     group.add_argument("--max_epochs", type=int, default=100)
@@ -94,7 +95,7 @@ def reinforce(params: dict):
     if params["checkpoint"]:
         params["pretrain"] = True
         logger.info("Resuming from pretraining.")
-        lightning_module, _ = load_model(params["checkpoint"], False)
+        lightning_module, _ = load_model(params["checkpoint"], best=params["best"])
         model = lightning_module.model
     else:
         params["pretrain"] = False

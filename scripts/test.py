@@ -33,10 +33,13 @@ def main():
     parser.add_argument("--n_workers", type=int, default=10)
     parser.add_argument("--no_scalability", dest="scalability", action="store_false")
     parser.add_argument("--no_scenarios", dest="scenarios", action="store_false")
+    parser.add_argument("--best", action="store_true")
     params = vars(parser.parse_args())
 
     logger.info(f"Loading model from {params['checkpoint']}")
-    model, name = load_model(params["checkpoint"], best=False)
+    model, name = load_model(params["checkpoint"], best=params["best"])
+    suffix = "best" if params["best"] else "latest"
+    name = name + suffix
     policy = model.model.get_policy_operator().eval()
     path = Path("data") / "test_results" / name
 

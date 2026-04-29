@@ -5,7 +5,7 @@ import torch
 from tensordict import TensorDictBase
 from tensordict.nn import TensorDictModule, TensorDictParams
 from torchcps.utils import add_model_specific_args
-from torchrl.modules import ActorCriticWrapper, OrnsteinUhlenbeckProcessWrapper
+from torchrl.modules import ActorCriticWrapper
 from torchrl.objectives import SoftUpdate
 from torchrl.objectives import TD3BCLoss as _TD3BCLoss
 from torchrl.objectives import TD3Loss as _TD3Loss
@@ -145,7 +145,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.automatic_optimization = False
         self.grad_clip_norm = grad_clip_norm
         self.grad_clip_p = grad_clip_p
-        # self.exploration_policy = OrnsteinUhlenbeckProcessWrapper(self.model.get_policy_operator())
         self.exploration_policy = self.model.get_policy_operator()
 
         if expert_weight > 0.0:
@@ -238,11 +237,16 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         if self.expert_policy is not None:
             td["action"] = td["expert"]
         loss_vals = self.loss(td.clone())
+        actor_loss = loss_vals["loss_actor"]
         # actor update
         if (self.global_step + 1) % (self.policy_delay + 1) == 0:
             opt_actor.zero_grad()
             opt_critic.zero_grad()
-            self.manual_backward(loss_vals["loss_actor"])
+            
+            # # Manually clamp actor loss (rather have no change than negative change)
+            # actor_loss = torch.clamp(actor_loss, min=-100.0, max=100.0)
+            
+            self.manual_backward(actor_loss)
             if self.grad_clip_norm > 0.0:
                 torch.nn.utils.clip_grad_norm_(
                     self.loss.actor_network_params.flatten_keys().values(),
@@ -264,7 +268,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
 
         self.target_net_updater.step()
 
-        self.log("train/actor_loss", loss_vals["loss_actor"], prog_bar=True)
+        self.log("train/actor_loss", actor_loss, prog_bar=True)
         self.log("train/critic_loss", loss_vals["loss_qvalue"], prog_bar=True)
         self.log("train/pred_value", loss_vals["pred_value"].mean())
         self.log("train/target_value", loss_vals["target_value"].mean())
