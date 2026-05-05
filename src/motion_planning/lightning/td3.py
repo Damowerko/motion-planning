@@ -243,8 +243,8 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             opt_actor.zero_grad()
             opt_critic.zero_grad()
             
-            # # Manually clamp actor loss (rather have no change than negative change)
-            # actor_loss = torch.clamp(actor_loss, min=-100.0, max=100.0)
+            # Manually clamp actor loss (rather have no change than negative change)
+            actor_loss = torch.clamp(actor_loss, min=-60.0, max=60.0)
             
             self.manual_backward(actor_loss)
             if self.grad_clip_norm > 0.0:
