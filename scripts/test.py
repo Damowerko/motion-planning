@@ -16,6 +16,7 @@ from motion_planning.utils import load_model
 
 logger = logging.getLogger(__name__)
 
+# TODO: create a npy or yaml file to store a specific initial configuration for testing, and load it here to ensure all models are tested on the same set of configurations
 
 def main():
     logging.basicConfig(

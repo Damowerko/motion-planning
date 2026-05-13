@@ -12,13 +12,14 @@ from lightning.pytorch.loggers import WandbLogger
 from typing_extensions import override
 from wandb.sdk.wandb_run import Run
 
-from motion_planning.architecture import GNNActorCritic, TransformerActorCritic
+from motion_planning.architecture import GNNActorCritic, ProbabilisticGNNActorCritic, TransformerActorCritic
 from motion_planning.envs.motion_planning import MotionPlanningEnv
 from motion_planning.lightning import (
     MotionPlanningActorCritic,
     MotionPlanningDDPG,
     MotionPlanningImitation,
     MotionPlanningTD3,
+    MotionPlanningSAC,
 )
 
 
@@ -49,11 +50,14 @@ class ConsoleProgressBar(ProgressBar):
         self.logger.info(f"Epoch {trainer.current_epoch}: {metrics}")
 
 
-def get_architecture_cls(model_str):
+def get_architecture_cls(model_str, prob=False):
     if model_str == "transformer":
         return TransformerActorCritic
     elif model_str == "gnn":
-        return GNNActorCritic
+        if prob:
+            return ProbabilisticGNNActorCritic
+        else:
+            return GNNActorCritic
     raise ValueError(f"Invalid model {model_str}.")
 
 
@@ -81,6 +85,8 @@ def get_operation_cls(operation_str) -> typing.Type[MotionPlanningActorCritic]:
         return MotionPlanningDDPG
     elif operation_str == "td3":
         return MotionPlanningTD3
+    elif operation_str == "sac":
+        return MotionPlanningSAC
     raise ValueError(f"Invalid operation {operation_str}.")
 
 
@@ -123,7 +129,6 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
             params["n_channels"] = 64
         else:
             params["state_ndim"] = 14
-            params["n_layers"] = 3
 
         try:
             # New checkpoints should include the architecture in the state_dict
@@ -232,6 +237,9 @@ def simulation_args(parser: argparse.ArgumentParser):
     group.add_argument("--dt", type=float, default=1.0)
     group.add_argument("--collision_distance", type=float, default=2.5)
     group.add_argument("--collision_coefficient", type=float, default=5.0)
+    group.add_argument("--dtc_coefficient", type=float, default=1.0)
+    group.add_argument("--coverage_coefficient", type=float, default=1.0)
+    group.add_argument("--dist_coefficient", type=float, default=1.0)
     group.add_argument("--coverage_cutoff", type=float, default=5.0)
     group.add_argument("--reward_sigma", type=float, default=10.0)
 

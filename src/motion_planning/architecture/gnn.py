@@ -5,7 +5,7 @@ from typing import Callable, Type
 import torch
 import torch.nn as nn
 import torch_geometric.nn as gnn
-from tensordict.nn import TensorDictModule
+from tensordict.nn import TensorDictModule, ProbabilisticTensorDictModule, ProbabilisticTensorDictSequential
 from torch_geometric.data import Data
 from torch_geometric.typing import Adj, OptPairTensor, OptTensor, Size
 from torchcps.utils import add_model_specific_args
@@ -332,16 +332,22 @@ def batch_graph(x: torch.Tensor, edge_index: torch.Tensor):
 
 
 class GNNActorWrapper(nn.Module):
-    def __init__(self, gcn: GCN):
+    def __init__(self, gcn: GCN, prob: bool = False):
         super().__init__()
         self.gcn = gcn
+        self.prob = prob
 
     def forward(
         self, observation: torch.Tensor, edge_index: torch.Tensor
     ) -> torch.Tensor:
         y = self.gcn(*batch_graph(observation, edge_index))
         y = y.reshape(observation.size(0), observation.size(1), -1)
-        return y
+        if self.prob:
+            loc, log_std = y.chunk(2, dim=-1)
+            scale = log_std.exp()
+            return loc, scale
+        else:
+            return y
 
 
 class GNNCriticWrapper(nn.Module):
@@ -412,4 +418,68 @@ class GNNActorCritic(ActorCriticWrapper):
             in_keys=["observation", "action", "edge_index"],
             out_keys=["state_action_value"],
         )
+        super().__init__(actor, critic)
+
+
+class ProbabilisticGNNActorCritic(ActorCriticWrapper):
+    @classmethod
+    def add_model_specific_args(cls, group):
+        return add_model_specific_args(cls, group)
+
+    def __init__(
+        self,
+        state_ndim: int = 14,
+        action_ndim: int = 2,
+        n_taps: int = 2,
+        n_layers: int = 5,
+        n_channels: int = 256,
+        activation: typing.Union[nn.Module, str] = "leaky_relu",
+        mlp_read_layers: int = 3,
+        mlp_per_gnn_layers: int = 2,
+        mlp_hidden_channels: int = 512,
+        dropout: float = 0.0,
+        **kwargs,
+    ):
+        actor_module = GCN(
+            state_ndim,
+            2 * action_ndim,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+        actor_module = TensorDictModule(
+            GNNActorWrapper(actor_module, prob=True),
+            in_keys=["observation", "edge_index"],
+            out_keys=["loc", "scale"],
+        )
+        prob_module = ProbabilisticTensorDictModule(
+            in_keys=["loc", "scale"],
+            out_keys=["action"],
+            distribution_class=torch.distributions.Normal,
+        )
+        actor = ProbabilisticTensorDictSequential(actor_module, prob_module)
+
+        critic_module = GCN(
+            state_ndim + action_ndim,
+            1,
+            n_taps,
+            n_layers,
+            n_channels,
+            activation,
+            mlp_read_layers,
+            mlp_per_gnn_layers,
+            mlp_hidden_channels,
+            dropout,
+        )
+        critic = TensorDictModule(
+            GNNCriticWrapper(critic_module),
+            in_keys=["observation", "action", "edge_index"],
+            out_keys=["state_action_value"],
+        )
+
         super().__init__(actor, critic)

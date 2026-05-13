@@ -29,7 +29,7 @@ def main():
         "operation",
         type=str,
         default="imitation",
-        choices=["imitation", "ddpg", "td3"],
+        choices=["imitation", "ddpg", "td3", "sac"],
         help="The operation to perform.",
     )
     parser.add_argument(
@@ -67,11 +67,11 @@ def main():
     group.add_argument("--simple_progress", action="store_true")
 
     # reinforcement learning specific args
-    if operation in ("ddpg", "td3"):
+    if operation in ("ddpg", "td3", "sac"):
         group.add_argument("--checkpoint", type=str)
 
     params = vars(parser.parse_args())
-    if operation in ("ddpg", "td3"):
+    if operation in ("ddpg", "td3", "sac"):
         reinforce(params)
     elif operation == "imitation":
         imitate(params)
@@ -100,7 +100,7 @@ def reinforce(params: dict):
     else:
         params["pretrain"] = False
         logger.info("Training from scratch. Pretrained checkpoint was not provided.")
-        model = get_architecture_cls(params["architecture"])(**params)
+        model = get_architecture_cls(params["architecture"], prob=(params["operation"] == "sac"))(**params)
 
     model = get_operation_cls(params["operation"])(model, **params)
 

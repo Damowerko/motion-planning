@@ -28,6 +28,9 @@ class MotionPlanningEnvParams:
     dt: float = 1.0
     collision_distance: float = 2.5
     collision_coefficient: float = 5.0
+    dtc_coefficient: float = 1.0
+    coverage_coefficient: float = 1.0
+    dist_coefficient: float = 1.0
     coverage_cutoff: float = 5.0
     reward_sigma: float = 10.0
     expert_policy: str | None = None
@@ -57,8 +60,11 @@ class MotionPlanningEnv(EnvBase):
         dt: float = 1.0,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
+        dtc_coefficient: float = 1.0,
+        coverage_coefficient: float = 1.0,
+        dist_coefficient: float = 1.0,
         coverage_cutoff: float = 5.0,
-        reward_sigma: float = 10.0,
+        reward_sigma: float = 15.0,
         expert_policy: str | None = None,
         samples_per_cluster: tuple[int | None, int | None] = (None, None),
         coverage_reward: str = "dist_sq",
@@ -98,6 +104,9 @@ class MotionPlanningEnv(EnvBase):
         self.coverage_cutoff = coverage_cutoff
         self.reward_sigma = reward_sigma
         self.collision_coefficient = collision_coefficient
+        self.dtc_coefficient = dtc_coefficient
+        self.coverage_coefficient = coverage_coefficient
+        self.dist_coefficient = dist_coefficient
         if any(s is not None for s in samples_per_cluster) and scenario != "clusters":
             raise ValueError(
                 "samples_per_cluster can only be specified for the 'clusters' scenario."
@@ -372,28 +381,16 @@ class MotionPlanningEnv(EnvBase):
         return np.sum((distances < threshold).astype(int))
 
     def _reward(self):
-        if self.coverage_reward == "coverage":
-            reward_coverage = self.coverage()
-        elif self.coverage_reward == "dtc":
-            reward_coverage = -self.avg_dist_to_cover()
-            # reward_coverage = np.exp(-((self.avg_dist_to_cover() / self.reward_sigma) ** 2))
-        elif self.coverage_reward == "gaussian":
-            # the reward function is a gaussian kernel of the distance to the target
-            gaussian_pt = np.exp(-((self.dist_pt / self.reward_sigma) ** 2))
-            # there can only be one agent covering each target, find assignment that maximizes the reward
-            row_idx, col_idx = linear_sum_assignment(gaussian_pt, maximize=True)
-            # use the distance to the optimal assignment agent as a reward
-            reward_coverage = gaussian_pt[row_idx, col_idx]
-        elif self.coverage_reward == "dist_sq" or self.coverage_reward == "dist":
-            if self.coverage_reward == "dist_sq":
-                cost = self.dist_pt**2
-            else:
-                cost = self.dist_pt
-            row_idx, col_idx = linear_sum_assignment(cost)
-            assert (row_idx == np.arange(self.n_agents)).all()
-            # use the distance to the optimal assignment agent as a reward
-            distances = self.dist_pt[row_idx, col_idx]
-            reward_coverage = np.exp(-((distances / self.reward_sigma) ** 2))
+        if self.coverage_reward == "dist_sq":
+            cost = self.dist_pt**2
+        else:
+            cost = self.dist_pt
+        row_idx, col_idx = linear_sum_assignment(cost)
+        assert (row_idx == np.arange(self.n_agents)).all()
+        # use the distance to the optimal assignment agent as a reward
+        distances = self.dist_pt[row_idx, col_idx]
+        dist_reward = np.exp(-((distances / self.reward_sigma) ** 2))
+        dist_reward = self.dist_coefficient * dist_reward
 
         # count the number of collisions per agent
         collisions_per_agent = (
@@ -401,15 +398,12 @@ class MotionPlanningEnv(EnvBase):
         )
         penalty_collision = self.collision_coefficient * collisions_per_agent
 
-        matching_reward = np.linalg.norm(self.velocity - self.centralized_policy(distance_squared=(self.coverage_reward == "dist_sq")), axis=-1)
-        matching_reward = np.exp(-((matching_reward / self.reward_sigma) ** 2))
-
         dtc_reward = np.exp(-((self.avg_dist_to_cover() / self.reward_sigma) ** 2))
+        dtc_reward = self.dtc_coefficient * dtc_reward
 
-        # the reward for each agent is the coverage reward minus the collision penalty
-        # reward = reward_coverage - penalty_collision
-        # reward = reward_coverage + matching_reward - penalty_collision
-        reward = reward_coverage + dtc_reward + self.coverage() - penalty_collision
+        coverage_reward = self.coverage_coefficient * self.coverage()
+
+        reward = dist_reward + dtc_reward + coverage_reward - penalty_collision
         return reward
 
     def components(self) -> np.ndarray:

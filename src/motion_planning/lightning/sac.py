@@ -3,12 +3,11 @@ from typing import Tuple
 
 import torch
 from tensordict import TensorDictBase
-from tensordict.nn import TensorDictModule, TensorDictParams
+from tensordict.nn import TensorDictModule, TensorDictParams, ProbabilisticTensorDictSequential
 from torchcps.utils import add_model_specific_args
 from torchrl.modules import ActorCriticWrapper
 from torchrl.objectives import SoftUpdate
-from torchrl.objectives import TD3BCLoss as _TD3BCLoss
-from torchrl.objectives import TD3Loss as _TD3Loss
+from torchrl.objectives import SACLoss
 
 from torchrl.envs.utils import step_mdp
 from torchrl.objectives.utils import (
@@ -21,98 +20,30 @@ from motion_planning.lightning.base import MotionPlanningActorCritic
 logger = logging.getLogger(__name__)
 
 
-class TD3Loss(_TD3Loss):
-    """
-    Hacked TD3Loss that does not use vmap.
-    """
+# class SACLoss(_SACLoss):
+#     """
+#     Hacked SACLoss that does not use vmap.
+#     """
 
-    actor_network: TensorDictModule
-    qvalue_network: TensorDictModule
-    actor_network_params: TensorDictParams
-    qvalue_network_params: TensorDictParams
-    target_actor_network_params: TensorDictParams
-    target_qvalue_network_params: TensorDictParams
+#     actor_network: ProbabilisticTensorDictSequential
+#     qvalue_network: TensorDictModule
+#     actor_network_params: TensorDictParams
+#     qvalue_network_params: TensorDictParams
+#     target_actor_network_params: TensorDictParams
+#     target_qvalue_network_params: TensorDictParams
 
-    def _make_vmap(self):
-        self._vmap_qvalue_network00 = self.critic_loop
+#     def _make_vmap(self):
+#         self._vmap_qvalue_network00 = self.critic_loop
 
-    def critic_loop(self, td, parameters):
-        outputs = []
-        for i in range(self.num_qvalue_nets):
-            with parameters[i].to_module(self.qvalue_network):
-                outputs.append(self.qvalue_network(td[i]))
-        return torch.stack(outputs, dim=0)
-
-
-class TD3BCLoss(_TD3BCLoss):
-    """
-    Hacked TD3Loss that does not use vmap.
-    """
-
-    actor_network: TensorDictModule
-    qvalue_network: TensorDictModule
-    actor_network_params: TensorDictParams
-    qvalue_network_params: TensorDictParams
-    target_actor_network_params: TensorDictParams
-    target_qvalue_network_params: TensorDictParams
-
-    def _make_vmap(self):
-        self._vmap_qvalue_network00 = self.critic_loop
-
-    def critic_loop(self, td, parameters):
-        outputs = []
-        for i in range(self.num_qvalue_nets):
-            with parameters[i].to_module(self.qvalue_network):
-                outputs.append(self.qvalue_network(td[i]))
-        return torch.stack(outputs, dim=0)
-
-    def actor_loss(self, tensordict) -> Tuple[torch.Tensor, dict]:
-        """Compute the actor loss.
-
-        The actor loss should be computed after the :meth:`~.qvalue_loss` and is usually delayed 1-3 critic updates.
-
-        Args:
-            tensordict (TensorDictBase): the input data for the loss. Check the class's `in_keys` to see what fields
-                are required for this to be computed.
-        Returns: a differentiable tensor with the actor loss along with a metadata dictionary containing the detached `"bc_loss"`
-                used in the combined actor loss as well as the detached `"state_action_value_actor"` used to calculate the lambda
-                value, and the lambda value `"lmbd"` itself.
-        """
-        tensordict_actor_grad = tensordict.select(
-            *self.actor_network.in_keys, strict=False
-        )
-        with self.actor_network_params.to_module(self.actor_network):  # type: ignore
-            tensordict_actor_grad = self.actor_network(tensordict_actor_grad)
-        actor_loss_td = tensordict_actor_grad.select(
-            *self.qvalue_network.in_keys, strict=False
-        ).expand(
-            self.num_qvalue_nets, *tensordict_actor_grad.batch_size
-        )  # for actor loss
-        state_action_value_actor = (
-            self._vmap_qvalue_network00(
-                actor_loss_td,
-                self._cached_detach_qvalue_network_params,
-            )
-            .get(self.tensor_keys.state_action_value)  # type: ignore
-            .squeeze(-1)
-        )
-
-        bc_loss = torch.nn.functional.mse_loss(
-            tensordict_actor_grad.get(self.tensor_keys.action),  # type: ignore
-            tensordict.get(self.tensor_keys.action),  # type: ignore
-        )
-        loss_actor = -state_action_value_actor[0] + self.alpha * bc_loss
-
-        metadata = {
-            "state_action_value_actor": state_action_value_actor[0].detach(),
-            "bc_loss": bc_loss.detach(),
-            "lmbd": 1.0,
-        }
-        loss_actor = _reduce(loss_actor, reduction=self.reduction)
-        return loss_actor, metadata  # type: ignore
+#     def critic_loop(self, td, parameters):
+#         outputs = []
+#         for i in range(self.num_qvalue_nets):
+#             with parameters[i].to_module(self.qvalue_network):
+#                 outputs.append(self.qvalue_network(td[i]))
+#         return torch.stack(outputs, dim=0)
 
 
-class MotionPlanningTD3(MotionPlanningActorCritic):
+class MotionPlanningSAC(MotionPlanningActorCritic):
     @classmethod
     def add_model_specific_args(cls, group):
         return add_model_specific_args(cls, group)
@@ -125,8 +56,6 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         warmup_epochs: int = 0,
         grad_clip_norm: float = 0.1,
         grad_clip_p: float = 2.0,
-        expert_policy: str = "c_sq",
-        expert_weight: float = 0.0,
         loss_clamp: float = 60.0,
         **kwargs,
     ):
@@ -149,33 +78,14 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.loss_clamp = loss_clamp
         self.exploration_policy = self.model.get_policy_operator()
 
-        if expert_weight > 0.0:
-            self.expert_policy = expert_policy
-            self.loss = TD3BCLoss(
-                self.exploration_policy,
-                self.model.get_value_operator(),
-                loss_function="l2",
-                bounds=(-1, 1),  # type: ignore
-                policy_noise=self.noise,
-                noise_clip=self.noise_clip,
-                # above I monkey patched the TD3BCLoss to not use the lambda value, so alpha is just the weight for the BC loss
-                alpha=expert_weight,
-            )
-            self.loss.make_value_estimator(
-                TD3BCLoss.default_value_estimator, gamma=self.gamma
-            )
-        else:
-            self.loss = TD3Loss(
-                self.exploration_policy,
-                self.model.get_value_operator(),
-                loss_function="l2",
-                bounds=(-1, 1),  # type: ignore
-                policy_noise=self.noise,
-                noise_clip=self.noise_clip,
-            )
-            self.loss.make_value_estimator(
-                TD3Loss.default_value_estimator, gamma=self.gamma
-            )
+        self.loss = SACLoss(
+            self.exploration_policy,
+            self.model.get_value_operator(),
+            loss_function="l2",
+        )
+        self.loss.make_value_estimator(
+            SACLoss.default_value_estimator, gamma=self.gamma
+        )
         self.target_net_updater = SoftUpdate(self.loss, eps=polyak)
 
     def rollout_action(self, td: TensorDictBase) -> TensorDictBase:

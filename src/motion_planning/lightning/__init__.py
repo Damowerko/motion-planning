@@ -4,6 +4,7 @@ from motion_planning.lightning.base import MotionPlanningActorCritic
 from motion_planning.lightning.ddpg import MotionPlanningDDPG
 from motion_planning.lightning.imitation import MotionPlanningImitation
 from motion_planning.lightning.td3 import MotionPlanningTD3
+from motion_planning.lightning.sac import MotionPlanningSAC
 
 __all__ = [
     "GNNActorCritic",
@@ -12,4 +13,5 @@ __all__ = [
     "MotionPlanningImitation",
     "MotionPlanningDDPG",
     "MotionPlanningTD3",
+    "MotionPlanningSAC",
 ]

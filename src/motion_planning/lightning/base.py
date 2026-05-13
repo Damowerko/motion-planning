@@ -42,6 +42,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         collision_distance: float = 2.5,
         initial_separation: float = 5.0,
         collision_coefficient: float = 5.0,
+        dtc_coefficient: float = 1.0,
+        coverage_coefficient: float = 1.0,
+        dist_coefficient: float = 1.0,
         reward_sigma: float = 10.0,
         coverage_reward: str = "dist_sq",
         num_workers: int = 32,
@@ -68,6 +71,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
         self.collision_distance = collision_distance
         self.initial_separation = initial_separation
         self.collision_coefficient = collision_coefficient
+        self.dtc_coefficient = dtc_coefficient
+        self.coverage_coefficient = coverage_coefficient
+        self.dist_coefficient = dist_coefficient
         self.reward_sigma = reward_sigma
         self.coverage_reward = coverage_reward
         self.num_workers = num_workers
@@ -91,6 +97,9 @@ class MotionPlanningActorCritic(pl.LightningModule):
             max_vel=self.max_vel,
             collision_distance=self.collision_distance,
             collision_coefficient=self.collision_coefficient,
+            dtc_coefficient=self.dtc_coefficient,
+            coverage_coefficient=self.coverage_coefficient,
+            dist_coefficient=self.dist_coefficient,
             reward_sigma=self.reward_sigma,
             coverage_reward=self.coverage_reward,
             expert_policy=self.expert_policy,
