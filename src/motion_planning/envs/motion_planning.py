@@ -48,7 +48,7 @@ class MotionPlanningEnv(EnvBase):
         "icra",
         "circular",
     }
-    default_samples_per_cluster = [1, 5, 10]
+    default_samples_per_cluster = [1, 5, 10, 20, 25, 50]
 
     def __init__(
         self,
