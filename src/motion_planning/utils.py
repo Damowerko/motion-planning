@@ -230,7 +230,7 @@ def simulation_args(parser: argparse.ArgumentParser):
     group.add_argument(
         "--scenario",
         type=str,
-        default="clusters",
+        default="random",
         choices=MotionPlanningEnv.scenarios,
     )
     group.add_argument("--max_vel", type=float, default=5.0)

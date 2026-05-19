@@ -47,15 +47,16 @@ class MotionPlanningEnv(EnvBase):
         "two_lines",
         "icra",
         "circular",
+        "random",
     }
-    default_samples_per_cluster = [1, 5, 10, 20, 25, 50]
+    default_samples_per_cluster = [1, 5, 10, 20, 25]
 
     def __init__(
         self,
         n_agents: int = 100,
         width: float = 1000.0,
         initial_separation: float = 5.0,
-        scenario: str = "clusters",
+        scenario: str = "random",
         max_vel: float = 5.0,
         dt: float = 1.0,
         collision_distance: float = 2.5,
@@ -488,7 +489,8 @@ class MotionPlanningEnv(EnvBase):
 
     def _reset(self, *args) -> TensorDictBase:
         self.state = np.zeros((self.n_agents, self.state_ndim))
-        if self.scenario == "uniform":
+        scenario = np.random.choice(["clusters", "uniform", "circle", "two_lines"]) if self.scenario == "random" else self.scenario
+        if scenario == "uniform":
             self.targets = collision_free_sampling(
                 self.initial_separation,
                 lambda: self.rng.uniform(
@@ -501,7 +503,7 @@ class MotionPlanningEnv(EnvBase):
                     -self.width / 2, self.width / 2, (self.n_agents, 2)
                 ),
             )
-        elif self.scenario == "gaussian_uniform":
+        elif scenario == "gaussian_uniform":
             # agents are normally distributed around the origin
             # targets are uniformly distributed
             self.targets = collision_free_sampling(
@@ -517,7 +519,7 @@ class MotionPlanningEnv(EnvBase):
                     scale=self.initial_separation * self.n_agents**0.5,
                 ),
             )
-        elif self.scenario == "clusters":
+        elif scenario == "clusters":
             agents_per_cluster, targets_per_cluster = self.samples_per_cluster
             if agents_per_cluster is None:
                 agents_per_cluster = self.rng.choice(self.default_samples_per_cluster)
@@ -537,7 +539,7 @@ class MotionPlanningEnv(EnvBase):
                 self.initial_separation,
                 self.rng,
             )
-        elif self.scenario == "circle":
+        elif scenario == "circle":
             def circ_sampler(n):
                 radius = self.rng.uniform(
                     3 * self.width / 16, 5 * self.width / 16, (n, 1)
@@ -557,7 +559,7 @@ class MotionPlanningEnv(EnvBase):
                 self.initial_separation,
                 lambda: circ_sampler(self.n_targets),
             )
-        elif self.scenario == "two_lines":
+        elif scenario == "two_lines":
             sampler = lambda x: (
                 lambda: np.concatenate(
                     [
@@ -577,12 +579,12 @@ class MotionPlanningEnv(EnvBase):
                 self.initial_separation, sampler(1)
             )
             self.targets = collision_free_sampling(self.initial_separation, sampler(0))
-        elif self.scenario == "icra":
+        elif scenario == "icra":
             self.positions = init_uniform(
                 self.n_agents, self.width, self.initial_separation, self.rng
             )
             self.targets = init_icra(self.n_targets, self.width)
-        elif self.scenario == "circular":
+        elif scenario == "circular":
             def circ_sampler(n):
                 radius = self.rng.uniform(
                     0, self.width / 2, (n, 1)
