@@ -32,7 +32,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         weight_decay: float = 0.0,
         batch_size: int = 256,
         gamma: float = 0.99,
-        max_steps: int = 200,
+        max_steps: int = 1000,
         buffer_size: int = 20_000,
         # MotionPlanning environment parameters
         n_agents: int = 100,

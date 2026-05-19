@@ -57,7 +57,7 @@ class MotionPlanningEnv(EnvBase):
         initial_separation: float = 5.0,
         scenario: str = "clusters",
         max_vel: float = 5.0,
-        dt: float = 1.0,
+        dt: float = 0.1,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
         dtc_coefficient: float = 1.0,
