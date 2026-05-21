@@ -21,7 +21,7 @@ echo "Using Docker image digest: $IMAGE_DIGEST"
 
 # Run the container
 docker run --rm \
-  --gpus '"device=0"' \
+  --gpus '"device=1"' \
   --cpus="16" \
   --memory="32g" \
   -e WANDB_ENTITY=damowerko-academic \

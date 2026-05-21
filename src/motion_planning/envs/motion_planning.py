@@ -21,18 +21,18 @@ import re
 @dataclass
 class MotionPlanningEnvParams:
     n_agents: int = 100
-    width: float = 1000.0
-    initial_separation: float = 5.0
+    width: float = 10.0
+    initial_separation: float = 0.2
     scenario: str = "clusters"
-    max_vel: float = 5.0
+    max_vel: float = 0.5
     dt: float = 1.0
-    collision_distance: float = 2.5
+    collision_distance: float = 0.1
     collision_coefficient: float = 5.0
     dtc_coefficient: float = 1.0
     coverage_coefficient: float = 1.0
     dist_coefficient: float = 1.0
-    coverage_cutoff: float = 5.0
-    reward_sigma: float = 10.0
+    coverage_cutoff: float = 0.2
+    reward_sigma: float = 0.4
     expert_policy: str | None = None
     samples_per_cluster: tuple[int | None, int | None] = (None, None)
     delay: int = 0
@@ -53,18 +53,18 @@ class MotionPlanningEnv(EnvBase):
     def __init__(
         self,
         n_agents: int = 100,
-        width: float = 1000.0,
-        initial_separation: float = 5.0,
+        width: float = 10.0,
+        initial_separation: float = 0.2,
         scenario: str = "clusters",
-        max_vel: float = 5.0,
-        dt: float = 0.1,
-        collision_distance: float = 2.5,
+        max_vel: float = 0.5,
+        dt: float = 1.0,
+        collision_distance: float = 0.1,
         collision_coefficient: float = 5.0,
         dtc_coefficient: float = 1.0,
         coverage_coefficient: float = 1.0,
         dist_coefficient: float = 1.0,
-        coverage_cutoff: float = 5.0,
-        reward_sigma: float = 15.0,
+        coverage_cutoff: float = 0.2,
+        reward_sigma: float = 0.4,
         expert_policy: str | None = None,
         samples_per_cluster: tuple[int | None, int | None] = (None, None),
         coverage_reward: str = "dist_sq",
