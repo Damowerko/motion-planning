@@ -25,7 +25,7 @@ class MotionPlanningEnvParams:
     initial_separation: float = 5.0
     scenario: str = "clusters"
     max_vel: float = 5.0
-    dt: float = 1.0
+    dt: float = 0.1
     collision_distance: float = 2.5
     collision_coefficient: float = 5.0
     dtc_coefficient: float = 1.0
@@ -57,7 +57,7 @@ class MotionPlanningEnv(EnvBase):
         initial_separation: float = 5.0,
         scenario: str = "clusters",
         max_vel: float = 5.0,
-        dt: float = 1.0,
+        dt: float = 0.1,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
         dtc_coefficient: float = 1.0,
@@ -297,7 +297,7 @@ class MotionPlanningEnv(EnvBase):
                 for k in visible_targets:
                     if hops * delay > agent_buffer.shape[0]:
                         continue
-                    distance[i, j, k] = np.linalg.norm(targets[k] - agent_buffer[-int(hops)*delay, j])
+                    distance[i, j, k] = np.linalg.norm(targets[k] - agent_buffer[-int(hops*delay), j])
         return distance
 
     def k_hop_hungarian_policy(self, hops=1, distance_squared=False):
