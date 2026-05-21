@@ -37,7 +37,7 @@ class MotionPlanningActorCritic(pl.LightningModule):
         # MotionPlanning environment parameters
         n_agents: int = 100,
         max_vel: float = 0.5,
-        width: float = 10.0,
+        width: float = 50.0,
         scenario: str = "clusters",
         collision_distance: float = 0.1,
         initial_separation: float = 0.2,

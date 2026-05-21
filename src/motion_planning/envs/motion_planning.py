@@ -21,7 +21,7 @@ import re
 @dataclass
 class MotionPlanningEnvParams:
     n_agents: int = 100
-    width: float = 10.0
+    width: float = 50.0
     initial_separation: float = 0.2
     scenario: str = "clusters"
     max_vel: float = 0.5
@@ -53,7 +53,7 @@ class MotionPlanningEnv(EnvBase):
     def __init__(
         self,
         n_agents: int = 100,
-        width: float = 10.0,
+        width: float = 50.0,
         initial_separation: float = 0.2,
         scenario: str = "clusters",
         max_vel: float = 0.5,
