@@ -127,8 +127,6 @@ def load_model(uri: str, best: bool = True) -> tuple[MotionPlanningActorCritic, 
             params["n_heads"] = 4
             params["n_layers"] = 4
             params["n_channels"] = 64
-        else:
-            params["state_ndim"] = 14
 
         try:
             # New checkpoints should include the architecture in the state_dict

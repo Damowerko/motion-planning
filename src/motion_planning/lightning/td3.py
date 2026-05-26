@@ -147,12 +147,11 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
         self.grad_clip_norm = grad_clip_norm
         self.grad_clip_p = grad_clip_p
         self.loss_clamp = loss_clamp
-        self.exploration_policy = self.model.get_policy_operator()
 
         if expert_weight > 0.0:
             self.expert_policy = expert_policy
             self.loss = TD3BCLoss(
-                self.exploration_policy,
+                self.model.get_policy_operator(),
                 self.model.get_value_operator(),
                 loss_function="l2",
                 bounds=(-1, 1),  # type: ignore
@@ -166,7 +165,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             )
         else:
             self.loss = TD3Loss(
-                self.exploration_policy,
+                self.model.get_policy_operator(),
                 self.model.get_value_operator(),
                 loss_function="l2",
                 bounds=(-1, 1),  # type: ignore
@@ -186,7 +185,7 @@ class MotionPlanningTD3(MotionPlanningActorCritic):
             Modified data with data.action set to the action. Can set other fields as well.
         """
         with torch.no_grad():
-            td = self.exploration_policy(td)
+            td = self.model.get_policy_operator()(td)
             if self.training:
                 td["action"] = self.policy(td["action"])
             else:

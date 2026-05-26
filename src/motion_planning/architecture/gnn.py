@@ -58,14 +58,83 @@ class DeepSet(nn.Module):
         )
 
     def forward(self, x):
-        X_shape = x.shape + (self.rho.in_channels,)
-        X = torch.zeros(X_shape)
-        num_elements = int(x.size()[2] / self.phi.in_channels)
+        X_shape = (x.shape[0], self.rho.in_channels)
+        X = torch.zeros(X_shape, device=x.device, dtype=x.dtype)
+        num_elements = int(x.size(-1) / self.phi.in_channels)
         for i in range(num_elements):
             X += self.phi(
-                x[:, :, i * self.phi.in_channels : (i + 1) * self.phi.in_channels]
+                x[..., i * self.phi.in_channels : (i + 1) * self.phi.in_channels]
             )
         return self.rho(X)
+    
+
+class Readin(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        deepset_dim: int,
+        out_channels: int,
+        n_hidden_channels: int,
+        n_layers: int,
+        dropout: float,
+        activation: typing.Union[nn.Module, str] = "leaky_relu",
+    ):
+        super().__init__()
+        if isinstance(activation, str):
+            activation = activation_choices[activation]()
+
+        if n_layers < 1:
+            raise ValueError("n_layers for a Readin must be >= 1.")
+
+        dropout = float(dropout)
+
+        self.in_channels = in_channels
+        self.deepset_dim = deepset_dim
+
+        self.state = gnn.MLP(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            hidden_channels=n_hidden_channels,
+            num_layers=n_layers,
+            dropout=dropout,
+            act=activation,
+        )
+
+        self.deepset_tgt = DeepSet(
+            in_channels_phi=deepset_dim,
+            in_channels_rho=n_hidden_channels,
+            out_channels=out_channels,
+            n_hidden_channels=n_hidden_channels,
+            n_layers=n_layers,
+            dropout=dropout,
+            activation=activation,
+        )
+
+        self.deepset_agt = DeepSet(
+            in_channels_phi=deepset_dim,
+            in_channels_rho=n_hidden_channels,
+            out_channels=out_channels,
+            n_hidden_channels=n_hidden_channels,
+            n_layers=n_layers,
+            dropout=dropout,
+            activation=activation,
+        )
+
+        self.readin = gnn.MLP(
+            in_channels=3 * out_channels,
+            out_channels=out_channels,
+            hidden_channels=n_hidden_channels,
+            num_layers=n_layers,
+            dropout=dropout,
+            act=activation,
+        )
+
+    def forward(self, x, tgt, agt):
+        x = self.state(x)
+        tgt = self.deepset_tgt(tgt)
+        agt = self.deepset_agt(agt)
+        x = torch.cat([x, tgt, agt], dim=-1)
+        return self.readin(x)
 
 
 class GraphFilter(nn.Module):
@@ -203,6 +272,7 @@ class GCN(nn.Module):
     def __init__(
         self,
         in_channels: int,
+        deepset_dim: int,
         out_channels: int,
         n_taps: int,
         n_layers: int = 2,
@@ -241,16 +311,15 @@ class GCN(nn.Module):
         # ensure that dropout is a float
         dropout = float(dropout)
 
-        # Readin MLP: Changes the number of features from in_channels to n_channels
-        self.readin = gnn.MLP(
+        # Readin network: Changes the number of features from in_channels to n_channels
+        self.readin = Readin(
             in_channels=in_channels,
-            hidden_channels=mlp_hidden_channels,
+            deepset_dim=deepset_dim,
+            n_hidden_channels=mlp_hidden_channels,
             out_channels=n_channels,
-            num_layers=mlp_read_layers,
+            n_layers=mlp_read_layers,
             dropout=dropout,
-            act=activation,
-            norm=None,
-            plain_last=False,
+            activation=activation,
         )
 
         # Readout MLP: Changes the number of features from n_channels to out_channels
@@ -307,28 +376,30 @@ class GCN(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        tgt: torch.Tensor,
+        agt: torch.Tensor,
         edge_index: Adj,
         edge_attr: OptTensor = None,
         size: Size = None,
     ) -> torch.Tensor:
-        x = self.readin(x)
+        x = self.readin(x, tgt, agt)
         for residual_block in self.residual_blocks:
             x = residual_block(x, edge_index, edge_attr, size)
         x = self.readout(x)
         return x
 
 
-def batch_graph(x: torch.Tensor, edge_index: torch.Tensor):
+def batch_graph(*x: torch.Tensor, edge_index: torch.Tensor):
     batch_size = edge_index.size(0)
-    n_nodes = x.size(1)
+    n_nodes = x[0].size(1)
     node_offset = n_nodes * torch.arange(
         batch_size, device=edge_index.device, dtype=edge_index.dtype
     )
     edge_index = edge_index + node_offset[:, None, None]
     edge_index = edge_index.transpose(0, 1).reshape(2, -1)
     # now we batch the nodes
-    x = x.view(batch_size * n_nodes, -1)
-    return x, edge_index
+    x = [t.view(batch_size * n_nodes, -1) for t in x]
+    return *x, edge_index
 
 
 class GNNActorWrapper(nn.Module):
@@ -338,9 +409,9 @@ class GNNActorWrapper(nn.Module):
         self.prob = prob
 
     def forward(
-        self, observation: torch.Tensor, edge_index: torch.Tensor
+        self, observation: torch.Tensor, observed_targets: torch.Tensor, observed_agents: torch.Tensor, edge_index: torch.Tensor
     ) -> torch.Tensor:
-        y = self.gcn(*batch_graph(observation, edge_index))
+        y = self.gcn(*batch_graph(observation, observed_targets, observed_agents, edge_index=edge_index))
         y = y.reshape(observation.size(0), observation.size(1), -1)
         if self.prob:
             loc, log_std = y.chunk(2, dim=-1)
@@ -356,10 +427,10 @@ class GNNCriticWrapper(nn.Module):
         self.gcn = gcn
 
     def forward(
-        self, observation: torch.Tensor, action: torch.Tensor, edge_index: torch.Tensor
+        self, observation: torch.Tensor, observed_targets: torch.Tensor, observed_agents: torch.Tensor, action: torch.Tensor, edge_index: torch.Tensor
     ) -> torch.Tensor:
         x = torch.cat([observation, action], dim=-1)
-        y = self.gcn(*batch_graph(x, edge_index))
+        y = self.gcn(*batch_graph(x, observed_targets, observed_agents, edge_index=edge_index))
         y = y.reshape(x.size(0), x.size(1), 1)
         # y = y.reshape(x.size(0), x.size(1), 1).mean(1)
         return y
@@ -372,7 +443,7 @@ class GNNActorCritic(ActorCriticWrapper):
 
     def __init__(
         self,
-        state_ndim: int = 14,
+        state_ndim: int = 2,
         action_ndim: int = 2,
         n_taps: int = 2,
         n_layers: int = 5,
@@ -387,6 +458,7 @@ class GNNActorCritic(ActorCriticWrapper):
         actor_module = GCN(
             state_ndim,
             action_ndim,
+            action_ndim,
             n_taps,
             n_layers,
             n_channels,
@@ -398,6 +470,7 @@ class GNNActorCritic(ActorCriticWrapper):
         )
         critic_module = GCN(
             state_ndim + action_ndim,
+            action_ndim,
             1,
             n_taps,
             n_layers,
@@ -410,12 +483,12 @@ class GNNActorCritic(ActorCriticWrapper):
         )
         actor = TensorDictModule(
             GNNActorWrapper(actor_module),
-            in_keys=["observation", "edge_index"],
+            in_keys=["observation", "observed_targets", "observed_agents", "edge_index"],
             out_keys=["action"],
         )
         critic = TensorDictModule(
             GNNCriticWrapper(critic_module),
-            in_keys=["observation", "action", "edge_index"],
+            in_keys=["observation", "observed_targets", "observed_agents", "action", "edge_index"],
             out_keys=["state_action_value"],
         )
         super().__init__(actor, critic)

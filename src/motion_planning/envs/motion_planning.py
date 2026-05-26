@@ -25,14 +25,14 @@ class MotionPlanningEnvParams:
     initial_separation: float = 5.0
     scenario: str = "clusters"
     max_vel: float = 5.0
-    dt: float = 0.1
+    dt: float = 1.0
     collision_distance: float = 2.5
     collision_coefficient: float = 5.0
     dtc_coefficient: float = 1.0
     coverage_coefficient: float = 1.0
     dist_coefficient: float = 1.0
     coverage_cutoff: float = 5.0
-    reward_sigma: float = 10.0
+    reward_sigma: float = 15.0
     expert_policy: str | None = None
     samples_per_cluster: tuple[int | None, int | None] = (None, None)
     delay: int = 0
@@ -57,7 +57,7 @@ class MotionPlanningEnv(EnvBase):
         initial_separation: float = 5.0,
         scenario: str = "clusters",
         max_vel: float = 5.0,
-        dt: float = 0.1,
+        dt: float = 1.0,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
         dtc_coefficient: float = 1.0,
@@ -123,9 +123,9 @@ class MotionPlanningEnv(EnvBase):
 
         self.action_ndim = 2
         self.state_ndim = 4
-        self.observation_ndim = int(
-            2 + self.observe_max_targets * 2 + self.observe_max_agents * 2
-        )
+        # self.observation_ndim = int(
+        #     2 + self.observe_max_targets * 2 + self.observe_max_agents * 2
+        # )
 
         self.delay = delay
         self.agent_buffer = np.zeros((1, self.n_agents, 2))
@@ -143,7 +143,15 @@ class MotionPlanningEnv(EnvBase):
             observation=Unbounded(
                 # -self.width / 2,
                 # self.width / 2,
-                shape=torch.Size((self.n_agents, self.observation_ndim)),
+                shape=torch.Size((self.n_agents, self.state_ndim//2)),
+                dtype=torch.float32,
+            ),
+            observed_agents=Unbounded(
+                shape=torch.Size((self.n_agents, self.observe_max_agents * (self.state_ndim - 2))),
+                dtype=torch.float32,
+            ),
+            observed_targets=Unbounded(
+                shape=torch.Size((self.n_agents, self.observe_max_targets * (self.state_ndim - 2))),
                 dtype=torch.float32,
             ),
             positions=Unbounded(
@@ -436,12 +444,11 @@ class MotionPlanningEnv(EnvBase):
     def _make_output(self) -> TensorDictBase:
         observed_targets = self._observed_targets()[0].reshape(self.n_agents, -1)
         observed_agents = self._observed_agents()[0].reshape(self.n_agents, -1)
-        observation = np.concatenate(
-            (self.velocity / self.max_vel, observed_targets, observed_agents), axis=1
-        )
         output = TensorDict(
             {
-                "observation": torch.from_numpy(observation).float(),
+                "observation": torch.from_numpy(self.velocity / self.max_vel).float(),
+                "observed_targets": torch.from_numpy(observed_targets).float(),
+                "observed_agents": torch.from_numpy(observed_agents).float(),
                 "positions": torch.from_numpy(self.positions).float(),
                 "targets": torch.from_numpy(self.targets).float(),
                 "edge_index": torch.from_numpy(self.edge_index).long(),
