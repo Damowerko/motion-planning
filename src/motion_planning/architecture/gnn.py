@@ -372,8 +372,8 @@ class GNNActorCritic(ActorCriticWrapper):
 
     def __init__(
         self,
-        state_ndim: int = 14,
-        action_ndim: int = 2,
+        state_ndim: int = 21,
+        action_ndim: int = 3,
         n_taps: int = 2,
         n_layers: int = 5,
         n_channels: int = 256,

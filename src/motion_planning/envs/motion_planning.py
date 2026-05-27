@@ -25,7 +25,7 @@ class MotionPlanningEnvParams:
     initial_separation: float = 5.0
     scenario: str = "clusters"
     max_vel: float = 5.0
-    dt: float = 0.1
+    dt: float = 1.0
     collision_distance: float = 2.5
     collision_coefficient: float = 5.0
     dtc_coefficient: float = 1.0
@@ -57,7 +57,7 @@ class MotionPlanningEnv(EnvBase):
         initial_separation: float = 5.0,
         scenario: str = "clusters",
         max_vel: float = 5.0,
-        dt: float = 0.1,
+        dt: float = 1.0,
         collision_distance: float = 2.5,
         collision_coefficient: float = 5.0,
         dtc_coefficient: float = 1.0,
@@ -121,14 +121,14 @@ class MotionPlanningEnv(EnvBase):
         # comm graph properties
         self.comm_max_neighbors = 3
 
-        self.action_ndim = 2
-        self.state_ndim = 4
+        self.action_ndim = 3
+        self.state_ndim = 6
         self.observation_ndim = int(
-            2 + self.observe_max_targets * 2 + self.observe_max_agents * 2
+            3 + self.observe_max_targets * 3 + self.observe_max_agents * 3
         )
 
         self.delay = delay
-        self.agent_buffer = np.zeros((1, self.n_agents, 2))
+        self.agent_buffer = np.zeros((1, self.n_agents, 3))
 
         self._render: Optional[MotionPlanningRender] = None
         self._make_spec()
@@ -137,7 +137,7 @@ class MotionPlanningEnv(EnvBase):
 
     def _make_spec(self):
         self.action_spec = Bounded(
-            -1, 1, torch.Size((self.n_agents, 2)), dtype=torch.float32
+            -1, 1, torch.Size((self.n_agents, 3)), dtype=torch.float32
         )
         self.observation_spec = Composite(
             observation=Unbounded(
@@ -149,13 +149,13 @@ class MotionPlanningEnv(EnvBase):
             positions=Unbounded(
                 # -self.width / 2,
                 # self.width / 2,
-                torch.Size((self.n_agents, 2)),
+                torch.Size((self.n_agents, 3)),
                 dtype=torch.float32,
             ),
             targets=Unbounded(
                 # -self.width / 2,
                 # self.width / 2,
-                torch.Size((self.n_targets, 2)),
+                torch.Size((self.n_targets, 3)),
                 dtype=torch.float32,
             ),
             edge_index=Bounded(
@@ -185,25 +185,25 @@ class MotionPlanningEnv(EnvBase):
 
     @property
     def positions(self):
-        return self.state[..., 0:2]
+        return self.state[..., 0:3]
 
     @positions.setter
     def positions(self, value):
-        self.state[..., 0:2] = value
+        self.state[..., 0:3] = value
 
     @property
     def velocity(self):
-        return self.state[..., 2:4]
+        return self.state[..., 3:6]
 
     @velocity.setter
     def velocity(self, value):
-        self.state[..., 2:4] = value
+        self.state[..., 3:6] = value
 
     def clip_action(self, action):
         """
         Clip action to a unit circle with radius self.max_vel.
         Args:
-            action: An array of shape (..., 2) representing the action for each agent.
+            action: An array of shape (..., 3) representing the action for each agent.
         """
         action = action.copy()
         magnitude = np.linalg.norm(action, axis=-1)
@@ -308,7 +308,7 @@ class MotionPlanningEnv(EnvBase):
             hops, self.agent_buffer, self.targets, graph_dist, agent_idx, target_idx, delay=self.delay
         )
         cost = distance**2 if distance_squared else distance
-        action = np.zeros((self.n_agents, 2))
+        action = np.zeros((self.n_agents, 3))
         for i in range(self.n_agents):
             _cost = cost[i]
 
@@ -492,13 +492,13 @@ class MotionPlanningEnv(EnvBase):
             self.targets = collision_free_sampling(
                 self.initial_separation,
                 lambda: self.rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                    -self.width / 2, self.width / 2, (self.n_targets, 3)
                 ),
             )
             self.positions = collision_free_sampling(
                 self.initial_separation,
                 lambda: self.rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_agents, 2)
+                    -self.width / 2, self.width / 2, (self.n_agents, 3)
                 ),
             )
         elif self.scenario == "gaussian_uniform":
@@ -507,13 +507,13 @@ class MotionPlanningEnv(EnvBase):
             self.targets = collision_free_sampling(
                 self.initial_separation,
                 lambda: self.rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                    -self.width / 2, self.width / 2, (self.n_targets, 3)
                 ),
             )
             self.positions = collision_free_sampling(
                 self.initial_separation,
                 lambda: self.rng.normal(
-                    size=(self.n_agents, 2),
+                    size=(self.n_agents, 3),
                     scale=self.initial_separation * self.n_agents**0.5,
                 ),
             )
@@ -550,7 +550,7 @@ class MotionPlanningEnv(EnvBase):
             self.targets = collision_free_sampling(
                 self.initial_separation,
                 lambda: self.rng.uniform(
-                    -self.width / 2, self.width / 2, (self.n_targets, 2)
+                    -self.width / 2, self.width / 2, (self.n_targets, 3)
                 ),
             )
             self.positions = collision_free_sampling(
@@ -630,14 +630,14 @@ class MotionPlanningEnv(EnvBase):
 def init_uniform(n_samples, width, initial_separation, rng):
     return collision_free_sampling(
         initial_separation,
-        lambda: rng.uniform(-width / 2, width / 2, (n_samples, 2)),
+        lambda: rng.uniform(-width / 2, width / 2, (n_samples, 3)),
     )
 
 
 def uniform_circle(n_samples, radius, rng):
     theta = rng.uniform(0, 2 * np.pi, n_samples)
     r = rng.uniform(0, radius, n_samples)
-    return np.stack([r * np.cos(theta), r * np.sin(theta)], axis=-1)
+    return np.stack([r * np.cos(theta), r * np.sin(theta), np.zeros_like(r)], axis=-1)
 
 
 def init_clusters(n_samples, samples_per_cluster, width, initial_separation, rng):
@@ -650,7 +650,7 @@ def init_clusters(n_samples, samples_per_cluster, width, initial_separation, rng
     cluster_radius = 5 * initial_separation * samples_per_cluster**0.5
     cluster_centers = collision_free_sampling(
         2 * cluster_radius,
-        lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 2)),
+        lambda: rng.uniform(-width / 2, width / 2, (n_clusters, 3)),
     )
     return collision_free_sampling(
         initial_separation,
